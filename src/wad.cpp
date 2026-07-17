@@ -178,9 +178,11 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
         totalDecryptedSize += WAD_ALIGN(cSize);
     }
     
+    uint32_t alignedContentSize = WAD_ALIGN(ctx->contentSize);
+
     // If the total 64-byte aligned size exceeds the entire content section size, 
     // the WAD packer definitely did NOT use 64-byte padding for all contents.
-    bool canUse64 = (totalDecryptedSize <= ctx->contentSize);
+    bool canUse64 = (totalDecryptedSize <= alignedContentSize);
 
     // Allocate buffer for decrypted contents
     ctx->decryptedContentData = (uint8_t*)memalign(0x40, totalDecryptedSize);
@@ -203,21 +205,27 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
 
         // Determine if this WAD uses 16-byte or 64-byte padding for its contents
         uint64_t advanceSize = size16;
-        if (canUse64 && size16 < size64 && currentEncOffset + size64 <= ctx->contentSize) {
-            bool isPadding = true;
-            uint8_t* padPtr = ctx->contentData + currentEncOffset + size16;
-            for (uint64_t pad_idx = 0; pad_idx < (size64 - size16); pad_idx++) {
-                if (padPtr[pad_idx] != 0) {
-                    isPadding = false;
-                    break;
-                }
-            }
-            if (isPadding) {
+        if (canUse64 && size16 < size64 && currentEncOffset + size64 <= alignedContentSize) {
+            if (totalDecryptedSize == ctx->contentSize) {
+                // The total 64-byte aligned size perfectly matches the content section size.
+                // It is definitely 64-byte padded, even if the padding contains garbage bytes.
                 advanceSize = size64;
+            } else {
+                bool isPadding = true;
+                uint8_t* padPtr = ctx->contentData + currentEncOffset + size16;
+                for (uint64_t pad_idx = 0; pad_idx < (size64 - size16); pad_idx++) {
+                    if (padPtr[pad_idx] != 0) {
+                        isPadding = false;
+                        break;
+                    }
+                }
+                if (isPadding) {
+                    advanceSize = size64;
+                }
             }
         }
 
-        if (currentEncOffset + size16 > ctx->contentSize) {
+        if (currentEncOffset + size16 > alignedContentSize) {
             WAD_Log("Content size exceeds WAD boundaries.\n");
             WAD_Free(ctx);
             return NULL;
