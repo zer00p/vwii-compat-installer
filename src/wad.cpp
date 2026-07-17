@@ -39,6 +39,21 @@ void WUPI_putstr(const char *);
         WUPI_putstr(_wupi_print_str); \
     } while (0)
 
+static inline uint16_t Read16BE(const uint8_t* p) {
+    return (p[0] << 8) | p[1];
+}
+
+static inline uint32_t Read32BE(const uint8_t* p) {
+    return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+}
+
+static inline uint64_t Read64BE(const uint8_t* p) {
+    return ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48) |
+           ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32) |
+           ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16) |
+           ((uint64_t)p[6] << 8)  | ((uint64_t)p[7]);
+}
+
 static bool GetWiiCommonKey(uint8_t outKey[16]) {
     WiiUConsoleOTP otp;
     if (Mocha_ReadOTP(&otp) != MOCHA_RESULT_SUCCESS) {
@@ -95,19 +110,19 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     }
 
     uint8_t* p = ctx->rawData;
-    uint32_t headerSize = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+    uint32_t headerSize = Read32BE(p);
     if (headerSize != 0x20) {
         WAD_Log("Invalid WAD header size.\n");
         WAD_Free(ctx);
         return NULL;
     }
 
-    ctx->certSize    = (p[0x08] << 24) | (p[0x09] << 16) | (p[0x0A] << 8) | p[0x0B];
-    ctx->crlSize     = (p[0x0C] << 24) | (p[0x0D] << 16) | (p[0x0E] << 8) | p[0x0F];
-    ctx->ticketSize  = (p[0x10] << 24) | (p[0x11] << 16) | (p[0x12] << 8) | p[0x13];
-    ctx->tmdSize     = (p[0x14] << 24) | (p[0x15] << 16) | (p[0x16] << 8) | p[0x17];
-    ctx->contentSize = (p[0x18] << 24) | (p[0x19] << 16) | (p[0x1A] << 8) | p[0x1B];
-    ctx->metaSize    = (p[0x1C] << 24) | (p[0x1D] << 16) | (p[0x1E] << 8) | p[0x1F];
+    ctx->certSize    = Read32BE(p + 0x08);
+    ctx->crlSize     = Read32BE(p + 0x0C);
+    ctx->ticketSize  = Read32BE(p + 0x10);
+    ctx->tmdSize     = Read32BE(p + 0x14);
+    ctx->contentSize = Read32BE(p + 0x18);
+    ctx->metaSize    = Read32BE(p + 0x1C);
 
     size_t offset = WAD_HEADER_SIZE;
     ctx->certData = p + offset; offset += WAD_ALIGN(ctx->certSize);
@@ -124,10 +139,7 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     }
 
     // Parse Ticket for Title Key
-    ctx->ticketTitleId = ((uint64_t)ctx->ticketData[0x1DC] << 56) | ((uint64_t)ctx->ticketData[0x1DD] << 48) |
-                         ((uint64_t)ctx->ticketData[0x1DE] << 40) | ((uint64_t)ctx->ticketData[0x1DF] << 32) |
-                         ((uint64_t)ctx->ticketData[0x1E0] << 24) | ((uint64_t)ctx->ticketData[0x1E1] << 16) |
-                         ((uint64_t)ctx->ticketData[0x1E2] << 8)  | ((uint64_t)ctx->ticketData[0x1E3]);
+    ctx->ticketTitleId = Read64BE(ctx->ticketData + 0x1DC);
     
     uint8_t wiiCommonKey[16];
     if (!GetWiiCommonKey(wiiCommonKey)) {
@@ -148,12 +160,9 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     AES_CBC_decrypt_buffer(&aes, ctx->titleKey, 16);
 
     // Parse TMD
-    ctx->tmdTitleId = ((uint64_t)ctx->tmdData[0x18C] << 56) | ((uint64_t)ctx->tmdData[0x18D] << 48) |
-                      ((uint64_t)ctx->tmdData[0x18E] << 40) | ((uint64_t)ctx->tmdData[0x18F] << 32) |
-                      ((uint64_t)ctx->tmdData[0x190] << 24) | ((uint64_t)ctx->tmdData[0x191] << 16) |
-                      ((uint64_t)ctx->tmdData[0x192] << 8)  | ((uint64_t)ctx->tmdData[0x193]);
-    ctx->titleType = (ctx->tmdData[0x188] << 24) | (ctx->tmdData[0x189] << 16) | (ctx->tmdData[0x18A] << 8) | ctx->tmdData[0x18B];
-    ctx->numContents = (ctx->tmdData[0x1DE] << 8) | ctx->tmdData[0x1DF];
+    ctx->tmdTitleId = Read64BE(ctx->tmdData + 0x18C);
+    ctx->titleType = Read32BE(ctx->tmdData + 0x188);
+    ctx->numContents = Read16BE(ctx->tmdData + 0x1DE);
 
     if (ctx->ticketTitleId != ctx->tmdTitleId) {
         WAD_Log("Title ID mismatch between Ticket and TMD.\n");
@@ -173,11 +182,8 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     uint32_t currentContentOffset = 0;
     for (uint16_t i = 0; i < ctx->numContents; i++) {
         uint32_t recordOffset = 0x1E4 + (i * 36); // 36 bytes per content record
-        uint16_t cIndex = (ctx->tmdData[recordOffset + 4] << 8) | ctx->tmdData[recordOffset + 5];
-        uint64_t cSize = ((uint64_t)ctx->tmdData[recordOffset + 8] << 56) | ((uint64_t)ctx->tmdData[recordOffset + 9] << 48) |
-                         ((uint64_t)ctx->tmdData[recordOffset + 10] << 40) | ((uint64_t)ctx->tmdData[recordOffset + 11] << 32) |
-                         ((uint64_t)ctx->tmdData[recordOffset + 12] << 24) | ((uint64_t)ctx->tmdData[recordOffset + 13] << 16) |
-                         ((uint64_t)ctx->tmdData[recordOffset + 14] << 8)  | ((uint64_t)ctx->tmdData[recordOffset + 15]);
+        uint16_t cIndex = Read16BE(ctx->tmdData + recordOffset + 4);
+        uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
         
         uint64_t alignedSize = WAD_ALIGN(cSize);
         if (currentContentOffset + alignedSize > ctx->contentSize) {
@@ -294,12 +300,8 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
     WAD_Log("Writing contents...\n");
     for (uint16_t i = 0; i < ctx->numContents; i++) {
         uint32_t recordOffset = 0x1E4 + (i * 36);
-        uint32_t cId = (ctx->tmdData[recordOffset] << 24) | (ctx->tmdData[recordOffset + 1] << 16) |
-                       (ctx->tmdData[recordOffset + 2] << 8) | ctx->tmdData[recordOffset + 3];
-        uint64_t cSize = ((uint64_t)ctx->tmdData[recordOffset + 8] << 56) | ((uint64_t)ctx->tmdData[recordOffset + 9] << 48) |
-                         ((uint64_t)ctx->tmdData[recordOffset + 10] << 40) | ((uint64_t)ctx->tmdData[recordOffset + 11] << 32) |
-                         ((uint64_t)ctx->tmdData[recordOffset + 12] << 24) | ((uint64_t)ctx->tmdData[recordOffset + 13] << 16) |
-                         ((uint64_t)ctx->tmdData[recordOffset + 14] << 8)  | ((uint64_t)ctx->tmdData[recordOffset + 15]);
+        uint32_t cId = Read32BE(ctx->tmdData + recordOffset);
+        uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
         
         snprintf(path, sizeof(path), "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", idHi, idLo, cId);
         WAD_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
