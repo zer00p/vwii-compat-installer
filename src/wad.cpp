@@ -170,8 +170,20 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
         return NULL;
     }
 
+    // Calculate required decrypted buffer size and check if 64-byte padding is structurally possible
+    uint64_t totalDecryptedSize = 0;
+    for (uint16_t i = 0; i < ctx->numContents; i++) {
+        uint32_t recordOffset = 0x1E4 + (i * 36);
+        uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
+        totalDecryptedSize += WAD_ALIGN(cSize);
+    }
+    
+    // If the total 64-byte aligned size exceeds the entire content section size, 
+    // the WAD packer definitely did NOT use 64-byte padding for all contents.
+    bool canUse64 = (totalDecryptedSize <= ctx->contentSize);
+
     // Allocate buffer for decrypted contents
-    ctx->decryptedContentData = (uint8_t*)memalign(0x40, ctx->contentSize);
+    ctx->decryptedContentData = (uint8_t*)memalign(0x40, totalDecryptedSize);
     if (!ctx->decryptedContentData) {
         WAD_Log("Out of memory for decrypted content.\n");
         WAD_Free(ctx);
@@ -179,22 +191,41 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     }
 
     // Decrypt contents
-    uint32_t currentContentOffset = 0;
+    uint32_t currentEncOffset = 0;
+    uint32_t currentDecOffset = 0;
     for (uint16_t i = 0; i < ctx->numContents; i++) {
         uint32_t recordOffset = 0x1E4 + (i * 36); // 36 bytes per content record
         uint16_t cIndex = Read16BE(ctx->tmdData + recordOffset + 4);
         uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
         
-        uint64_t alignedSize = WAD_ALIGN(cSize);
-        if (currentContentOffset + alignedSize > ctx->contentSize) {
+        uint64_t size16 = ((cSize + 15) & ~15);
+        uint64_t size64 = WAD_ALIGN(cSize);
+
+        // Determine if this WAD uses 16-byte or 64-byte padding for its contents
+        uint64_t advanceSize = size16;
+        if (canUse64 && size16 < size64 && currentEncOffset + size64 <= ctx->contentSize) {
+            bool isPadding = true;
+            uint8_t* padPtr = ctx->contentData + currentEncOffset + size16;
+            for (uint64_t pad_idx = 0; pad_idx < (size64 - size16); pad_idx++) {
+                if (padPtr[pad_idx] != 0) {
+                    isPadding = false;
+                    break;
+                }
+            }
+            if (isPadding) {
+                advanceSize = size64;
+            }
+        }
+
+        if (currentEncOffset + size16 > ctx->contentSize) {
             WAD_Log("Content size exceeds WAD boundaries.\n");
             WAD_Free(ctx);
             return NULL;
         }
 
-        uint8_t* encPtr = ctx->contentData + currentContentOffset;
-        uint8_t* decPtr = ctx->decryptedContentData + currentContentOffset;
-        memcpy(decPtr, encPtr, alignedSize);
+        uint8_t* encPtr = ctx->contentData + currentEncOffset;
+        uint8_t* decPtr = ctx->decryptedContentData + currentDecOffset;
+        memcpy(decPtr, encPtr, size16);
 
         uint8_t contentIV[16];
         memset(contentIV, 0, 16);
@@ -202,9 +233,10 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
         contentIV[1] = cIndex & 0xFF;
 
         AES_init_ctx_iv(&aes, ctx->titleKey, contentIV);
-        AES_CBC_decrypt_buffer(&aes, decPtr, alignedSize);
+        AES_CBC_decrypt_buffer(&aes, decPtr, size16);
 
-        currentContentOffset += alignedSize;
+        currentEncOffset += advanceSize;
+        currentDecOffset += size64;
     }
 
     WAD_Log("WAD decrypted successfully. ID: %08x-%08x\n", (uint32_t)(ctx->tmdTitleId >> 32), (uint32_t)(ctx->tmdTitleId));
