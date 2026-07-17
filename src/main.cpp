@@ -38,6 +38,8 @@
 
 #include "InputUtils.h"
 #include "StateUtils.h"
+#include "filebrowser.h"
+#include "wad.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -179,6 +181,64 @@ void WUPI_install() {
     WUPI_waitHome();
 }
 
+void WUPI_installWAD() {
+    WUPI_resetScreen();
+    if (WUPI_setupInstall() < 0) {
+        WUPI_putstr("Error: IOS exploit failed.");
+        WUPI_waitHome();
+        return;
+    }
+    exploit = true;
+
+    if (!(ret = initFS())) {
+        WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
+        WUPI_waitHome();
+        return;
+    }
+    mounted = true;
+
+    char* selectedWad = BrowseWADs();
+    if (!selectedWad) {
+        WUPI_resetScreen();
+        WUPI_putstr("No WAD selected.");
+        WUPI_waitHome();
+        return;
+    }
+
+    WUPI_resetScreen();
+    WUPI_printf("Selected: %s\n", selectedWad);
+    WUPI_putstr("Loading and decrypting WAD...\n");
+
+    WADContext* ctx = WAD_LoadAndDecrypt(selectedWad);
+    if (!ctx) {
+        WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
+        free(selectedWad);
+        WUPI_waitHome();
+        return;
+    }
+
+    if (!WAD_IsSafeTitle(ctx)) {
+        WUPI_putstr("Error: This looks like a System Title!");
+        WUPI_putstr("Installing this could BRICK your vWii.");
+        WUPI_putstr("Installation aborted for safety.");
+        WAD_Free(ctx);
+        free(selectedWad);
+        WUPI_waitHome();
+        return;
+    }
+
+    WUPI_putstr("Writing to slccmpt...\n");
+    if (WAD_InstallToVWii(ctx, 0)) {
+        WUPI_putstr("WAD Installation complete!\n");
+    } else {
+        WUPI_putstr("Error: WAD installation failed.\n");
+    }
+
+    WAD_Free(ctx);
+    free(selectedWad);
+    WUPI_waitHome();
+}
+
 int main() {
     int32_t tv_screen_size, drc_screen_size;
     Input input;
@@ -206,6 +266,7 @@ int main() {
 
     WUPI_resetScreen();
     WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
+    WUPI_putstr("Press X to install a WAD from the SD Card.");
     WUPI_putstr("Press HOME to exit.");
 
     while (State::AppRunning()) {
@@ -213,10 +274,15 @@ int main() {
         if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
             WUPI_resetScreen();
             WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
+            WUPI_putstr("Press X to install a WAD from the SD Card.");
             WUPI_putstr("Press HOME to exit.");
         }
         if (input.get(TRIGGER, PAD_BUTTON_A)) {
             WUPI_install();
+            break;
+        }
+        if (input.get(TRIGGER, PAD_BUTTON_X)) {
+            WUPI_installWAD();
             break;
         }
     }

@@ -43,8 +43,7 @@ DRC_SPLASH	:=  meta/wuhb/drc-splash.png
 #-------------------------------------------------------------------------------
 # options for code generation
 #-------------------------------------------------------------------------------
-CFLAGS	:=	$(MACHDEP) $(INCLUDE) -Ofast -flto=auto -fno-fat-lto-objects \
-				-fuse-linker-plugin -fipa-pta -pipe \
+CFLAGS	:=	$(MACHDEP) $(INCLUDE) -Ofast -fipa-pta -pipe \
 				-Wall -Wextra -Wundef -Wshadow -Wpointer-arith \
 				-Wcast-align  \
 				-D__WIIU__ -D__WUT__ \
@@ -172,6 +171,8 @@ all	:	$(OUTPUT).wuhb
 
 $(OUTPUT).wuhb	:	$(OUTPUT).rpx
 $(OUTPUT).rpx	:	$(OUTPUT).elf
+	@powerpc-eabi-objcopy -R .note.GNU-stack $(OUTPUT).elf $(OUTPUT)_stripped.elf
+	@elf2rpl $(OUTPUT)_stripped.elf $(OUTPUT).rpx
 $(OUTPUT).elf	:	$(OFILES)
 
 $(OFILES_SRC)	: $(HFILES_BIN)
