@@ -27,7 +27,6 @@
 #include <unistd.h>
 
 extern FSAClientHandle fsaClient;
-extern void WUPI_printTop();
 extern void WUPI_resetScreen();
 
 #define MAX_WADS 100
@@ -60,11 +59,14 @@ static void PopulateWadList(const char* dirPath) {
     }
 }
 
-static void DrawBrowser(int selected) {
+static void DrawBrowserInner(int selected) {
     OSScreenClearBufferEx(SCREEN_TV, 0);
     OSScreenClearBufferEx(SCREEN_DRC, 0);
 
-    WUPI_printTop();
+    OSScreenPutFontEx(SCREEN_TV, 0, 0, "Compat Title Installer v1.6");
+    OSScreenPutFontEx(SCREEN_DRC, 0, 0, "Compat Title Installer v1.6");
+    OSScreenPutFontEx(SCREEN_TV, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
+    OSScreenPutFontEx(SCREEN_DRC, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
 
     char buf[256];
     if (s_NumWads > 0) {
@@ -89,7 +91,14 @@ static void DrawBrowser(int selected) {
     snprintf(buf, sizeof(buf), "A: Select | B: Cancel | UP/DOWN: Move");
     OSScreenPutFontEx(SCREEN_TV, 0, 6 + s_NumWads, buf);
     OSScreenPutFontEx(SCREEN_DRC, 0, 6 + s_NumWads, buf);
+}
 
+static void DrawBrowser(int selected) {
+    DrawBrowserInner(selected);
+    OSScreenFlipBuffersEx(SCREEN_TV);
+    OSScreenFlipBuffersEx(SCREEN_DRC);
+
+    DrawBrowserInner(selected);
     OSScreenFlipBuffersEx(SCREEN_TV);
     OSScreenFlipBuffersEx(SCREEN_DRC);
 }
@@ -105,6 +114,7 @@ char* BrowseWADs(void) {
     }
 
     int selected = 0;
+    int last_selected = -1;
     Input input;
     char* result = NULL;
 
@@ -124,7 +134,10 @@ char* BrowseWADs(void) {
             break; // Confirmed
         }
 
-        DrawBrowser(selected);
+        if (selected != last_selected) {
+            DrawBrowser(selected);
+            last_selected = selected;
+        }
         usleep(16000); // ~60fps
     }
 
