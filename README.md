@@ -23,6 +23,8 @@ If everything is installed, run 'make release' and the output will be available 
 * mbedtls contributors, for the cryptography library used for WAD installation
 * Segher Boessenkool, BFGR, and libertyernie, for the WAD tools
 * WiiBrew contributors (wiibrew.org), for the invaluable documentation on the WAD file format and title structures
+* davebaol, xperia64, blackb0x / wiidev, and other contributors to d2x-cios-installer for the cIOS patching engine
+* leethomason/tinyxml2 for the tinyxml2 parsing library
 
 ## License
 

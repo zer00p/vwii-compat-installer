@@ -40,6 +40,8 @@
 #include "StateUtils.h"
 #include "filebrowser.h"
 #include "wad.h"
+#include "d2x_menu.h"
+#include "d2x_patcher.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -264,7 +266,37 @@ void WUPI_showMenu() {
     WUPI_resetScreen();
     WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
     WUPI_putstr("Press X to install a WAD from the SD Card.");
+    WUPI_putstr("Press Y to install d2x cIOS.");
     WUPI_putstr("Press HOME to exit.");
+}
+
+void WUPI_installD2X() {
+    WUPI_resetScreen();
+    
+    char* selectedVersion = BrowseD2XVersions();
+    if (!selectedVersion) {
+        WUPI_resetScreen();
+        WUPI_putstr("No d2x version selected.");
+        WUPI_waitButton();
+        return;
+    }
+
+    WUPI_resetScreen();
+    if (!mounted) {
+        if (!(ret = initFS())) {
+            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
+            free(selectedVersion);
+            WUPI_waitButton();
+            return;
+        }
+        mounted = true;
+    }
+
+    // Call the patcher engine
+    InstallD2X(selectedVersion);
+
+    free(selectedVersion);
+    WUPI_waitButton();
 }
 
 int main() {
@@ -310,6 +342,8 @@ int main() {
                 WUPI_install();
             } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
                 WUPI_installWAD();
+            } else if (input.get(TRIGGER, PAD_BUTTON_Y)) {
+                WUPI_installD2X();
             }
             
             WUPI_showMenu();
