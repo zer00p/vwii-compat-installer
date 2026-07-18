@@ -21,18 +21,12 @@
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <vector>
+#include <string>
 
 // Interactive WAD selector that renders to the screen using OSScreen.
-// Returns a dynamically allocated string containing the absolute path to the selected WAD, 
-// or NULL if the user cancelled or an error occurred.
-// The caller is responsible for freeing the returned string.
-char* BrowseWADs(void);
-
-#ifdef __cplusplus
-}
-#endif
+// Returns a vector of strings containing the absolute paths to the selected WADs, 
+// or an empty vector if the user cancelled or an error occurred.
+std::vector<std::string> BrowseWADs(void);
 
 #endif // FILEBROWSER_H

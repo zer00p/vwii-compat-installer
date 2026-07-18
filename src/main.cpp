@@ -197,45 +197,63 @@ void WUPI_installWAD() {
     }
     mounted = true;
 
-    char* selectedWad = BrowseWADs();
-    if (!selectedWad) {
+    std::vector<std::string> selectedWads = BrowseWADs();
+    if (selectedWads.empty()) {
         WUPI_resetScreen();
-        WUPI_putstr("No WAD selected.");
+        WUPI_putstr("No WADs selected.");
         WUPI_waitHome();
         return;
+    }
+
+    int successCount = 0;
+    int failCount = 0;
+
+    for (const auto& wadPath : selectedWads) {
+        WUPI_resetScreen();
+        WUPI_printf("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
+        
+        const char* filename = strrchr(wadPath.c_str(), '/');
+        filename = filename ? filename + 1 : wadPath.c_str();
+        WUPI_printf("%s\n", filename);
+
+        WUPI_putstr("Loading and decrypting WAD...\n");
+
+        WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
+        if (!ctx) {
+            WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
+            failCount++;
+            sleep(3);
+            continue;
+        }
+
+        if (!WAD_IsSafeTitle(ctx)) {
+            WUPI_putstr("Error: This looks like a System Title!");
+            WUPI_putstr("Installing this could BRICK your vWii.");
+            WUPI_putstr("Skipping this WAD for safety.");
+            WAD_Free(ctx);
+            failCount++;
+            sleep(4);
+            continue;
+        }
+
+        WUPI_putstr("Writing to slccmpt...\n");
+        if (WAD_InstallToVWii(ctx, 0)) {
+            WUPI_putstr("WAD Installation complete!\n");
+            successCount++;
+            sleep(1);
+        } else {
+            WUPI_putstr("Error: WAD installation failed.\n");
+            failCount++;
+            sleep(3);
+        }
+
+        WAD_Free(ctx);
     }
 
     WUPI_resetScreen();
-    WUPI_printf("Selected: %s\n", selectedWad);
-    WUPI_putstr("Loading and decrypting WAD...\n");
-
-    WADContext* ctx = WAD_LoadAndDecrypt(selectedWad);
-    if (!ctx) {
-        WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
-        free(selectedWad);
-        WUPI_waitHome();
-        return;
-    }
-
-    if (!WAD_IsSafeTitle(ctx)) {
-        WUPI_putstr("Error: This looks like a System Title!");
-        WUPI_putstr("Installing this could BRICK your vWii.");
-        WUPI_putstr("Installation aborted for safety.");
-        WAD_Free(ctx);
-        free(selectedWad);
-        WUPI_waitHome();
-        return;
-    }
-
-    WUPI_putstr("Writing to slccmpt...\n");
-    if (WAD_InstallToVWii(ctx, 0)) {
-        WUPI_putstr("WAD Installation complete!\n");
-    } else {
-        WUPI_putstr("Error: WAD installation failed.\n");
-    }
-
-    WAD_Free(ctx);
-    free(selectedWad);
+    WUPI_printf("Batch Install Complete!\n");
+    WUPI_printf("Successful: %d\n", successCount);
+    WUPI_printf("Failed: %d\n", failCount);
     WUPI_waitHome();
 }
 
