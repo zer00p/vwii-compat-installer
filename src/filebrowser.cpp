@@ -48,30 +48,41 @@ static void PopulateWadList(const std::string& dirPath) {
     s_CurrentPath = dirPath;
     ClearWadList();
 
-    if (dirPath != "/vol/external01") {
+    if (s_CurrentPath != "/vol/external01") {
         s_Entries.push_back({"..", "", true, false});
     }
 
     FSADirectoryHandle dir;
-    if (FSAOpenDir(fsaClient, dirPath.c_str(), &dir) == FS_ERROR_OK) {
+    FSError err = FSAOpenDir(fsaClient, s_CurrentPath.c_str(), &dir);
+    if (err == FS_ERROR_OK) {
         FSADirectoryEntry entry;
-        while (FSAReadDir(fsaClient, dir, &entry) == FS_ERROR_OK) {
+        FSError readErr;
+        while ((readErr = FSAReadDir(fsaClient, dir, &entry)) == FS_ERROR_OK) {
             std::string name = entry.name;
             bool isDir = (entry.info.flags & FS_STAT_DIRECTORY);
 
             if (!isDir) {
                 if (name.length() > 4 && strcasecmp(name.c_str() + name.length() - 4, ".wad") == 0) {
-                    s_Entries.push_back({name, dirPath + "/" + name, false, false});
+                    s_Entries.push_back({name, s_CurrentPath + "/" + name, false, false});
                 }
             } else {
-                s_Entries.push_back({name, dirPath + "/" + name, true, false});
+                s_Entries.push_back({name, s_CurrentPath + "/" + name, true, false});
             }
         }
+        
+        if (readErr != FS_ERROR_OK && readErr != FS_ERROR_END_OF_DIR) {
+            std::string errMsg = "ReadDir Err: " + std::to_string(readErr);
+            s_Entries.push_back({errMsg, "", false, false});
+        }
+        
         FSACloseDir(fsaClient, dir);
+    } else {
+        std::string errMsg = "OpenDir Err: " + std::to_string(err) + " " + s_CurrentPath;
+        s_Entries.push_back({errMsg, "", false, false});
     }
 
     std::sort(s_Entries.begin(), s_Entries.end(), [](const FileEntry& a, const FileEntry& b) {
-        if (a.name == "..") return true;
+        if (a.name == "..") return b.name != "..";
         if (b.name == "..") return false;
         if (a.isDir != b.isDir) return a.isDir > b.isDir;
         return strcasecmp(a.name.c_str(), b.name.c_str()) < 0;
@@ -87,10 +98,9 @@ static void DrawBrowserInner(int selected) {
     OSScreenPutFontEx(SCREEN_TV, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
     OSScreenPutFontEx(SCREEN_DRC, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
 
-    char buf[256];
-    snprintf(buf, sizeof(buf), "Path: %s", s_CurrentPath.c_str());
-    OSScreenPutFontEx(SCREEN_TV, 0, 3, buf);
-    OSScreenPutFontEx(SCREEN_DRC, 0, 3, buf);
+    std::string pathStr = "Path: " + s_CurrentPath;
+    OSScreenPutFontEx(SCREEN_TV, 0, 3, pathStr.c_str());
+    OSScreenPutFontEx(SCREEN_DRC, 0, 3, pathStr.c_str());
 
     if (!s_Entries.empty()) {
         int visible_lines = 10;
@@ -104,22 +114,20 @@ static void DrawBrowserInner(int selected) {
             int idx = start_idx + i;
             const auto& entry = s_Entries[idx];
             
-            const char* cursor = (idx == selected) ? "->" : "  ";
-            const char* checkbox = entry.isDir ? "[DIR]" : (entry.isSelected ? "[X]" : "[ ]");
+            std::string cursor = (idx == selected) ? "->" : "  ";
+            std::string checkbox = entry.isDir ? "[DIR]" : (entry.isSelected ? "[X]" : "[ ]");
             
-            snprintf(buf, sizeof(buf), "%s %s %s", cursor, checkbox, entry.name.c_str());
-            OSScreenPutFontEx(SCREEN_TV, 0, 5 + i, buf);
-            OSScreenPutFontEx(SCREEN_DRC, 0, 5 + i, buf);
+            std::string lineStr = cursor + " " + checkbox + " " + entry.name;
+            OSScreenPutFontEx(SCREEN_TV, 0, 5 + i, lineStr.c_str());
+            OSScreenPutFontEx(SCREEN_DRC, 0, 5 + i, lineStr.c_str());
         }
     } else {
-        snprintf(buf, sizeof(buf), "No files or subdirectories found.");
-        OSScreenPutFontEx(SCREEN_TV, 0, 5, buf);
-        OSScreenPutFontEx(SCREEN_DRC, 0, 5, buf);
+        OSScreenPutFontEx(SCREEN_TV, 0, 5, "No files or subdirectories found.");
+        OSScreenPutFontEx(SCREEN_DRC, 0, 5, "No files or subdirectories found.");
     }
 
-    snprintf(buf, sizeof(buf), "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");
-    OSScreenPutFontEx(SCREEN_TV, 0, 16, buf);
-    OSScreenPutFontEx(SCREEN_DRC, 0, 16, buf);
+    OSScreenPutFontEx(SCREEN_TV, 0, 16, "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");
+    OSScreenPutFontEx(SCREEN_DRC, 0, 16, "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");
 }
 
 static void DrawBrowser(int selected) {
