@@ -165,9 +165,11 @@ void decrypt_title_key(u8 *tik, u8 *title_key)
 	if (!common_key_loaded)
 		load_common_key("common-key.bin");
 
+	u32 payloadOffset = get_payload_offset(tik);
+
 	memset(iv, 0, sizeof iv);
-	memcpy(iv, tik + 0x01dc, 8);
-	aes_cbc_dec(common_key, iv, tik + 0x01bf, 16, title_key);
+	memcpy(iv, tik + payloadOffset + 0x9c, 8);
+	aes_cbc_dec(common_key, iv, tik + payloadOffset + 0x7f, 16, title_key);
 }
 
 static u8 root_key[0x204];

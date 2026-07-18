@@ -80,20 +80,18 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	trailer = get_wad(trailer_len);
 	fclose(fp);
 
-	*out_titleId = be64(tmd + 0x018c);
+	u32 tmd_payloadOffset = get_payload_offset(tmd);
+	u32 tik_payloadOffset = get_payload_offset(tik);
+
+	*out_titleId = be64(tmd + tmd_payloadOffset + 0x4c);
 	*out_ticket = tik;
 	*ticket_size = tik_len;
 	*out_tmd = tmd;
 	*tmd_size = tmd_len;
 
 	u8 ckey_idx = 0;
-	u32 sigType = be32(tik);
-	u32 payloadOffset = 0;
-	if (sigType == 0x00010000) payloadOffset = 0x240;
-	else if (sigType == 0x00010001) payloadOffset = 0x140;
-	else if (sigType == 0x00010002) payloadOffset = 0x80;
-	if (payloadOffset > 0 && tik_len >= payloadOffset + 0x1F2) {
-		ckey_idx = tik[payloadOffset + 0x1F1];
+	if (tik_payloadOffset > 0 && tik_len >= tik_payloadOffset + 0xB2) {
+		ckey_idx = tik[tik_payloadOffset + 0xB1];
 	}
 
 	u8 dynamic_common_key[16];
@@ -105,7 +103,7 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	}
 
 	decrypt_title_key(tik, title_key);
-	num_contents = be16(tmd + 0x01de);
+	num_contents = be16(tmd + tmd_payloadOffset + 0x9e);
 	*out_numContents = num_contents;
 
 	c_arr = (CINS_Content*)malloc(sizeof(CINS_Content) * num_contents);
@@ -113,25 +111,25 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 
 	p = app;
 	for (i = 0; i < num_contents; i++) {
-		len = be64(tmd + 0x01ec + 0x24*i);
+		len = be64(tmd + tmd_payloadOffset + 0xac + 0x24*i);
 		rounded_len = round_up(len, 0x40);
 
 		memset(iv, 0, sizeof iv);
-		memcpy(iv, tmd + 0x01e8 + 0x24*i, 2);
+		memcpy(iv, tmd + tmd_payloadOffset + 0xa8 + 0x24*i, 2);
 		aes_cbc_dec(title_key, iv, p, rounded_len, p);
 
 		u8* decrypted_app = (u8*)malloc(len);
 		memcpy(decrypted_app, p, len);
 
 		u8 expected_hash[20];
-		memcpy(expected_hash, tmd + 0x01f4 + 0x24*i, 20);
+		memcpy(expected_hash, tmd + tmd_payloadOffset + 0xb4 + 0x24*i, 20);
 
 		u8 actual_hash[20];
 		sha(decrypted_app, len, actual_hash);
 
 		if (memcmp(expected_hash, actual_hash, 20) != 0) {
 			free(decrypted_app);
-			for (u32 j = 0; j < i; j++) free(c_arr[j].data);
+			for (u32 j = 0; j < i; j++) free((void*)c_arr[j].data);
 			free(c_arr);
 			free(cert); free(trailer); free(app);
 			free(tik); free(tmd);

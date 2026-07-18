@@ -53,6 +53,14 @@ static inline uint64_t Read64BE(const uint8_t* p) {
            ((uint64_t)p[6] << 8)  | ((uint64_t)p[7]);
 }
 
+static inline uint32_t GetPayloadOffset(const uint8_t* data) {
+    uint32_t sigType = Read32BE(data);
+    if (sigType == 0x00010000) return 0x240;
+    if (sigType == 0x00010001) return 0x140;
+    if (sigType == 0x00010002) return 0x80;
+    return 0x140;
+}
+
 extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
     WiiUConsoleOTP otp;
     if (Mocha_ReadOTP(&otp) != MOCHA_RESULT_SUCCESS) {
@@ -103,7 +111,8 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     ctx->contentsArray = contents;
 
     // Set titleType by parsing TMD
-    ctx->titleType = Read32BE(ctx->tmdData + 0x188);
+    uint32_t tmdPayloadOffset = GetPayloadOffset(ctx->tmdData);
+    ctx->titleType = Read32BE(ctx->tmdData + tmdPayloadOffset + 0x48);
 
     WAD_Log("WAD decrypted successfully. ID: %08x-%08x\n", (uint32_t)(ctx->tmdTitleId >> 32), (uint32_t)(ctx->tmdTitleId));
     return ctx;
@@ -132,23 +141,19 @@ bool WAD_IsSafeTitle(WADContext* ctx) {
     if (highId == 0x00000001) {
         bool isvWiiTitle = false;
         
-        // Check TMD vwii_title flag (offset 0x183 in TMD)
-        if (ctx->tmdData && ctx->tmdSize > 0x183) {
-            if (ctx->tmdData[0x183] != 0) {
+        // Check TMD vwii_title flag (offset 0x43 in TMD payload)
+        uint32_t tmdPayloadOffset = GetPayloadOffset(ctx->tmdData);
+        if (ctx->tmdData && ctx->tmdSize > tmdPayloadOffset + 0x43) {
+            if (ctx->tmdData[tmdPayloadOffset + 0x43] != 0) {
                 isvWiiTitle = true;
             }
         }
         
         // Check ticket common key index to see if it's a vWii title
-        if (ctx->ticketData && ctx->ticketSize >= 0x1F2) {
-            uint32_t sigType = Read32BE(ctx->ticketData);
-            uint32_t payloadOffset = 0;
-            if (sigType == 0x00010000) payloadOffset = 0x240;
-            else if (sigType == 0x00010001) payloadOffset = 0x140;
-            else if (sigType == 0x00010002) payloadOffset = 0x80;
-            
-            if (payloadOffset > 0 && ctx->ticketSize >= payloadOffset + 0x1F2) {
-                uint8_t ckey = ctx->ticketData[payloadOffset + 0x1F1];
+        if (ctx->ticketData && ctx->ticketSize >= 4) {
+            uint32_t tikPayloadOffset = GetPayloadOffset(ctx->ticketData);
+            if (tikPayloadOffset > 0 && ctx->ticketSize >= tikPayloadOffset + 0xB2) {
+                uint8_t ckey = ctx->ticketData[tikPayloadOffset + 0xB1];
                 if (ckey == 2) {
                     isvWiiTitle = true;
                 }
@@ -178,6 +183,7 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
     FSAFileHandle fd;
     char path[256], pathd[256];
     char titlePath[256], ticketPath[256], ticketFolder[256];
+    uint32_t tmdPayloadOffset = GetPayloadOffset(ctx->tmdData);
 
     uint32_t idHi = (uint32_t)(ctx->tmdTitleId >> 32);
     uint32_t idLo = (uint32_t)(ctx->tmdTitleId & 0xFFFFFFFF);
@@ -232,7 +238,7 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
 
     WAD_Log("Writing contents...\n");
     for (uint16_t i = 0; i < ctx->numContents; i++) {
-        uint32_t recordOffset = 0x1E4 + (i * 36);
+        uint32_t recordOffset = tmdPayloadOffset + 0xA4 + (i * 36);
         uint32_t cId = Read32BE(ctx->tmdData + recordOffset);
         uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
         
