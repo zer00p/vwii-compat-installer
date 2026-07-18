@@ -32,7 +32,7 @@ include $(DEVKITPRO)/wut/share/wut_rules
 #-------------------------------------------------------------------------------
 TARGET		:=	compat_installer
 BUILD		:=	build
-SOURCES		:=	src
+SOURCES		:=	src src/wad_tools
 DATA		:=	data
 INCLUDES	:=	include
 CONTENT		:=
@@ -43,8 +43,7 @@ DRC_SPLASH	:=  meta/wuhb/drc-splash.png
 #-------------------------------------------------------------------------------
 # options for code generation
 #-------------------------------------------------------------------------------
-CFLAGS	:=	$(MACHDEP) $(INCLUDE) -Ofast -flto=auto -fno-fat-lto-objects \
-				-fuse-linker-plugin -fipa-pta -pipe \
+CFLAGS	:=	$(MACHDEP) $(INCLUDE) -Ofast -fipa-pta -pipe \
 				-Wall -Wextra -Wundef -Wshadow -Wpointer-arith \
 				-Wcast-align  \
 				-D__WIIU__ -D__WUT__ \
@@ -55,7 +54,7 @@ CXXFLAGS	:= -std=gnu++20 $(CFLAGS)
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-g $(ARCH) $(RPXSPECS) -Wl,-Map,$(notdir $*.map) -Wno-odr
 
-LIBS	:= -lwut -lmocha
+LIBS	:= -lwut -lmocha -lmbedcrypto
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level
@@ -172,6 +171,8 @@ all	:	$(OUTPUT).wuhb
 
 $(OUTPUT).wuhb	:	$(OUTPUT).rpx
 $(OUTPUT).rpx	:	$(OUTPUT).elf
+	@powerpc-eabi-objcopy -R .note.GNU-stack $(OUTPUT).elf $(OUTPUT)_stripped.elf
+	@elf2rpl $(OUTPUT)_stripped.elf $(OUTPUT).rpx
 $(OUTPUT).elf	:	$(OFILES)
 
 $(OFILES_SRC)	: $(HFILES_BIN)
