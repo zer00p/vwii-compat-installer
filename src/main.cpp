@@ -227,8 +227,8 @@ void WUPI_installWAD() {
         }
 
         if (!WAD_IsSafeTitle(ctx)) {
-            WUPI_putstr("Error: This looks like a System Title!");
-            WUPI_putstr("Installing this could BRICK your vWii.");
+            WUPI_putstr("Error: This is an original Wii System Title!");
+            WUPI_putstr("Installing this WILL BRICK your vWii.");
             WUPI_putstr("Skipping this WAD for safety.");
             WAD_Free(ctx);
             failCount++;

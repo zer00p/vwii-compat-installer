@@ -125,10 +125,38 @@ void WAD_Free(WADContext* ctx) {
 
 bool WAD_IsSafeTitle(WADContext* ctx) {
     uint32_t highId = (uint32_t)(ctx->tmdTitleId >> 32);
+    
     // 0x00000001 is System titles (IOS, System Menu, MIOS, BC)
-    // Installing these to vWii from a WAD is extremely dangerous.
     if (highId == 0x00000001) {
-        return false;
+        bool isvWiiTitle = false;
+        
+        // Check TMD vwii_title flag (offset 0x183 in TMD)
+        if (ctx->tmdData && ctx->tmdSize > 0x183) {
+            if (ctx->tmdData[0x183] != 0) {
+                isvWiiTitle = true;
+            }
+        }
+        
+        // Check ticket common key index to see if it's a vWii title
+        if (ctx->ticketData && ctx->ticketSize >= 0x1F2) {
+            uint32_t sigType = Read32BE(ctx->ticketData);
+            uint32_t payloadOffset = 0;
+            if (sigType == 0x00010000) payloadOffset = 0x240;
+            else if (sigType == 0x00010001) payloadOffset = 0x140;
+            else if (sigType == 0x00010002) payloadOffset = 0x80;
+            
+            if (payloadOffset > 0 && ctx->ticketSize >= payloadOffset + 0x1F2) {
+                uint8_t ckey = ctx->ticketData[payloadOffset + 0x1F1];
+                if (ckey == 2) {
+                    isvWiiTitle = true;
+                }
+            }
+        }
+        
+        // Installing original Wii system titles to vWii will brick it.
+        if (!isvWiiTitle) {
+            return false;
+        }
     }
     return true;
 }
