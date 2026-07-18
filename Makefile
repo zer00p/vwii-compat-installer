@@ -32,7 +32,7 @@ include $(DEVKITPRO)/wut/share/wut_rules
 #-------------------------------------------------------------------------------
 TARGET		:=	compat_installer
 BUILD		:=	build
-SOURCES		:=	src
+SOURCES		:=	src src/wad_tools
 DATA		:=	data
 INCLUDES	:=	include
 CONTENT		:=
@@ -54,7 +54,7 @@ CXXFLAGS	:= -std=gnu++20 $(CFLAGS)
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-g $(ARCH) $(RPXSPECS) -Wl,-Map,$(notdir $*.map) -Wno-odr
 
-LIBS	:= -lwut -lmocha
+LIBS	:= -lwut -lmocha -lmbedcrypto
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level

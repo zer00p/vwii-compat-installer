@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "installer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,9 +58,8 @@ typedef struct {
     uint32_t titleType;       // e.g., 0x00000001 (system), 0x00010001 (channel)
     uint16_t numContents;
 
-    // Decrypted contents buffer (dynamically allocated, must be freed)
-    // We decrypt all contents at once into this buffer to simplify writing
-    uint8_t* decryptedContentData;
+    // Decrypted contents array (from wad-tools)
+    CINS_Content* contentsArray;
 
 } WADContext;
 

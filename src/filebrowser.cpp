@@ -49,7 +49,7 @@ static void PopulateWadList(const char* dirPath) {
             if (!(entry.info.flags & FS_STAT_DIRECTORY)) {
                 size_t len = strlen(entry.name);
                 if (len > 4 && strcasecmp(entry.name + len - 4, ".wad") == 0) {
-                    char fullPath[256];
+                    char fullPath[512];
                     snprintf(fullPath, sizeof(fullPath), "%s/%s", dirPath, entry.name);
                     s_WadFiles[s_NumWads++] = strdup(fullPath);
                 }

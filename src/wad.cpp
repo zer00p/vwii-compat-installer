@@ -17,7 +17,6 @@
  */
 
 #include "wad.h"
-#include "aes.h"
 #include "installer.h" // For CINS_Log, WUPI_putstr, etc.
 #include <mocha/mocha.h>
 #include <coreinit/filesystem_fsa.h>
@@ -65,187 +64,44 @@ static bool GetWiiCommonKey(uint8_t outKey[16]) {
     return true;
 }
 
+extern "C" int ExtractWadToMemory(const char* filepath, void** ticket, uint32_t* ticket_size, void** tmd, uint32_t* tmd_size, CINS_Content** contents, uint16_t* numContents, uint64_t* titleId);
+extern "C" void set_common_key(const uint8_t* key);
+
 WADContext* WAD_LoadAndDecrypt(const char* filepath) {
-    FSAFileHandle fd;
-    if (FSAOpenFileEx(fsaClient, filepath, "rb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        WAD_Log("Could not open WAD file: %s\n", filepath);
+    uint8_t wiiCommonKey[16];
+    if (!GetWiiCommonKey(wiiCommonKey)) {
         return NULL;
     }
+    set_common_key(wiiCommonKey);
 
-    // Get file size
-    FSAStat stat;
-    FSAGetStatFile(fsaClient, fd, &stat);
-    size_t fileSize = stat.size;
+    void *ticket = NULL, *tmd = NULL;
+    uint32_t ticket_size = 0, tmd_size = 0;
+    CINS_Content *contents = NULL;
+    uint16_t numContents = 0;
+    uint64_t titleId = 0;
+
+    int res = ExtractWadToMemory(filepath, &ticket, &ticket_size, &tmd, &tmd_size, &contents, &numContents, &titleId);
+    if (res != 0) {
+        WAD_Log("ExtractWadToMemory failed for %s\n", filepath);
+        return NULL;
+    }
 
     WADContext* ctx = (WADContext*)memalign(0x40, sizeof(WADContext));
     if (!ctx) {
-        FSACloseFile(fsaClient, fd);
         return NULL;
     }
     memset(ctx, 0, sizeof(WADContext));
-    
-    ctx->rawData = (uint8_t*)memalign(0x40, fileSize);
-    if (!ctx->rawData) {
-        WAD_Log("Out of memory reading WAD.\n");
-        free(ctx);
-        FSACloseFile(fsaClient, fd);
-        return NULL;
-    }
-    ctx->size = fileSize;
 
-    size_t bytesRead = 0;
-    while (bytesRead < fileSize) {
-        size_t readSize = fileSize - bytesRead;
-        // FSA limits read size, loop if needed
-        int res = FSAReadFile(fsaClient, ctx->rawData + bytesRead, 1, readSize, fd, 0);
-        if (res <= 0) break;
-        bytesRead += res;
-    }
-    FSACloseFile(fsaClient, fd);
+    ctx->ticketData = (uint8_t*)ticket;
+    ctx->ticketSize = ticket_size;
+    ctx->tmdData = (uint8_t*)tmd;
+    ctx->tmdSize = tmd_size;
+    ctx->tmdTitleId = titleId;
+    ctx->numContents = numContents;
+    ctx->contentsArray = contents;
 
-    if (bytesRead < 0x40) {
-        WAD_Log("WAD file is too small.\n");
-        WAD_Free(ctx);
-        return NULL;
-    }
-
-    uint8_t* p = ctx->rawData;
-    uint32_t headerSize = Read32BE(p);
-    if (headerSize != 0x20) {
-        WAD_Log("Invalid WAD header size.\n");
-        WAD_Free(ctx);
-        return NULL;
-    }
-
-    ctx->certSize    = Read32BE(p + 0x08);
-    ctx->crlSize     = Read32BE(p + 0x0C);
-    ctx->ticketSize  = Read32BE(p + 0x10);
-    ctx->tmdSize     = Read32BE(p + 0x14);
-    ctx->contentSize = Read32BE(p + 0x18);
-    ctx->metaSize    = Read32BE(p + 0x1C);
-
-    size_t offset = WAD_HEADER_SIZE;
-    ctx->certData = p + offset; offset += WAD_ALIGN(ctx->certSize);
-    ctx->crlData = p + offset; offset += WAD_ALIGN(ctx->crlSize);
-    ctx->ticketData = p + offset; offset += WAD_ALIGN(ctx->ticketSize);
-    ctx->tmdData = p + offset; offset += WAD_ALIGN(ctx->tmdSize);
-    ctx->contentData = p + offset; offset += WAD_ALIGN(ctx->contentSize);
-    ctx->metaData = p + offset; offset += WAD_ALIGN(ctx->metaSize);
-
-    if (offset > ctx->size) {
-        WAD_Log("WAD file is truncated.\n");
-        WAD_Free(ctx);
-        return NULL;
-    }
-
-    // Parse Ticket for Title Key
-    ctx->ticketTitleId = Read64BE(ctx->ticketData + 0x1DC);
-    
-    uint8_t wiiCommonKey[16];
-    if (!GetWiiCommonKey(wiiCommonKey)) {
-        WAD_Free(ctx);
-        return NULL;
-    }
-
-    uint8_t titleKeyIV[16];
-    memset(titleKeyIV, 0, 16);
-    memcpy(titleKeyIV, &ctx->ticketData[0x1DC], 8);
-
-    uint8_t encryptedTitleKey[16];
-    memcpy(encryptedTitleKey, &ctx->ticketData[0x1BF], 16);
-
-    struct AES_ctx aes;
-    AES_init_ctx_iv(&aes, wiiCommonKey, titleKeyIV);
-    memcpy(ctx->titleKey, encryptedTitleKey, 16);
-    AES_CBC_decrypt_buffer(&aes, ctx->titleKey, 16);
-
-    // Parse TMD
-    ctx->tmdTitleId = Read64BE(ctx->tmdData + 0x18C);
+    // Set titleType by parsing TMD
     ctx->titleType = Read32BE(ctx->tmdData + 0x188);
-    ctx->numContents = Read16BE(ctx->tmdData + 0x1DE);
-
-    if (ctx->ticketTitleId != ctx->tmdTitleId) {
-        WAD_Log("Title ID mismatch between Ticket and TMD.\n");
-        WAD_Free(ctx);
-        return NULL;
-    }
-
-    // Calculate required decrypted buffer size and check if 64-byte padding is structurally possible
-    uint64_t totalDecryptedSize = 0;
-    for (uint16_t i = 0; i < ctx->numContents; i++) {
-        uint32_t recordOffset = 0x1E4 + (i * 36);
-        uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
-        totalDecryptedSize += WAD_ALIGN(cSize);
-    }
-    
-    uint32_t alignedContentSize = WAD_ALIGN(ctx->contentSize);
-
-    // If the total 64-byte aligned size exceeds the entire content section size, 
-    // the WAD packer definitely did NOT use 64-byte padding for all contents.
-    bool canUse64 = (totalDecryptedSize <= alignedContentSize);
-
-    // Allocate buffer for decrypted contents
-    ctx->decryptedContentData = (uint8_t*)memalign(0x40, totalDecryptedSize);
-    if (!ctx->decryptedContentData) {
-        WAD_Log("Out of memory for decrypted content.\n");
-        WAD_Free(ctx);
-        return NULL;
-    }
-
-    // Decrypt contents
-    uint32_t currentEncOffset = 0;
-    uint32_t currentDecOffset = 0;
-    for (uint16_t i = 0; i < ctx->numContents; i++) {
-        uint32_t recordOffset = 0x1E4 + (i * 36); // 36 bytes per content record
-        uint16_t cIndex = Read16BE(ctx->tmdData + recordOffset + 4);
-        uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
-        
-        uint64_t size16 = ((cSize + 15) & ~15);
-        uint64_t size64 = WAD_ALIGN(cSize);
-
-        // Determine if this WAD uses 16-byte or 64-byte padding for its contents
-        uint64_t advanceSize = size16;
-        if (canUse64 && size16 < size64 && currentEncOffset + size64 <= alignedContentSize) {
-            if (totalDecryptedSize == ctx->contentSize) {
-                // The total 64-byte aligned size perfectly matches the content section size.
-                // It is definitely 64-byte padded, even if the padding contains garbage bytes.
-                advanceSize = size64;
-            } else {
-                bool isPadding = true;
-                uint8_t* padPtr = ctx->contentData + currentEncOffset + size16;
-                for (uint64_t pad_idx = 0; pad_idx < (size64 - size16); pad_idx++) {
-                    if (padPtr[pad_idx] != 0) {
-                        isPadding = false;
-                        break;
-                    }
-                }
-                if (isPadding) {
-                    advanceSize = size64;
-                }
-            }
-        }
-
-        if (currentEncOffset + size16 > alignedContentSize) {
-            WAD_Log("Content size exceeds WAD boundaries.\n");
-            WAD_Free(ctx);
-            return NULL;
-        }
-
-        uint8_t* encPtr = ctx->contentData + currentEncOffset;
-        uint8_t* decPtr = ctx->decryptedContentData + currentDecOffset;
-        memcpy(decPtr, encPtr, size16);
-
-        uint8_t contentIV[16];
-        memset(contentIV, 0, 16);
-        contentIV[0] = (cIndex >> 8) & 0xFF;
-        contentIV[1] = cIndex & 0xFF;
-
-        AES_init_ctx_iv(&aes, ctx->titleKey, contentIV);
-        AES_CBC_decrypt_buffer(&aes, decPtr, size16);
-
-        currentEncOffset += advanceSize;
-        currentDecOffset += size64;
-    }
 
     WAD_Log("WAD decrypted successfully. ID: %08x-%08x\n", (uint32_t)(ctx->tmdTitleId >> 32), (uint32_t)(ctx->tmdTitleId));
     return ctx;
@@ -253,8 +109,16 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
 
 void WAD_Free(WADContext* ctx) {
     if (ctx) {
-        if (ctx->rawData) free(ctx->rawData);
-        if (ctx->decryptedContentData) free(ctx->decryptedContentData);
+        if (ctx->ticketData) free(ctx->ticketData);
+        if (ctx->tmdData) free(ctx->tmdData);
+        if (ctx->contentsArray) {
+            for (int i = 0; i < ctx->numContents; i++) {
+                if (ctx->contentsArray[i].data) {
+                    free(const_cast<void*>(ctx->contentsArray[i].data));
+                }
+            }
+            free(ctx->contentsArray);
+        }
         free(ctx);
     }
 }
@@ -284,7 +148,6 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
     FSAFileHandle fd;
     char path[256], pathd[256];
     char titlePath[256], ticketPath[256], ticketFolder[256];
-    uint32_t currentContentOffset = 0;
 
     uint32_t idHi = (uint32_t)(ctx->tmdTitleId >> 32);
     uint32_t idLo = (uint32_t)(ctx->tmdTitleId & 0xFFFFFFFF);
@@ -347,10 +210,8 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
         WAD_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
         
         // Write exactly the unaligned size of the content (not padded to 0x40 like the WAD container)
-        WAD_TRY(FSAWriteFile(fsaClient, ctx->decryptedContentData + currentContentOffset, cSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+        WAD_TRY(FSAWriteFile(fsaClient, const_cast<void*>(ctx->contentsArray[i].data), cSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
         FSACloseFile(fsaClient, fd);
-
-        currentContentOffset += WAD_ALIGN(cSize);
     }
 
     WAD_Log("WAD install succeeded!\n");
