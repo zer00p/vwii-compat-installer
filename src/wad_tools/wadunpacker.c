@@ -17,6 +17,10 @@
 #include "tools.h"
 #include "../installer.h"
 
+#include <stdint.h>
+#include <stdbool.h>
+extern bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]);
+
 #define ERROR(s) do { fprintf(stderr, s "\n"); exit(1); } while (0)
 
 static FILE *fp;
@@ -82,6 +86,24 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	*out_tmd = tmd;
 	*tmd_size = tmd_len;
 
+	u8 ckey_idx = 0;
+	u32 sigType = be32(tik);
+	u32 payloadOffset = 0;
+	if (sigType == 0x00010000) payloadOffset = 0x240;
+	else if (sigType == 0x00010001) payloadOffset = 0x140;
+	else if (sigType == 0x00010002) payloadOffset = 0x80;
+	if (payloadOffset > 0 && tik_len >= payloadOffset + 0x1F2) {
+		ckey_idx = tik[payloadOffset + 0x1F1];
+	}
+
+	u8 dynamic_common_key[16];
+	if (GetCommonKeyFromOTP(ckey_idx, dynamic_common_key)) {
+		set_common_key(dynamic_common_key);
+	} else {
+		free(cert); free(tik); free(tmd); free(app); free(trailer);
+		return -1;
+	}
+
 	decrypt_title_key(tik, title_key);
 	num_contents = be16(tmd + 0x01de);
 	*out_numContents = num_contents;
@@ -100,6 +122,21 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 
 		u8* decrypted_app = (u8*)malloc(len);
 		memcpy(decrypted_app, p, len);
+
+		u8 expected_hash[20];
+		memcpy(expected_hash, tmd + 0x01f4 + 0x24*i, 20);
+
+		u8 actual_hash[20];
+		sha(decrypted_app, len, actual_hash);
+
+		if (memcmp(expected_hash, actual_hash, 20) != 0) {
+			free(decrypted_app);
+			for (u32 j = 0; j < i; j++) free(c_arr[j].data);
+			free(c_arr);
+			free(cert); free(trailer); free(app);
+			free(tik); free(tmd);
+			return -1;
+		}
 
 		c_arr[i].data = decrypted_app;
 		c_arr[i].length = len;

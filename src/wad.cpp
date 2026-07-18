@@ -53,27 +53,29 @@ static inline uint64_t Read64BE(const uint8_t* p) {
            ((uint64_t)p[6] << 8)  | ((uint64_t)p[7]);
 }
 
-static bool GetWiiCommonKey(uint8_t outKey[16]) {
+extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
     WiiUConsoleOTP otp;
     if (Mocha_ReadOTP(&otp) != MOCHA_RESULT_SUCCESS) {
         WAD_Log("Failed to read OTP!\n");
         return false;
     }
-    // Wii common key is at OTP offset 0x014
-    memcpy(outKey, ((uint8_t*)&otp) + 0x14, 16);
+    
+    if (index == 0) {
+        memcpy(outKey, otp.wiiBank.commonKey, 16);
+    } else if (index == 1) {
+        memcpy(outKey, otp.wiiCertBank.koreanKey, 16);
+    } else if (index == 2) {
+        memcpy(outKey, otp.wiiUBank.vWiiCommonKey, 16);
+    } else {
+        WAD_Log("Unknown common key index %d\n", index);
+        return false;
+    }
     return true;
 }
 
 extern "C" int ExtractWadToMemory(const char* filepath, void** ticket, uint32_t* ticket_size, void** tmd, uint32_t* tmd_size, CINS_Content** contents, uint16_t* numContents, uint64_t* titleId);
-extern "C" void set_common_key(const uint8_t* key);
 
 WADContext* WAD_LoadAndDecrypt(const char* filepath) {
-    uint8_t wiiCommonKey[16];
-    if (!GetWiiCommonKey(wiiCommonKey)) {
-        return NULL;
-    }
-    set_common_key(wiiCommonKey);
-
     void *ticket = NULL, *tmd = NULL;
     uint32_t ticket_size = 0, tmd_size = 0;
     CINS_Content *contents = NULL;
