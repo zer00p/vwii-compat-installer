@@ -229,6 +229,10 @@ std::vector<std::string> BrowseWADs() {
             }
         }
 
+        if (State::ForegroundReacquired()) {
+            needsRedraw = true;
+        }
+
         if (needsRedraw || last_selected == -1) {
             DrawBrowser(selected);
             last_selected = selected;

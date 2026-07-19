@@ -7,6 +7,8 @@
 #include <whb/proc.h>
 
 bool State::aroma = false;
+bool State::wasBackground = false;
+bool State::foregroundReacquired = false;
 
 void State::init() {
     OSDynLoad_Module mod;
@@ -31,12 +33,20 @@ bool State::AppRunning() {
                 case PROCUI_STATUS_RELEASE_FOREGROUND:
                     // Free up MEM1 to next foreground app, deinit screen, etc.
                     ProcUIDrawDoneRelease();
+                    wasBackground = true;
                     break;
                 case PROCUI_STATUS_IN_FOREGROUND:
-                    // Executed while app is in foreground
+                    // Re-enable screens after returning from background
+                    if (wasBackground) {
+                        OSScreenEnableEx(SCREEN_TV, 1);
+                        OSScreenEnableEx(SCREEN_DRC, 1);
+                        foregroundReacquired = true;
+                        wasBackground = false;
+                    }
                     app = true;
                     break;
                 case PROCUI_STATUS_IN_BACKGROUND:
+                    wasBackground = true;
                     OSSleepTicks(OSMillisecondsToTicks(20));
                     break;
             }
@@ -47,10 +57,21 @@ bool State::AppRunning() {
     return WHBProcIsRunning();
 }
 
-void State::shutdown() {
-    if (!aroma) {
-        WHBProcShutdown();
-        OSScreenShutdown();
+bool State::ForegroundReacquired() {
+    if (foregroundReacquired) {
+        foregroundReacquired = false;
+        return true;
     }
-    ProcUIShutdown();
+    return false;
+}
+
+void State::shutdown() {
+    OSScreenShutdown();
+    if (aroma) {
+        ProcUIShutdown();
+    } else {
+        WHBProcShutdown();
+        // Note: WHBProcIsRunning() already called ProcUIShutdown() when the
+        // main loop exited, so we must NOT call it again here.
+    }
 }

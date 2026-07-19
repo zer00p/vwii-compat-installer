@@ -130,6 +130,17 @@ void WUPI_waitHome() {
     return;
 }
 
+void WUPI_waitButton() {
+    WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
+    Input input;
+    while (State::AppRunning()) {
+        input.read();
+        if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
+            return;
+        }
+    }
+}
+
 int32_t WUPI_setupInstall() {
     if (Mocha_InitLibrary() == MOCHA_RESULT_SUCCESS)
         return 0;
@@ -139,19 +150,23 @@ int32_t WUPI_setupInstall() {
 void WUPI_install() {
     /* We should only end up here if the A button was pressed. */
     WUPI_resetScreen();
-    if (WUPI_setupInstall() < 0) {
-        WUPI_putstr("Error: IOS exploit failed.");
-        WUPI_waitHome();
-        return;
+    if (!exploit) {
+        if (WUPI_setupInstall() < 0) {
+            WUPI_putstr("Error: IOS exploit failed.");
+            WUPI_waitButton();
+            return;
+        }
+        exploit = true;
     }
-    exploit = true;
 
-    if (!(ret = initFS())) {
-        WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-        WUPI_waitHome();
-        return;
+    if (!mounted) {
+        if (!(ret = initFS())) {
+            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
+            WUPI_waitButton();
+            return;
+        }
+        mounted = true;
     }
-    mounted = true;
 
     WUPI_putstr("Installing the Homebrew Channel...\n");
 
@@ -178,30 +193,34 @@ void WUPI_install() {
     free(title_00000001_bin_aligned);
     if (ret < 0)
         WUPI_printf("Install failed. Error Code: %06X\n", -ret);
-    WUPI_waitHome();
+    WUPI_waitButton();
 }
 
 void WUPI_installWAD() {
     WUPI_resetScreen();
-    if (WUPI_setupInstall() < 0) {
-        WUPI_putstr("Error: IOS exploit failed.");
-        WUPI_waitHome();
-        return;
+    if (!exploit) {
+        if (WUPI_setupInstall() < 0) {
+            WUPI_putstr("Error: IOS exploit failed.");
+            WUPI_waitButton();
+            return;
+        }
+        exploit = true;
     }
-    exploit = true;
 
-    if (!(ret = initFS())) {
-        WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-        WUPI_waitHome();
-        return;
+    if (!mounted) {
+        if (!(ret = initFS())) {
+            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
+            WUPI_waitButton();
+            return;
+        }
+        mounted = true;
     }
-    mounted = true;
 
     std::vector<std::string> selectedWads = BrowseWADs();
     if (selectedWads.empty()) {
         WUPI_resetScreen();
         WUPI_putstr("No WADs selected.");
-        WUPI_waitHome();
+        WUPI_waitButton();
         return;
     }
 
@@ -254,7 +273,14 @@ void WUPI_installWAD() {
     WUPI_printf("Batch Install Complete!\n");
     WUPI_printf("Successful: %d\n", successCount);
     WUPI_printf("Failed: %d\n", failCount);
-    WUPI_waitHome();
+    WUPI_waitButton();
+}
+
+void WUPI_showMenu() {
+    WUPI_resetScreen();
+    WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
+    WUPI_putstr("Press X to install a WAD from the SD Card.");
+    WUPI_putstr("Press HOME to exit.");
 }
 
 int main() {
@@ -282,33 +308,28 @@ int main() {
     OSScreenClearBufferEx(SCREEN_TV, 0);
     OSScreenClearBufferEx(SCREEN_DRC, 0);
 
-    WUPI_resetScreen();
-    WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
-    WUPI_putstr("Press X to install a WAD from the SD Card.");
-    WUPI_putstr("Press HOME to exit.");
+    WUPI_showMenu();
 
     while (State::AppRunning()) {
         input.read();
-        if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
-            WUPI_resetScreen();
-            WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
-            WUPI_putstr("Press X to install a WAD from the SD Card.");
-            WUPI_putstr("Press HOME to exit.");
+        
+        if (!State::ForegroundReacquired() && !input.get(TRIGGER, PAD_BUTTON_ANY)) {
+            continue;
         }
+
         if (input.get(TRIGGER, PAD_BUTTON_A)) {
             WUPI_install();
-            break;
-        }
-        if (input.get(TRIGGER, PAD_BUTTON_X)) {
+        } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
             WUPI_installWAD();
-            break;
         }
+        
+        WUPI_showMenu();
     }
 
     deinitFS();
+    State::shutdown();
 
     if (screen_buffer)
         free(screen_buffer);
-    State::shutdown();
     return 0;
 }
