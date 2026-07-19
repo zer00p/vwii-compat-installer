@@ -362,6 +362,10 @@ int main() {
                 WUPI_installD2X();
             }
             
+            if (!State::AppRunning()) {
+                break;
+            }
+            
             WUPI_showMenu();
         }
     }

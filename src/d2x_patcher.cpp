@@ -24,6 +24,17 @@
 #include <malloc.h>
 #include "installer.h"
 #include <unistd.h>
+#include <vector>
+#include <string>
+
+extern "C" {
+#include "wad_tools/tools.h"
+}
+
+static uint8_t common_key[16] = {
+    0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4,
+    0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7
+};
 
 extern FSAClientHandle fsaClient;
 extern void WUPI_resetScreen();
@@ -197,97 +208,121 @@ static std::vector<uint8_t> ParseHexBytes(const char* str) {
     return bytes;
 }
 
-static bool ApplyBinaryPatch(MemContent* content, uint32_t offset, const std::vector<uint8_t>& origBytes, const std::vector<uint8_t>& newBytes) {
+static bool ApplyBinaryPatch(MemContent* content, int32_t offset, const std::vector<uint8_t>& origBytes, const std::vector<uint8_t>& newBytes) {
     if (origBytes.empty() || newBytes.empty()) return false;
-    if (origBytes.size() > content->size) return false;
+    if (offset < 0 || (uint32_t)offset + origBytes.size() > content->size) return false;
+    if ((uint32_t)offset + newBytes.size() > content->size) return false;
     
-    bool patched = false;
-    for (uint32_t i = 0; i <= content->size - origBytes.size(); i++) {
-        if (memcmp(content->data + i, origBytes.data(), origBytes.size()) == 0) {
-            // Found a match
-            if (i + offset + newBytes.size() <= content->size) {
-                memcpy(content->data + i + offset, newBytes.data(), newBytes.size());
-                patched = true;
-            }
-        }
+    if (memcmp(content->data + offset, origBytes.data(), origBytes.size()) == 0) {
+        memcpy(content->data + offset, newBytes.data(), newBytes.size());
+        return true;
     }
-    return patched;
+    
+    return false;
 }
 
-static bool AppendModule(MemIOS* ios, const char* versionFolder, const char* moduleName, int tmdModuleId) {
+static bool AppendModule(MemIOS* ios, const char* versionFolder, const char* moduleName, int tmdModuleId, int xmlId) {
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.app", versionFolder, moduleName);
-    
+
     uint8_t* moduleData = NULL;
     uint32_t moduleSize = 0;
-    
+
     if (!ReadFileToBuffer(path, &moduleData, &moduleSize)) {
         D2X_Log("Failed to read module %s\n", path);
         return false;
     }
-    
-    // Align size to 64 bytes
-    uint32_t alignedSize = (moduleSize + 63) & ~63;
-    uint8_t* alignedData = (uint8_t*)memalign(64, alignedSize);
-    memset(alignedData, 0, alignedSize);
-    memcpy(alignedData, moduleData, moduleSize);
+
+    // We do NOT need to align the size to 64 bytes for WAD install,
+    // and using alignedSize in the TMD can break module loading!
+    // We will just use the exact moduleSize.
+    uint8_t* moduleDataBuffer = (uint8_t*)malloc(moduleSize);
+    memcpy(moduleDataBuffer, moduleData, moduleSize);
     free(moduleData);
-    
+
     uint32_t newContentId = 0;
-    for (uint32_t i = 0; i < ios->numContents; i++) {
-        if (ios->contents[i].cid > newContentId) newContentId = ios->contents[i].cid;
+    if (xmlId != -1) {
+        newContentId = xmlId;
+    } else {
+        for (uint32_t i = 0; i < ios->numContents; i++) {
+            if (ios->contents[i].cid > newContentId) newContentId = ios->contents[i].cid;
+        }
+        newContentId++;
     }
-    newContentId++;
-    
+
     if (ios->numContents >= ios->maxContents) {
         D2X_Log("Too many contents to append!\n");
-        free(alignedData);
+        free(moduleDataBuffer);
         return false;
     }
-    
-    // Setup new content entry
-    uint32_t idx = ios->numContents++;
-    ios->contents[idx].cid = newContentId;
-    ios->contents[idx].size = alignedSize;
-    ios->contents[idx].data = alignedData;
-    
+
     // Update TMD record
     uint8_t* tmdContentRecords = ios->tmd + 0x1E4;
-    // Copy record from tmdModuleId to new index
-    memcpy(tmdContentRecords + (idx * 36), tmdContentRecords + (tmdModuleId * 36), 36);
-    
-    // Update the copied record
-    Write32BE(tmdContentRecords + (idx * 36), newContentId); // CID
-    Write16BE(tmdContentRecords + (idx * 36) + 4, idx); // Index
-    Write16BE(tmdContentRecords + (idx * 36) + 6, 1); // Type = normal
-    Write64BE(tmdContentRecords + (idx * 36) + 8, alignedSize); // Size
-    
-    // Hash
-    uint8_t hash[20];
-    SHA1(alignedData, alignedSize, hash);
-    memcpy(tmdContentRecords + (idx * 36) + 16, hash, 20);
-    
+
+    if (tmdModuleId != -1) {
+        // Move original content to end
+        uint32_t oldIdx = ios->numContents++;
+        ios->contents[oldIdx] = ios->contents[tmdModuleId];
+
+        // Put new module at tmdModuleId
+        uint32_t idx = tmdModuleId;
+        ios->contents[idx].cid = newContentId;
+        ios->contents[idx].size = moduleSize;
+        ios->contents[idx].data = moduleDataBuffer;
+
+        // Copy original TMD record to end and update its index
+        memcpy(tmdContentRecords + (oldIdx * 36), tmdContentRecords + (tmdModuleId * 36), 36);
+        Write16BE(tmdContentRecords + (oldIdx * 36) + 4, oldIdx);
+
+        // Overwrite tmdModuleId TMD record for the new module
+        memset(tmdContentRecords + (idx * 36), 0, 36);
+        Write32BE(tmdContentRecords + (idx * 36), newContentId); // CID
+        Write16BE(tmdContentRecords + (idx * 36) + 4, idx); // Index
+        Write16BE(tmdContentRecords + (idx * 36) + 6, 1); // Type = normal
+        Write64BE(tmdContentRecords + (idx * 36) + 8, moduleSize); // Exact Size
+
+        uint8_t hash[20];
+        SHA1(moduleDataBuffer, moduleSize, hash);
+        memcpy(tmdContentRecords + (idx * 36) + 16, hash, 20);
+    } else {
+        // Just append new content
+        uint32_t idx = ios->numContents++;
+        ios->contents[idx].cid = newContentId;
+        ios->contents[idx].size = moduleSize;
+        ios->contents[idx].data = moduleDataBuffer;
+
+        memset(tmdContentRecords + (idx * 36), 0, 36);
+        Write32BE(tmdContentRecords + (idx * 36), newContentId); // CID
+        Write16BE(tmdContentRecords + (idx * 36) + 4, idx); // Index
+        Write16BE(tmdContentRecords + (idx * 36) + 6, 1); // Type = normal
+        Write64BE(tmdContentRecords + (idx * 36) + 8, moduleSize); // Exact Size
+
+        uint8_t hash[20];
+        SHA1(moduleDataBuffer, moduleSize, hash);
+        memcpy(tmdContentRecords + (idx * 36) + 16, hash, 20);
+    }
+
     // Update numContents in TMD header
     Write16BE(ios->tmd + 0x1DE, ios->numContents);
     ios->tmdSize += 36;
-    
+
     return true;
 }
 
 static void BruteTmd(uint8_t* tmd, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
-        Write16BE(tmd + 0x1E0, fill); // fill3
+        Write16BE(tmd + 0x1D4, fill); // Reserved field instead of boot_index
         SHA1(tmd + 0x140, size - 0x140, hash);
         if (hash[0] == 0) return;
     }
 }
 
-static void BruteTicket(uint8_t* tik) {
+static void BruteTicket(uint8_t* tik, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
         Write16BE(tik + 0x1F8, fill); // padding
-        SHA1(tik + 0x140, 0x150, hash);
+        SHA1(tik + 0x140, size - 0x140, hash);
         if (hash[0] == 0) return;
     }
 }
@@ -297,13 +332,40 @@ static bool WritePatchedIOS(uint32_t titleIdLow, MemIOS* ios) {
     // No local path or fd variables needed anymore
     
     // Forge Ticket
-    memset(ios->ticket + 4, 0, 256); // Zero out signature
-    Write32BE(ios->ticket + 0x1DC, titleIdLow);
-    BruteTicket(ios->ticket);
+    if (ios->ticketSize >= 0x1E0 + 2) {
+        memset(ios->ticket + 4, 0, 256); // Zero out signature
+        
+        // Decrypt Title Key using old Title ID as IV
+        uint8_t titleKey[16];
+        uint8_t iv[16] = {0};
+        memcpy(iv, ios->ticket + 0x1DC, 8); // Old Title ID
+        aes_cbc_dec(common_key, iv, ios->ticket + 0x1BF, 16, titleKey);
+        
+        // Write new Title ID
+        Write32BE(ios->ticket + 0x1DC, 1); // System Title High
+        Write32BE(ios->ticket + 0x1E0, titleIdLow); // Title ID Low
+        
+        // Re-encrypt Title Key using new Title ID as IV
+        memset(iv, 0, 16);
+        memcpy(iv, ios->ticket + 0x1DC, 8); // New Title ID
+        aes_cbc_enc(common_key, iv, titleKey, 16, ios->ticket + 0x1BF);
+        
+        BruteTicket(ios->ticket, ios->ticketSize);
+    } else {
+        D2X_Log("Ticket size too small\n");
+        return false;
+    }
     
     // Forge TMD
-    memset(ios->tmd + 4, 0, 256); // Zero out signature
-    Write32BE(ios->tmd + 0x18C, titleIdLow);
+    if (ios->tmdSize >= 0x190 + 4 && ios->numContents > 0) {
+        memset(ios->tmd + 4, 0, 256); // Zero out signature
+        Write32BE(ios->tmd + 0x18C, 1); // System Title
+        Write32BE(ios->tmd + 0x190, titleIdLow);
+        Write16BE(ios->tmd + 0x1DC, 0xFFFF); // Patch Title Version
+    } else {
+        D2X_Log("TMD size too small\n");
+        return false;
+    }
     
     // Recalculate content hashes
     uint8_t* tmdContentRecords = ios->tmd + 0x1E4;
@@ -426,8 +488,8 @@ void InstallD2X(const char* versionFolder) {
             int id = cEl->IntAttribute("id", -1);
             const char* moduleAttr = cEl->Attribute("module");
             
-            if (moduleAttr && tmdModuleId != -1) {
-                AppendModule(&ios, versionFolder, moduleAttr, tmdModuleId);
+            if (moduleAttr) {
+                AppendModule(&ios, versionFolder, moduleAttr, tmdModuleId, id);
             } else if (id != -1) {
                 MemContent* content = NULL;
                 for (uint32_t j = 0; j < ios.numContents; j++) {
@@ -437,11 +499,28 @@ void InstallD2X(const char* versionFolder) {
                     }
                 }
                 if (content) {
+                    bool patched = false;
                     for (tinyxml2::XMLElement* pEl = cEl->FirstChildElement("patch"); pEl != NULL; pEl = pEl->NextSiblingElement("patch")) {
                         int offset = pEl->IntAttribute("offset", 0);
                         const char* orig = pEl->Attribute("originalbytes");
                         const char* newb = pEl->Attribute("newbytes");
-                        ApplyBinaryPatch(content, offset, ParseHexBytes(orig), ParseHexBytes(newb));
+                        if (ApplyBinaryPatch(content, offset, ParseHexBytes(orig), ParseHexBytes(newb)))
+                            patched = true;
+                    }
+                    // If we patched a shared content, change its type to normal
+                    // so the IOS kernel loads it from the title directory
+                    // instead of the (unpatched) shared content store.
+                    if (patched) {
+                        uint8_t* tmdRecords = ios.tmd + 0x1E4;
+                        for (uint32_t k = 0; k < ios.numContents; k++) {
+                            if (Read32BE(tmdRecords + (k * 36)) == (uint32_t)id) {
+                                uint16_t type = Read16BE(tmdRecords + (k * 36) + 6);
+                                if (type & 0x8000) {
+                                    Write16BE(tmdRecords + (k * 36) + 6, type & ~0x8000);
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
             }
