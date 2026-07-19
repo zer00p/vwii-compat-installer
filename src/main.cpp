@@ -176,7 +176,7 @@ void WUPI_install() {
     contents[0].length = title_00000000_bin_size;
     contents[1].data = (const void *) title_00000001_bin_aligned;
     contents[1].length = title_00000001_bin_size;
-    ret = CINS_Install((const void *) title_cetk_bin_aligned, title_cetk_bin_size,
+    ret = CINS_Install(CINS_TITLEID, (const void *) title_cetk_bin_aligned, title_cetk_bin_size,
                        (const void *) title_tmd_bin_aligned, title_tmd_bin_size, contents,
                        2);
     free(title_cetk_bin_aligned);

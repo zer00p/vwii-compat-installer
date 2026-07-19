@@ -18,6 +18,7 @@
 
 #include "wad.h"
 #include "installer.h" // For CINS_Log, WUPI_putstr, etc.
+#include "EndianUtils.h"
 #include <mocha/mocha.h>
 #include <coreinit/filesystem_fsa.h>
 #include <coreinit/memory.h>
@@ -38,28 +39,6 @@ void WUPI_putstr(const char *);
         WUPI_putstr(_wupi_print_str); \
     } while (0)
 
-static inline uint16_t Read16BE(const uint8_t* p) {
-    return (p[0] << 8) | p[1];
-}
-
-static inline uint32_t Read32BE(const uint8_t* p) {
-    return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
-}
-
-static inline uint64_t Read64BE(const uint8_t* p) {
-    return ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48) |
-           ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32) |
-           ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16) |
-           ((uint64_t)p[6] << 8)  | ((uint64_t)p[7]);
-}
-
-static inline uint32_t GetPayloadOffset(const uint8_t* data) {
-    uint32_t sigType = Read32BE(data);
-    if (sigType == 0x00010000) return 0x240;
-    if (sigType == 0x00010001) return 0x140;
-    if (sigType == 0x00010002) return 0x80;
-    return 0x140;
-}
 
 extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
     WiiUConsoleOTP otp;
@@ -179,84 +158,7 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
     (void)fsaFd;
     if (!ctx) return false;
 
-    FSError ret;
-    FSAFileHandle fd;
-    char path[256], pathd[256];
-    char titlePath[256], ticketPath[256], ticketFolder[256];
-    uint32_t tmdPayloadOffset = GetPayloadOffset(ctx->tmdData);
-
-    uint32_t idHi = (uint32_t)(ctx->tmdTitleId >> 32);
-    uint32_t idLo = (uint32_t)(ctx->tmdTitleId & 0xFFFFFFFF);
-
-    snprintf(titlePath, sizeof(titlePath), "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
-    snprintf(path, sizeof(path), "/vol/slccmpt01/title/%08x", idHi);
-    snprintf(ticketPath, sizeof(ticketPath), "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
-    snprintf(ticketFolder, sizeof(ticketFolder), "/vol/slccmpt01/ticket/%08x", idHi);
-
-    WAD_Log("Writing ticket...\n");
-    FSARemove(fsaClient, ticketPath);
-    ret = FSAMakeDir(fsaClient, ticketFolder, (FSMode) 0x666);
-    if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
-        WAD_TRY(FSAOpenFileEx(fsaClient, ticketPath, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        WAD_TRY(FSAWriteFile(fsaClient, ctx->ticketData, ctx->ticketSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
-        FSACloseFile(fsaClient, fd);
-        ret = FS_ERROR_OK;
-    }
-    WAD_TRY(ret == FS_ERROR_OK);
-
-    WAD_Log("Creating title directory...\n");
-    ret = FSAMakeDir(fsaClient, path, (FSMode) 0x666);
-    if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
-        ret = FSAMakeDir(fsaClient, titlePath, (FSMode) 0x666);
-        if (ret == FS_ERROR_ALREADY_EXISTS) {
-            WAD_Log("Title directory exists, deleting content...\n");
-            snprintf(path, sizeof(path), "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
-            ret = FSARemove(fsaClient, path);
-            if (ret == FS_ERROR_OK || ret == FS_ERROR_NOT_FOUND) ret = FS_ERROR_OK;
-        }
-    }
-    WAD_TRY(ret == FS_ERROR_OK);
-
-    strncpy(pathd, titlePath, sizeof(pathd));
-    strncat(pathd, "/data", sizeof(pathd) - 1);
-    ret = FSAMakeDir(fsaClient, pathd, (FSMode) 0x666);
-    if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
-        WAD_Log("Failed to create data directory\n");
-        goto error;
-    }
-
-    strncpy(pathd, titlePath, sizeof(pathd));
-    strncat(pathd, "/content", sizeof(pathd) - 1);
-    WAD_TRY(FSAMakeDir(fsaClient, pathd, (FSMode) 0x666) == FS_ERROR_OK);
-
-    WAD_Log("Writing TMD...\n");
-    strncpy(path, pathd, sizeof(path));
-    strncat(path, "/title.tmd", sizeof(path) - 1);
-    WAD_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-    WAD_TRY(FSAWriteFile(fsaClient, ctx->tmdData, ctx->tmdSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
-    FSACloseFile(fsaClient, fd);
-
-    WAD_Log("Writing contents...\n");
-    for (uint16_t i = 0; i < ctx->numContents; i++) {
-        uint32_t recordOffset = tmdPayloadOffset + 0xA4 + (i * 36);
-        uint32_t cId = Read32BE(ctx->tmdData + recordOffset);
-        uint64_t cSize = Read64BE(ctx->tmdData + recordOffset + 8);
-        
-        snprintf(path, sizeof(path), "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", idHi, idLo, cId);
-        WAD_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        
-        // Write exactly the unaligned size of the content (not padded to 0x40 like the WAD container)
-        WAD_TRY(FSAWriteFile(fsaClient, const_cast<void*>(ctx->contentsArray[i].data), cSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
-        FSACloseFile(fsaClient, fd);
-    }
-
-    WAD_Log("WAD install succeeded!\n");
-    return true;
-
-error:
-    FSACloseFile(fsaClient, fd);
-    WAD_Log("Install failed, cleaning up...\n");
-    FSARemove(fsaClient, titlePath);
-    FSARemove(fsaClient, ticketPath);
-    return false;
+    return CINS_Install(ctx->tmdTitleId, ctx->ticketData, ctx->ticketSize,
+                        ctx->tmdData, ctx->tmdSize, ctx->contentsArray,
+                        ctx->numContents) == 0;
 }

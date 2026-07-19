@@ -35,9 +35,6 @@ void WUPI_putstr(const char *);
 
 #define CINS_PATH_LEN           (sizeof("/vol/slccmpt01") + 63)
 
-#define CINS_ID_HI              ((uint32_t) (CINS_TITLEID >> 32))
-#define CINS_ID_LO              ((uint32_t) (CINS_TITLEID & 0xFFFFFFFF))
-
 #define CINS_TRY(c)                        \
     if (!(c))                              \
         do {                               \
@@ -47,29 +44,26 @@ void WUPI_putstr(const char *);
 
 extern FSAClientHandle fsaClient;
 
-int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
-                     uint32_t tmd_size, CINS_Content *contents,
+int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size, const void *tmd,
+                     uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents) {
-    FSError ret;
-    int32_t i;
-    FSAFileHandle fd;
+    FSError ret = FS_ERROR_NOT_INIT;
+    FSAFileHandle fd = 0;
     char path[CINS_PATH_LEN], pathd[CINS_PATH_LEN];
     char titlePath[CINS_PATH_LEN], ticketPath[CINS_PATH_LEN],
             ticketFolder[CINS_PATH_LEN];
 
+    uint32_t idHi = (uint32_t)(titleId >> 32);
+    uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
+
+    uint32_t tmdPayloadOffset = GetPayloadOffset((const uint8_t*)tmd);
+
     CINS_Log("Starting install\n");
 
-    /* This installer originally created a temporary directory for the
-     * installation, wrote everything to flash there, then renamed it all to
-     * other directories. The wupserver doesn't already support renaming files,
-     * and my attempt to add it failed so I gave up. */
-    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", CINS_ID_HI,
-             CINS_ID_LO);
-    snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x", CINS_ID_HI);
-    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", CINS_ID_HI,
-             CINS_ID_LO);
-    snprintf(ticketFolder, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x", CINS_ID_HI);
-    /* Init stage is not needed anymore. */
+    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
+    snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x", idHi);
+    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
+    snprintf(ticketFolder, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x", idHi);
 
     CINS_Log("Writing ticket...\n");
     {
@@ -102,7 +96,7 @@ int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
                 CINS_Log(
                         "Title directory already exists, deleting content...\n");
                 snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content",
-                         CINS_ID_HI, CINS_ID_LO);
+                         idHi, idLo);
                 ret = FSARemove(fsaClient, path);
                 if (ret == FS_ERROR_OK || ret == FS_ERROR_NOT_FOUND)
                     ret = FS_ERROR_OK;
@@ -141,14 +135,17 @@ int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
 
     CINS_Log("Writing contents...\n");
     {
-        for (i = 0; i < numContents; i++) {
-            // CINS_Log("Writing content %08x.app\n", i);
+        for (uint16_t i = 0; i < numContents; i++) {
+            uint32_t recordOffset = tmdPayloadOffset + 0xA4 + (i * 36);
+            uint32_t cId = Read32BE((const uint8_t*)tmd + recordOffset);
+            uint64_t cSize = Read64BE((const uint8_t*)tmd + recordOffset + 8);
+
             snprintf(path, CINS_PATH_LEN,
-                     "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", CINS_ID_HI,
-                     CINS_ID_LO, i);
+                     "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", idHi,
+                     idLo, cId);
 
             CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(contents[i].data), contents[i].length, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+            CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(contents[i].data), cSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
 
             FSACloseFile(fsaClient, fd);
         }
@@ -157,7 +154,7 @@ int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
     CINS_Log("Install succeeded!\n");
 
 error:
-    FSACloseFile(fsaClient, fd);
+    if (fd > 0) FSACloseFile(fsaClient, fd);
     if (ret < 0) {
         CINS_Log("Install failed, attempting to delete title...\n");
         /* Installation failed in the final stages. Delete these to be sure
