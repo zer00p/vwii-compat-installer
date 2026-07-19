@@ -19,8 +19,9 @@ If everything is installed, run 'make release' and the output will be available 
 * FIX94, this repo is largely based off of wuphax.
 * @Ingunar on GitHub, for the awesome icons
 * TheLordScruffy/mkwcat, for the original Compat Title Installer
-* Xpl0itU, for the continued development and fork of the Compat Title Installer
-* kokke/tiny-AES-c, for the AES decryption library used for WAD installation
+* Xpl0itU (aka DaThinkingChair), for the WUT Port
+* mbedtls contributors, for the cryptography library used for WAD installation
+* Segher Boessenkool, BFGR, and libertyernie, for the WAD tools
 * WiiBrew contributors (wiibrew.org), for the invaluable documentation on the WAD file format and title structures
 
 ## License
@@ -32,4 +33,4 @@ The Homebrew Channel is licensed under GPLv2 and is included in binary form. A
 copy of the source code is available at
 [fail0verflow/hbc](https://github.com/fail0verflow/hbc).
 
-The `tiny-AES-c` library is free and unencumbered software released into the public domain under the Unlicense.
+The `mbedtls` library is dual-licensed under the Apache License 2.0 and GPLv2 (or any later version).
