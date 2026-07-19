@@ -157,15 +157,67 @@ std::vector<std::string> BrowseWADs() {
     Input input;
     std::vector<std::string> result;
 
+    int hold_timer_up = 0;
+    int hold_timer_down = 0;
+    int hold_timer_left = 0;
+    int hold_timer_right = 0;
+
     while (State::AppRunning()) {
         input.read();
         bool needsRedraw = false;
 
+        bool moveUp = false;
+        bool moveDown = false;
+        bool pageUp = false;
+        bool pageDown = false;
+
         if (input.get(TRIGGER, PAD_BUTTON_UP)) {
-            if (selected > 0) { selected--; needsRedraw = true; }
+            moveUp = true; hold_timer_up = 0;
+        } else if (input.get(HOLD, PAD_BUTTON_UP)) {
+            if (++hold_timer_up > 20 && (hold_timer_up % 4 == 0)) moveUp = true;
+        } else {
+            hold_timer_up = 0;
         }
+
         if (input.get(TRIGGER, PAD_BUTTON_DOWN)) {
-            if (selected < (int)s_Entries.size() - 1) { selected++; needsRedraw = true; }
+            moveDown = true; hold_timer_down = 0;
+        } else if (input.get(HOLD, PAD_BUTTON_DOWN)) {
+            if (++hold_timer_down > 20 && (hold_timer_down % 4 == 0)) moveDown = true;
+        } else {
+            hold_timer_down = 0;
+        }
+
+        if (input.get(TRIGGER, PAD_BUTTON_LEFT)) {
+            pageUp = true; hold_timer_left = 0;
+        } else if (input.get(HOLD, PAD_BUTTON_LEFT)) {
+            if (++hold_timer_left > 20 && (hold_timer_left % 4 == 0)) pageUp = true;
+        } else {
+            hold_timer_left = 0;
+        }
+
+        if (input.get(TRIGGER, PAD_BUTTON_RIGHT)) {
+            pageDown = true; hold_timer_right = 0;
+        } else if (input.get(HOLD, PAD_BUTTON_RIGHT)) {
+            if (++hold_timer_right > 20 && (hold_timer_right % 4 == 0)) pageDown = true;
+        } else {
+            hold_timer_right = 0;
+        }
+
+        if (moveUp && selected > 0) {
+            selected--; needsRedraw = true;
+        }
+        if (moveDown && selected < (int)s_Entries.size() - 1) {
+            selected++; needsRedraw = true;
+        }
+        if (pageUp && selected > 0) {
+            selected -= 10;
+            if (selected < 0) selected = 0;
+            needsRedraw = true;
+        }
+        if (pageDown && selected < (int)s_Entries.size() - 1) {
+            selected += 10;
+            if (selected >= (int)s_Entries.size()) selected = s_Entries.size() - 1;
+            needsRedraw = true;
         }
         if (input.get(TRIGGER, PAD_BUTTON_B)) {
             if (s_CurrentPath != "/vol/external01") {
