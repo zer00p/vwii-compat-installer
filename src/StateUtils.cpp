@@ -66,10 +66,14 @@ bool State::ForegroundReacquired() {
 }
 
 void State::shutdown() {
-    OSScreenShutdown();
     if (aroma) {
+        // Do NOT call OSScreenShutdown() here. Under Aroma, the system has
+        // already reclaimed foreground memory (MEM1) by the time we reach this
+        // point, so any access to screen hardware will crash (invalid access
+        // in OSScreenEnableEx called internally by OSScreenShutdown).
         ProcUIShutdown();
     } else {
+        OSScreenShutdown();
         WHBProcShutdown();
         // Note: WHBProcIsRunning() already called ProcUIShutdown() when the
         // main loop exited, so we must NOT call it again here.
