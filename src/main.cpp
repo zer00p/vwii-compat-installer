@@ -66,12 +66,17 @@ extern const uint8_t title_00000001_bin[];
 extern const uint32_t title_00000001_bin_size;
 
 bool mounted = false;
+bool fsaInit = false;
+bool mochaInit = false;
 CINS_Content contents[2];
 int32_t ret, fsaFd = -1;
 
 bool initFS() {
-    FSAInit();
-    fsaClient = FSAAddClient(nullptr);
+    if (!fsaInit) {
+        FSAInit();
+        fsaClient = FSAAddClient(nullptr);
+        fsaInit = true;
+    }
     bool retUnlock =
             Mocha_UnlockFSClientEx(fsaClient) == MOCHA_RESULT_SUCCESS;
     if (retUnlock) {
@@ -82,10 +87,19 @@ bool initFS() {
 }
 
 void deinitFS() {
-    FSAUnmount(fsaClient, "/vol/slccmpt01", FSA_UNMOUNT_FLAG_NONE);
-    Mocha_DeInitLibrary();
-    FSADelClient(fsaClient);
-    FSAShutdown();
+    if (fsaInit) {
+        if (mounted) {
+            FSAUnmount(fsaClient, "/vol/slccmpt01", FSA_UNMOUNT_FLAG_NONE);
+            mounted = false;
+        }
+        FSADelClient(fsaClient);
+        FSAShutdown();
+        fsaInit = false;
+    }
+    if (mochaInit) {
+        Mocha_DeInitLibrary();
+        mochaInit = false;
+    }
 }
 
 static void wupiPrintln(int32_t line, const char *str) {
@@ -144,8 +158,10 @@ void WUPI_waitButton() {
 }
 
 int32_t WUPI_setupInstall() {
-    if (Mocha_InitLibrary() == MOCHA_RESULT_SUCCESS)
+    if (Mocha_InitLibrary() == MOCHA_RESULT_SUCCESS) {
+        mochaInit = true;
         return 0;
+    }
     return -1;
 }
 
@@ -273,6 +289,15 @@ void WUPI_showMenu() {
 void WUPI_installD2X() {
     WUPI_resetScreen();
     
+    if (!mounted) {
+        if (!(ret = initFS())) {
+            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
+            WUPI_waitButton();
+            return;
+        }
+        mounted = true;
+    }
+
     char* selectedVersion = BrowseD2XVersions();
     if (!selectedVersion) {
         WUPI_resetScreen();
@@ -282,15 +307,6 @@ void WUPI_installD2X() {
     }
 
     WUPI_resetScreen();
-    if (!mounted) {
-        if (!(ret = initFS())) {
-            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-            free(selectedVersion);
-            WUPI_waitButton();
-            return;
-        }
-        mounted = true;
-    }
 
     // Call the patcher engine
     InstallD2X(selectedVersion);

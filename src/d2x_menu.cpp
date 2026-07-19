@@ -15,6 +15,7 @@ extern void WUPI_resetScreen();
 
 static char* s_D2XDirs[MAX_D2X_VERSIONS];
 static int s_NumDirs = 0;
+static FSError s_OpenDirErr = FS_ERROR_OK;
 
 static void ClearDirList() {
     for (int i = 0; i < s_NumDirs; i++) {
@@ -25,7 +26,8 @@ static void ClearDirList() {
 
 static void PopulateDirList(const char* dirPath) {
     FSADirectoryHandle dir;
-    if (FSAOpenDir(fsaClient, dirPath, &dir) == FS_ERROR_OK) {
+    s_OpenDirErr = FSAOpenDir(fsaClient, dirPath, &dir);
+    if (s_OpenDirErr == FS_ERROR_OK) {
         FSADirectoryEntry entry;
         while (FSAReadDir(fsaClient, dir, &entry) == FS_ERROR_OK && s_NumDirs < MAX_D2X_VERSIONS) {
             if (entry.info.flags & FS_STAT_DIRECTORY) {
@@ -65,9 +67,18 @@ static void DrawBrowserInner(int selected) {
             OSScreenPutFontEx(SCREEN_DRC, 0, 5 + i, buf);
         }
     } else {
-        snprintf(buf, sizeof(buf), "No d2x versions found in sd:/apps/d2x-cios-installer.");
-        OSScreenPutFontEx(SCREEN_TV, 0, 3, buf);
-        OSScreenPutFontEx(SCREEN_DRC, 0, 3, buf);
+        if (s_OpenDirErr != FS_ERROR_OK) {
+            snprintf(buf, sizeof(buf), "Error opening dir (Code: %d):", s_OpenDirErr);
+            OSScreenPutFontEx(SCREEN_TV, 0, 3, buf);
+            OSScreenPutFontEx(SCREEN_DRC, 0, 3, buf);
+            snprintf(buf, sizeof(buf), "sd:/apps/d2x-cios-installer");
+            OSScreenPutFontEx(SCREEN_TV, 0, 4, buf);
+            OSScreenPutFontEx(SCREEN_DRC, 0, 4, buf);
+        } else {
+            snprintf(buf, sizeof(buf), "No d2x versions found in sd:/apps/d2x-cios-installer.");
+            OSScreenPutFontEx(SCREEN_TV, 0, 3, buf);
+            OSScreenPutFontEx(SCREEN_DRC, 0, 3, buf);
+        }
     }
 
     snprintf(buf, sizeof(buf), "A: Select | B: Cancel | UP/DOWN: Move");

@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
+#include "installer.h"
 #include <unistd.h>
 
 extern FSAClientHandle fsaClient;
@@ -149,6 +150,19 @@ static bool ReadBaseIOS(uint32_t baseIos, MemIOS* outIos) {
     outIos->maxContents = numContents + 10; // Extra space for modules
     outIos->contents = (MemContent*)calloc(outIos->maxContents, sizeof(MemContent));
     
+    // Reallocate TMD buffer to have space for maxContents
+    uint32_t maxTmdSize = outIos->tmdSize + (10 * 36);
+    uint8_t* newTmd = (uint8_t*)memalign(0x40, (maxTmdSize + 0x3F) & ~0x3F);
+    if (!newTmd) {
+        D2X_Log("Failed to reallocate TMD buffer\n");
+        FreeIOS(outIos);
+        return false;
+    }
+    memset(newTmd, 0, (maxTmdSize + 0x3F) & ~0x3F);
+    memcpy(newTmd, outIos->tmd, outIos->tmdSize);
+    free(outIos->tmd);
+    outIos->tmd = newTmd;
+    
     for (uint16_t i = 0; i < numContents; i++) {
         uint32_t recordOffset = 0x1E4 + (i * 36);
         uint32_t cid = Read32BE(outIos->tmd + recordOffset);
@@ -185,6 +199,7 @@ static std::vector<uint8_t> ParseHexBytes(const char* str) {
 
 static bool ApplyBinaryPatch(MemContent* content, uint32_t offset, const std::vector<uint8_t>& origBytes, const std::vector<uint8_t>& newBytes) {
     if (origBytes.empty() || newBytes.empty()) return false;
+    if (origBytes.size() > content->size) return false;
     
     bool patched = false;
     for (uint32_t i = 0; i <= content->size - origBytes.size(); i++) {
@@ -211,9 +226,9 @@ static bool AppendModule(MemIOS* ios, const char* versionFolder, const char* mod
         return false;
     }
     
-    // Align size to 32 bytes
-    uint32_t alignedSize = (moduleSize + 31) & ~31;
-    uint8_t* alignedData = (uint8_t*)memalign(32, alignedSize);
+    // Align size to 64 bytes
+    uint32_t alignedSize = (moduleSize + 63) & ~63;
+    uint8_t* alignedData = (uint8_t*)memalign(64, alignedSize);
     memset(alignedData, 0, alignedSize);
     memcpy(alignedData, moduleData, moduleSize);
     free(moduleData);
@@ -254,6 +269,7 @@ static bool AppendModule(MemIOS* ios, const char* versionFolder, const char* mod
     
     // Update numContents in TMD header
     Write16BE(ios->tmd + 0x1DE, ios->numContents);
+    ios->tmdSize += 36;
     
     return true;
 }
@@ -276,18 +292,9 @@ static void BruteTicket(uint8_t* tik) {
     }
 }
 
-#define D2X_TRY(c) \
-    if (!(c)) \
-        do { \
-            D2X_Log("Install failed\n"); \
-            goto error; \
-    } while (0)
 
 static bool WritePatchedIOS(uint32_t titleIdLow, MemIOS* ios) {
-    FSError ret;
-    FSAFileHandle fd;
-    char path[256], pathd[256];
-    char titlePath[256], ticketPath[256], ticketFolder[256];
+    // No local path or fd variables needed anymore
     
     // Forge Ticket
     memset(ios->ticket + 4, 0, 256); // Zero out signature
@@ -314,75 +321,42 @@ static bool WritePatchedIOS(uint32_t titleIdLow, MemIOS* ios) {
     
     BruteTmd(ios->tmd, ios->tmdSize);
     
-    snprintf(titlePath, sizeof(titlePath), "/vol/slccmpt01/title/00000001/%08x", titleIdLow);
-    snprintf(ticketPath, sizeof(ticketPath), "/vol/slccmpt01/ticket/00000001/%08x.tik", titleIdLow);
-    snprintf(ticketFolder, sizeof(ticketFolder), "/vol/slccmpt01/ticket/00000001");
+    CINS_Content* cins_contents = (CINS_Content*)malloc(sizeof(CINS_Content) * ios->numContents);
+    if (!cins_contents) return false;
     
-    D2X_Log("Writing ticket for %u...\n", titleIdLow);
-    FSARemove(fsaClient, ticketPath);
-    ret = FSAMakeDir(fsaClient, ticketFolder, (FSMode)0x666);
-    if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
-        D2X_TRY(FSAOpenFileEx(fsaClient, ticketPath, "wb", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        D2X_TRY(FSAWriteFile(fsaClient, ios->ticket, ios->ticketSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
-        FSACloseFile(fsaClient, fd);
-        ret = FS_ERROR_OK;
-    }
-    D2X_TRY(ret == FS_ERROR_OK);
-    
-    D2X_Log("Creating title directory...\n");
-    ret = FSAMakeDir(fsaClient, titlePath, (FSMode)0x666);
-    if (ret == FS_ERROR_ALREADY_EXISTS) {
-        snprintf(path, sizeof(path), "/vol/slccmpt01/title/00000001/%08x/content", titleIdLow);
-        FSARemove(fsaClient, path);
-        ret = FS_ERROR_OK;
-    }
-    D2X_TRY(ret == FS_ERROR_OK);
-    
-    strncpy(pathd, titlePath, sizeof(pathd));
-    strncat(pathd, "/data", sizeof(pathd) - 1);
-    ret = FSAMakeDir(fsaClient, pathd, (FSMode)0x666);
-    if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) goto error;
-    
-    strncpy(pathd, titlePath, sizeof(pathd));
-    strncat(pathd, "/content", sizeof(pathd) - 1);
-    D2X_TRY(FSAMakeDir(fsaClient, pathd, (FSMode)0x666) == FS_ERROR_OK);
-    
-    D2X_Log("Writing TMD...\n");
-    snprintf(path, sizeof(path), "%s/title.tmd", pathd);
-    D2X_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-    D2X_TRY(FSAWriteFile(fsaClient, ios->tmd, ios->tmdSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
-    FSACloseFile(fsaClient, fd);
-    
-    D2X_Log("Writing contents...\n");
     for (uint32_t i = 0; i < ios->numContents; i++) {
-        snprintf(path, sizeof(path), "%s/%08x.app", pathd, ios->contents[i].cid);
-        D2X_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        D2X_TRY(FSAWriteFile(fsaClient, ios->contents[i].data, ios->contents[i].size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
-        FSACloseFile(fsaClient, fd);
+        cins_contents[i].data = ios->contents[i].data;
+        cins_contents[i].length = ios->contents[i].size;
     }
     
-    return true;
-error:
-    FSACloseFile(fsaClient, fd);
-    FSARemove(fsaClient, titlePath);
-    FSARemove(fsaClient, ticketPath);
-    return false;
+    uint64_t fullTitleId = 0x0000000100000000ULL | titleIdLow;
+    int32_t ret = CINS_Install(fullTitleId, ios->ticket, ios->ticketSize, ios->tmd, ios->tmdSize, cins_contents, ios->numContents);
+    
+    free(cins_contents);
+    
+    return ret >= 0;
 }
 
 void InstallD2X(const char* versionFolder) {
     char xmlPath[512];
-    snprintf(xmlPath, sizeof(xmlPath), "%s/CIOSMAPS.xml", versionFolder);
+    char parentDir[512];
+    strncpy(parentDir, versionFolder, sizeof(parentDir) - 1);
+    parentDir[sizeof(parentDir) - 1] = '\0';
+    char* lastSlash = strrchr(parentDir, '/');
+    if (lastSlash) *lastSlash = '\0';
+    
+    snprintf(xmlPath, sizeof(xmlPath), "%s/ciosmaps.xml", parentDir);
     
     uint8_t* xmlData = NULL;
     uint32_t xmlSize = 0;
     if (!ReadFileToBuffer(xmlPath, &xmlData, &xmlSize)) {
-        D2X_Log("Failed to read CIOSMAPS.xml\n");
+        D2X_Log("Failed to read ciosmaps.xml\n");
         return;
     }
     
     tinyxml2::XMLDocument doc;
     if (doc.Parse((const char*)xmlData, xmlSize) != tinyxml2::XML_SUCCESS) {
-        D2X_Log("Failed to parse CIOSMAPS.xml\n");
+        D2X_Log("Failed to parse ciosmaps.xml\n");
         free(xmlData);
         return;
     }
@@ -414,8 +388,10 @@ void InstallD2X(const char* versionFolder) {
     
     struct Config { int slot; int base; };
     Config configs[] = { {249, 56}, {250, 57}, {251, 58} };
+    bool failures[3] = {false, false, false};
     
     for (int i = 0; i < 3; i++) {
+        if (!State::AppRunning()) break;
         WUPI_resetScreen();
         D2X_Log("Installing cIOS slot %d (base %d)...\n", configs[i].slot, configs[i].base);
         
@@ -433,12 +409,14 @@ void InstallD2X(const char* versionFolder) {
         
         if (!baseEl) {
             D2X_Log("Could not find configuration in XML.\n");
+            failures[i] = true;
             sleep(2);
             continue;
         }
         
         MemIOS ios;
         if (!ReadBaseIOS(configs[i].base, &ios)) {
+            failures[i] = true;
             sleep(2);
             continue;
         }
@@ -471,16 +449,32 @@ void InstallD2X(const char* versionFolder) {
         
         if (WritePatchedIOS(configs[i].slot, &ios)) {
             D2X_Log("Successfully installed slot %d.\n", configs[i].slot);
+        } else {
+            failures[i] = true;
         }
         FreeIOS(&ios);
         sleep(2);
     }
     
     free(xmlData);
-    D2X_Log("\nInstallation complete. Press A to return to menu.\n");
-    while (State::AppRunning()) {
-        input.read();
-        if (input.get(TRIGGER, PAD_BUTTON_A)) break;
-        usleep(16000);
+    WUPI_resetScreen();
+    D2X_Log("Installation process finished.\n\n");
+    bool anyFailures = false;
+    for (int i = 0; i < 3; i++) {
+        if (failures[i]) {
+            anyFailures = true;
+            break;
+        }
+    }
+    
+    if (anyFailures) {
+        D2X_Log("Summary of failures:\n");
+        for (int i = 0; i < 3; i++) {
+            if (failures[i]) {
+                D2X_Log(" - Failed to install cIOS to slot %d (base %d)\n", configs[i].slot, configs[i].base);
+            }
+        }
+    } else {
+        D2X_Log("All cIOS installed successfully!\n");
     }
 }
