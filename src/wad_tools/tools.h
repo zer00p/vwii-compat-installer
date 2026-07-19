@@ -18,6 +18,14 @@ u32 be32(const u8 *p);
 u64 be64(const u8 *p);
 u64 be34(const u8 *p);
 
+static inline u32 get_payload_offset(const u8* data) {
+    u32 sigType = be32(data);
+    if (sigType == 0x00010000) return 0x240;
+    if (sigType == 0x00010001) return 0x140;
+    if (sigType == 0x00010002) return 0x80;
+    return 0x140;
+}
+
 void wbe16(u8 *p, u16 x);
 void wbe32(u8 *p, u32 x);
 void wbe64(u8 *p, u64 x);

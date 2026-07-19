@@ -26,6 +26,8 @@ extern "C" {
 #include <stdint.h>
 #include <string.h>
 
+#include "EndianUtils.h"
+
 typedef struct
 {
     const void *data;
@@ -42,8 +44,9 @@ extern int32_t CINS_iosuhaxFd;
 extern int32_t CINS_fsaFd;
 extern int32_t CINS_logLine;
 
-int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
-                     uint32_t tmd_size, CINS_Content *contents,
+
+int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size, const void *tmd,
+                     uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents);
 
 #ifdef __cplusplus

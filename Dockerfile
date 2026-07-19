@@ -1,6 +1,6 @@
-FROM ghcr.io/wiiu-env/devkitppc:20230402
+FROM ghcr.io/wiiu-env/devkitppc:20260504
 
-COPY --from=ghcr.io/wiiu-env/libmocha:20230417 /artifacts $DEVKITPRO
+COPY --from=ghcr.io/wiiu-env/libmocha:20260331 /artifacts $DEVKITPRO
 
 RUN git config --global --add safe.directory /project
 

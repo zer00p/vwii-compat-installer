@@ -1,5 +1,5 @@
-/* WAD Installer integration
- *   Copyright (C) 2026
+/* Compat Title Installer
+ *   Copyright (C) 2026  zer00p
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,18 +21,12 @@
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <vector>
+#include <string>
 
 // Interactive WAD selector that renders to the screen using OSScreen.
-// Returns a dynamically allocated string containing the absolute path to the selected WAD, 
-// or NULL if the user cancelled or an error occurred.
-// The caller is responsible for freeing the returned string.
-char* BrowseWADs(void);
-
-#ifdef __cplusplus
-}
-#endif
+// Returns a vector of strings containing the absolute paths to the selected WADs, 
+// or an empty vector if the user cancelled or an error occurred.
+std::vector<std::string> BrowseWADs(void);
 
 #endif // FILEBROWSER_H

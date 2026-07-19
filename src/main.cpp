@@ -63,7 +63,7 @@ extern const uint32_t title_00000000_bin_size;
 extern const uint8_t title_00000001_bin[];
 extern const uint32_t title_00000001_bin_size;
 
-bool mounted = false, exploit = false;
+bool mounted = false;
 CINS_Content contents[2];
 int32_t ret, fsaFd = -1;
 
@@ -130,6 +130,17 @@ void WUPI_waitHome() {
     return;
 }
 
+void WUPI_waitButton() {
+    WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
+    Input input;
+    while (State::AppRunning()) {
+        input.read();
+        if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
+            return;
+        }
+    }
+}
+
 int32_t WUPI_setupInstall() {
     if (Mocha_InitLibrary() == MOCHA_RESULT_SUCCESS)
         return 0;
@@ -139,19 +150,15 @@ int32_t WUPI_setupInstall() {
 void WUPI_install() {
     /* We should only end up here if the A button was pressed. */
     WUPI_resetScreen();
-    if (WUPI_setupInstall() < 0) {
-        WUPI_putstr("Error: IOS exploit failed.");
-        WUPI_waitHome();
-        return;
-    }
-    exploit = true;
 
-    if (!(ret = initFS())) {
-        WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-        WUPI_waitHome();
-        return;
+    if (!mounted) {
+        if (!(ret = initFS())) {
+            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
+            WUPI_waitButton();
+            return;
+        }
+        mounted = true;
     }
-    mounted = true;
 
     WUPI_putstr("Installing the Homebrew Channel...\n");
 
@@ -169,7 +176,7 @@ void WUPI_install() {
     contents[0].length = title_00000000_bin_size;
     contents[1].data = (const void *) title_00000001_bin_aligned;
     contents[1].length = title_00000001_bin_size;
-    ret = CINS_Install((const void *) title_cetk_bin_aligned, title_cetk_bin_size,
+    ret = CINS_Install(CINS_TITLEID, (const void *) title_cetk_bin_aligned, title_cetk_bin_size,
                        (const void *) title_tmd_bin_aligned, title_tmd_bin_size, contents,
                        2);
     free(title_cetk_bin_aligned);
@@ -178,65 +185,86 @@ void WUPI_install() {
     free(title_00000001_bin_aligned);
     if (ret < 0)
         WUPI_printf("Install failed. Error Code: %06X\n", -ret);
-    WUPI_waitHome();
+    WUPI_waitButton();
 }
 
 void WUPI_installWAD() {
     WUPI_resetScreen();
-    if (WUPI_setupInstall() < 0) {
-        WUPI_putstr("Error: IOS exploit failed.");
-        WUPI_waitHome();
-        return;
-    }
-    exploit = true;
 
-    if (!(ret = initFS())) {
-        WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-        WUPI_waitHome();
-        return;
+    if (!mounted) {
+        if (!(ret = initFS())) {
+            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
+            WUPI_waitButton();
+            return;
+        }
+        mounted = true;
     }
-    mounted = true;
 
-    char* selectedWad = BrowseWADs();
-    if (!selectedWad) {
+    std::vector<std::string> selectedWads = BrowseWADs();
+    if (selectedWads.empty()) {
         WUPI_resetScreen();
-        WUPI_putstr("No WAD selected.");
-        WUPI_waitHome();
+        WUPI_putstr("No WADs selected.");
+        WUPI_waitButton();
         return;
+    }
+
+    int successCount = 0;
+    int failCount = 0;
+
+    for (const auto& wadPath : selectedWads) {
+        WUPI_resetScreen();
+        WUPI_printf("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
+        
+        const char* filename = strrchr(wadPath.c_str(), '/');
+        filename = filename ? filename + 1 : wadPath.c_str();
+        WUPI_printf("%s\n", filename);
+
+        WUPI_putstr("Loading and decrypting WAD...\n");
+
+        WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
+        if (!ctx) {
+            WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
+            failCount++;
+            sleep(3);
+            continue;
+        }
+
+        if (!WAD_IsSafeTitle(ctx)) {
+            WUPI_putstr("Error: This is an original Wii System Title!");
+            WUPI_putstr("Installing this WILL BRICK your vWii.");
+            WUPI_putstr("Skipping this WAD for safety.");
+            WAD_Free(ctx);
+            failCount++;
+            sleep(4);
+            continue;
+        }
+
+        WUPI_putstr("Writing to slccmpt...\n");
+        if (WAD_InstallToVWii(ctx, 0)) {
+            WUPI_putstr("WAD Installation complete!\n");
+            successCount++;
+            sleep(1);
+        } else {
+            WUPI_putstr("Error: WAD installation failed.\n");
+            failCount++;
+            sleep(3);
+        }
+
+        WAD_Free(ctx);
     }
 
     WUPI_resetScreen();
-    WUPI_printf("Selected: %s\n", selectedWad);
-    WUPI_putstr("Loading and decrypting WAD...\n");
+    WUPI_printf("Batch Install Complete!\n");
+    WUPI_printf("Successful: %d\n", successCount);
+    WUPI_printf("Failed: %d\n", failCount);
+    WUPI_waitButton();
+}
 
-    WADContext* ctx = WAD_LoadAndDecrypt(selectedWad);
-    if (!ctx) {
-        WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
-        free(selectedWad);
-        WUPI_waitHome();
-        return;
-    }
-
-    if (!WAD_IsSafeTitle(ctx)) {
-        WUPI_putstr("Error: This looks like a System Title!");
-        WUPI_putstr("Installing this could BRICK your vWii.");
-        WUPI_putstr("Installation aborted for safety.");
-        WAD_Free(ctx);
-        free(selectedWad);
-        WUPI_waitHome();
-        return;
-    }
-
-    WUPI_putstr("Writing to slccmpt...\n");
-    if (WAD_InstallToVWii(ctx, 0)) {
-        WUPI_putstr("WAD Installation complete!\n");
-    } else {
-        WUPI_putstr("Error: WAD installation failed.\n");
-    }
-
-    WAD_Free(ctx);
-    free(selectedWad);
-    WUPI_waitHome();
+void WUPI_showMenu() {
+    WUPI_resetScreen();
+    WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
+    WUPI_putstr("Press X to install a WAD from the SD Card.");
+    WUPI_putstr("Press HOME to exit.");
 }
 
 int main() {
@@ -264,33 +292,34 @@ int main() {
     OSScreenClearBufferEx(SCREEN_TV, 0);
     OSScreenClearBufferEx(SCREEN_DRC, 0);
 
-    WUPI_resetScreen();
-    WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
-    WUPI_putstr("Press X to install a WAD from the SD Card.");
-    WUPI_putstr("Press HOME to exit.");
+    if (WUPI_setupInstall() < 0) {
+        WUPI_resetScreen();
+        WUPI_putstr("Error: Mocha not found, you need to run this from Aroma.");
+        WUPI_waitButton();
+    } else {
+        WUPI_showMenu();
 
-    while (State::AppRunning()) {
-        input.read();
-        if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
-            WUPI_resetScreen();
-            WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
-            WUPI_putstr("Press X to install a WAD from the SD Card.");
-            WUPI_putstr("Press HOME to exit.");
-        }
-        if (input.get(TRIGGER, PAD_BUTTON_A)) {
-            WUPI_install();
-            break;
-        }
-        if (input.get(TRIGGER, PAD_BUTTON_X)) {
-            WUPI_installWAD();
-            break;
+        while (State::AppRunning()) {
+            input.read();
+            
+            if (!State::ForegroundReacquired() && !input.get(TRIGGER, PAD_BUTTON_ANY)) {
+                continue;
+            }
+
+            if (input.get(TRIGGER, PAD_BUTTON_A)) {
+                WUPI_install();
+            } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
+                WUPI_installWAD();
+            }
+            
+            WUPI_showMenu();
         }
     }
 
     deinitFS();
+    State::shutdown();
 
     if (screen_buffer)
         free(screen_buffer);
-    State::shutdown();
     return 0;
 }
