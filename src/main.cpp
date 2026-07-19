@@ -63,7 +63,7 @@ extern const uint32_t title_00000000_bin_size;
 extern const uint8_t title_00000001_bin[];
 extern const uint32_t title_00000001_bin_size;
 
-bool mounted = false, exploit = false;
+bool mounted = false;
 CINS_Content contents[2];
 int32_t ret, fsaFd = -1;
 
@@ -150,14 +150,6 @@ int32_t WUPI_setupInstall() {
 void WUPI_install() {
     /* We should only end up here if the A button was pressed. */
     WUPI_resetScreen();
-    if (!exploit) {
-        if (WUPI_setupInstall() < 0) {
-            WUPI_putstr("Error: IOS exploit failed.");
-            WUPI_waitButton();
-            return;
-        }
-        exploit = true;
-    }
 
     if (!mounted) {
         if (!(ret = initFS())) {
@@ -198,14 +190,6 @@ void WUPI_install() {
 
 void WUPI_installWAD() {
     WUPI_resetScreen();
-    if (!exploit) {
-        if (WUPI_setupInstall() < 0) {
-            WUPI_putstr("Error: IOS exploit failed.");
-            WUPI_waitButton();
-            return;
-        }
-        exploit = true;
-    }
 
     if (!mounted) {
         if (!(ret = initFS())) {
@@ -308,22 +292,28 @@ int main() {
     OSScreenClearBufferEx(SCREEN_TV, 0);
     OSScreenClearBufferEx(SCREEN_DRC, 0);
 
-    WUPI_showMenu();
-
-    while (State::AppRunning()) {
-        input.read();
-        
-        if (!State::ForegroundReacquired() && !input.get(TRIGGER, PAD_BUTTON_ANY)) {
-            continue;
-        }
-
-        if (input.get(TRIGGER, PAD_BUTTON_A)) {
-            WUPI_install();
-        } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
-            WUPI_installWAD();
-        }
-        
+    if (WUPI_setupInstall() < 0) {
+        WUPI_resetScreen();
+        WUPI_putstr("Error: Mocha not found, you need to run this from Aroma.");
+        WUPI_waitButton();
+    } else {
         WUPI_showMenu();
+
+        while (State::AppRunning()) {
+            input.read();
+            
+            if (!State::ForegroundReacquired() && !input.get(TRIGGER, PAD_BUTTON_ANY)) {
+                continue;
+            }
+
+            if (input.get(TRIGGER, PAD_BUTTON_A)) {
+                WUPI_install();
+            } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
+                WUPI_installWAD();
+            }
+            
+            WUPI_showMenu();
+        }
     }
 
     deinitFS();
