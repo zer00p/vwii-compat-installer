@@ -54,8 +54,8 @@ extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
     } else if (index == 2) {
         memcpy(outKey, otp.wiiUBank.vWiiCommonKey, 16);
     } else {
-        WAD_Log("Unknown common key index %d\n", index);
-        return false;
+        WAD_Log("Unknown common key index %d, falling back to standard common key\n", index);
+        memcpy(outKey, otp.wiiBank.commonKey, 16);
     }
     return true;
 }
@@ -75,7 +75,7 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
         return NULL;
     }
 
-    WADContext* ctx = (WADContext*)memalign(0x40, sizeof(WADContext));
+    WADContext* ctx = (WADContext*)malloc(sizeof(WADContext));
     if (!ctx) {
         return NULL;
     }
