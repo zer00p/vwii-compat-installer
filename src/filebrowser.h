@@ -1,5 +1,5 @@
-/* WAD Installer integration
- *   Copyright (C) 2026
+/* Compat Title Installer
+ *   Copyright (C) 2026  zer00p
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
