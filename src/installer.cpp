@@ -132,6 +132,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(tmd), tmd_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
 
         FSACloseFile(fsaClient, fd);
+        fd = 0;
     }
 
     CINS_Log("Writing contents...\n");
@@ -149,6 +150,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
             CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(contents[i].data), cSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
 
             FSACloseFile(fsaClient, fd);
+            fd = 0;
         }
     }
     ret = IOS_SUCCESS;
