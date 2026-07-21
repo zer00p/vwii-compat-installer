@@ -26,8 +26,6 @@ extern "C" {
 #include <stdint.h>
 #include <string.h>
 
-#include "EndianUtils.h"
-
 typedef struct
 {
     const void *data;

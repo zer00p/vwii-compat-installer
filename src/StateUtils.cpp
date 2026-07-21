@@ -1,4 +1,5 @@
 #include "StateUtils.h"
+#include "ScreenUtils.h"
 #include <coreinit/core.h>
 #include <coreinit/dynload.h>
 #include <coreinit/foreground.h>
@@ -38,8 +39,7 @@ bool State::AppRunning() {
                 case PROCUI_STATUS_IN_FOREGROUND:
                     // Re-enable screens after returning from background
                     if (wasBackground) {
-                        OSScreenEnableEx(SCREEN_TV, 1);
-                        OSScreenEnableEx(SCREEN_DRC, 1);
+                        ScreenUtils_Enable();
                         foregroundReacquired = true;
                         wasBackground = false;
                     }

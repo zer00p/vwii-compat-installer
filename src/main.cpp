@@ -37,6 +37,7 @@
 #include <whb/proc.h>
 
 #include "InputUtils.h"
+#include "ScreenUtils.h"
 #include "StateUtils.h"
 #include "filebrowser.h"
 #include "wad.h"
@@ -88,15 +89,11 @@ void deinitFS() {
 
 static void wupiPrintln(int32_t line, const char *str) {
     /* put line twice for double buffer */
-    OSScreenPutFontEx(SCREEN_TV, 0, line, str);
-    OSScreenPutFontEx(SCREEN_DRC, 0, line, str);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
+    ScreenUtils_PutFont(0, line, str);
+    ScreenUtils_FlipBuffers();
 
-    OSScreenPutFontEx(SCREEN_TV, 0, line, str);
-    OSScreenPutFontEx(SCREEN_DRC, 0, line, str);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
+    ScreenUtils_PutFont(0, line, str);
+    ScreenUtils_FlipBuffers();
 }
 
 void WUPI_printTop() {
@@ -287,10 +284,8 @@ int main() {
     screen_buffer = (uint8_t *) memalign(0x100, screen_size);
     OSScreenSetBufferEx(SCREEN_TV, screen_buffer);                   /* TV */
     OSScreenSetBufferEx(SCREEN_DRC, screen_buffer + tv_screen_size); /* DRC */
-    OSScreenEnableEx(SCREEN_TV, 1);
-    OSScreenEnableEx(SCREEN_DRC, 1);
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
+    ScreenUtils_Enable();
+    ScreenUtils_ClearBuffer(0);
 
     if (WUPI_setupInstall() < 0) {
         WUPI_resetScreen();
