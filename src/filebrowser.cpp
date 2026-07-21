@@ -93,17 +93,12 @@ static void DrawBrowserInner(int selected) {
     OSScreenClearBufferEx(SCREEN_TV, 0);
     OSScreenClearBufferEx(SCREEN_DRC, 0);
 
-    OSScreenPutFontEx(SCREEN_TV, 0, 0, "Compat Title Installer v1.6");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 0, "Compat Title Installer v1.6");
-    OSScreenPutFontEx(SCREEN_TV, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
-
     std::string pathStr = "Path: " + s_CurrentPath;
     OSScreenPutFontEx(SCREEN_TV, 0, 3, pathStr.c_str());
     OSScreenPutFontEx(SCREEN_DRC, 0, 3, pathStr.c_str());
 
     if (!s_Entries.empty()) {
-        int visible_lines = 10;
+        int visible_lines = 12;
         int start_idx = selected - visible_lines / 2;
         if (start_idx < 0) start_idx = 0;
         if (start_idx + visible_lines > (int)s_Entries.size()) {
