@@ -10,6 +10,7 @@
 bool State::aroma = false;
 bool State::wasBackground = false;
 bool State::foregroundReacquired = false;
+bool State::exiting = false;
 
 void State::init() {
     OSDynLoad_Module mod;
@@ -30,6 +31,7 @@ bool State::AppRunning() {
             switch (ProcUIProcessMessages(true)) {
                 case PROCUI_STATUS_EXITING:
                     // Being closed, prepare to exit
+                    exiting = true;
                     return false;
                 case PROCUI_STATUS_RELEASE_FOREGROUND:
                     // Free up MEM1 to next foreground app, deinit screen, etc.
@@ -53,7 +55,11 @@ bool State::AppRunning() {
             }
         }
     }
-    return WHBProcIsRunning();
+    bool running = WHBProcIsRunning();
+    if (!running) {
+        exiting = true;
+    }
+    return running;
 }
 
 bool State::ForegroundReacquired() {
@@ -62,6 +68,10 @@ bool State::ForegroundReacquired() {
         return true;
     }
     return false;
+}
+
+bool State::isExiting() {
+    return exiting;
 }
 
 void State::shutdown() {
