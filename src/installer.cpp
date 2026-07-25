@@ -17,6 +17,7 @@
  */
 
 #include "installer.h"
+#include "log.h"
 #include <coreinit/filesystem_fsa.h>
 #include <stdio.h>
 #include <string.h>

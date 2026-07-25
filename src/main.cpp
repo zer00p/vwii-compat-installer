@@ -17,6 +17,7 @@
  */
 
 #include "installer.h"
+#include "log.h"
 #include <coreinit/cache.h>
 #include <coreinit/debug.h>
 #include <coreinit/filesystem_fsa.h>
@@ -44,10 +45,6 @@
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
-void WUPI_printTop();
-void WUPI_resetScreen();
-
-int32_t wupiLine;
 uint8_t *screen_buffer;
 uint32_t screen_size;
 
@@ -84,58 +81,6 @@ void deinitFS() {
     Mocha_DeInitLibrary();
     FSADelClient(fsaClient);
     FSAShutdown();
-}
-
-static void wupiPrintln(int32_t line, const char *str) {
-    /* put line twice for double buffer */
-    ScreenUtils_PutFont(0, line, str);
-    ScreenUtils_FlipBuffers();
-
-    ScreenUtils_PutFont(0, line, str);
-    ScreenUtils_FlipBuffers();
-}
-
-void WUPI_printTop() {
-    wupiPrintln(0, "Compat Title Installer v1.6");
-    wupiPrintln(1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
-}
-
-void WUPI_putstr(const char *str) {
-    wupiPrintln(wupiLine++, str);
-}
-
-void WUPI_resetScreen() {
-    memset((void *) screen_buffer, 0, screen_size);
-    wupiLine = 4;
-
-    WUPI_printTop();
-}
-
-void WUPI_waitHome() {
-    WUPI_putstr("Press HOME to exit.");
-    while (State::AppRunning()) {
-        if (State::ForegroundReacquired()) {
-            WUPI_resetScreen();
-            WUPI_putstr("Press HOME to exit.");
-        }
-    }
-    return;
-}
-
-void WUPI_waitButton() {
-    WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
-    Input input;
-    while (State::AppRunning()) {
-        if (State::ForegroundReacquired()) {
-            WUPI_resetScreen();
-            WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
-        }
-
-        input.read();
-        if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
-            return;
-        }
-    }
 }
 
 int32_t WUPI_setupInstall() {

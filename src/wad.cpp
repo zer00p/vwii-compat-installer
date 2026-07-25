@@ -17,7 +17,8 @@
  */
 
 #include "wad.h"
-#include "installer.h" // For CINS_Log, WUPI_putstr, etc.
+#include "installer.h"
+#include "log.h"
 #include "EndianUtils.h"
 #include <mocha/mocha.h>
 #include <coreinit/filesystem_fsa.h>
