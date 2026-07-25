@@ -71,6 +71,7 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
 
     WADContext* ctx = (WADContext*)malloc(sizeof(WADContext));
     if (!ctx) {
+        WUPI_Log("WAD_LoadAndDecrypt: Failed to allocate context\n");
         return NULL;
     }
     memset(ctx, 0, sizeof(WADContext));

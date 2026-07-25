@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdio.h>
 
 void WUPI_putstr(const char *str);
@@ -14,3 +18,7 @@ void WUPI_waitButton();
         snprintf(_wupi_print_str, 255, __VA_ARGS__); \
         WUPI_putstr(_wupi_print_str); \
     } while (0)
+
+#ifdef __cplusplus
+}
+#endif
