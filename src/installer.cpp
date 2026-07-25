@@ -23,15 +23,6 @@
 #include <sys/stat.h>
 #include "EndianUtils.h"
 
-void WUPI_putstr(const char *);
-
-#define CINS_Log(...)                                \
-    do {                                             \
-        char _wupi_print_str[256];                   \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
-        WUPI_putstr(_wupi_print_str);                \
-    } while (0)
-
 #define IOS_SUCCESS             FS_ERROR_OK
 
 #define CINS_PATH_LEN           (sizeof("/vol/slccmpt01") + 63)
@@ -39,7 +30,7 @@ void WUPI_putstr(const char *);
 #define CINS_TRY(c)                        \
     if (!(c))                              \
         do {                               \
-            CINS_Log("Failed, please exit and try again\n"); \
+            WUPI_Log("Failed, please exit and try again\n"); \
             goto error;                    \
     } while (0)
 
@@ -59,14 +50,14 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
 
     uint32_t tmdPayloadOffset = GetPayloadOffset((const uint8_t*)tmd);
 
-    CINS_Log("Starting install\n");
+    WUPI_Log("Starting install\n");
 
     snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
     snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x", idHi);
     snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
     snprintf(ticketFolder, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x", idHi);
 
-    CINS_Log("Writing ticket...\n");
+    WUPI_Log("Writing ticket...\n");
     {
         FSARemove(fsaClient, ticketPath);
 
@@ -83,7 +74,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         CINS_TRY(ret == FS_ERROR_OK); // ret == 0
     }
 
-    CINS_Log("Creating title directory...\n");
+    WUPI_Log("Creating title directory...\n");
     {
         /* Create the title directory if it doesn't already exist. The first
          * word (type) should exist, but the second one (the unique title)
@@ -94,7 +85,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
             if (ret == FS_ERROR_ALREADY_EXISTS) {
                 /* The title is already installed, delete content but preserve
                  * the data directory. */
-                CINS_Log(
+                WUPI_Log(
                         "Title directory already exists, deleting content...\n");
                 snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content",
                          idHi, idLo);
@@ -113,7 +104,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         strncat(pathd, "/data", CINS_PATH_LEN - 1);
         ret = FSAMakeDir(fsaClient, pathd, (FSMode) 0x666);
         if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
-            CINS_Log("Failed to create the data directory, ret = %d\n", ret);
+            WUPI_Log("Failed to create the data directory, ret = %d\n", ret);
             goto error;
         }
 
@@ -122,7 +113,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         CINS_TRY(FSAMakeDir(fsaClient, pathd, (FSMode) 0x666) == FS_ERROR_OK);
     }
 
-    CINS_Log("Writing TMD...\n");
+    WUPI_Log("Writing TMD...\n");
     {
         /* pathd should be the content directory */
         strncpy(path, pathd, CINS_PATH_LEN);
@@ -135,7 +126,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         fd = 0;
     }
 
-    CINS_Log("Writing contents...\n");
+    WUPI_Log("Writing contents...\n");
     {
         for (uint16_t i = 0; i < numContents; i++) {
             uint32_t recordOffset = tmdPayloadOffset + 0xA4 + (i * 36);
@@ -154,12 +145,12 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         }
     }
     ret = IOS_SUCCESS;
-    CINS_Log("Install succeeded!\n");
+    WUPI_Log("Install succeeded!\n");
 
 error:
     if (fd > 0) FSACloseFile(fsaClient, fd);
     if (ret < 0) {
-        CINS_Log("Install failed, attempting to delete title...\n");
+        WUPI_Log("Install failed, attempting to delete title...\n");
         /* Installation failed in the final stages. Delete these to be sure
          * there is no 'half installed' title lurking in the filesystem. */
         FSARemove(fsaClient, titlePath);

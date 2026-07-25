@@ -31,19 +31,12 @@
 
 // Forward declarations of FSA helpers
 extern FSAClientHandle fsaClient;
-void WUPI_putstr(const char *);
-#define WAD_Log(...) \
-    do { \
-        char _wupi_print_str[256]; \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
-        WUPI_putstr(_wupi_print_str); \
-    } while (0)
 
 
 extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
     WiiUConsoleOTP otp;
     if (Mocha_ReadOTP(&otp) != MOCHA_RESULT_SUCCESS) {
-        WAD_Log("Failed to read OTP!\n");
+        WUPI_Log("Failed to read OTP!\n");
         return false;
     }
     
@@ -54,7 +47,7 @@ extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
     } else if (index == 2) {
         memcpy(outKey, otp.wiiUBank.vWiiCommonKey, 16);
     } else {
-        WAD_Log("Unknown common key index %d, falling back to standard common key\n", index);
+        WUPI_Log("Unknown common key index %d, falling back to standard common key\n", index);
         memcpy(outKey, otp.wiiBank.commonKey, 16);
     }
     return true;
@@ -71,7 +64,7 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
 
     int res = ExtractWadToMemory(filepath, &ticket, &ticket_size, &tmd, &tmd_size, &contents, &numContents, &titleId);
     if (res != 0) {
-        WAD_Log("ExtractWadToMemory failed for %s\n", filepath);
+        WUPI_Log("ExtractWadToMemory failed for %s\n", filepath);
         return NULL;
     }
 
@@ -93,7 +86,7 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     uint32_t tmdPayloadOffset = GetPayloadOffset(ctx->tmdData);
     ctx->titleType = Read32BE(ctx->tmdData + tmdPayloadOffset + 0x48);
 
-    WAD_Log("WAD decrypted successfully. ID: %08x-%08x\n", (uint32_t)(ctx->tmdTitleId >> 32), (uint32_t)(ctx->tmdTitleId));
+    WUPI_Log("WAD decrypted successfully. ID: %08x-%08x\n", (uint32_t)(ctx->tmdTitleId >> 32), (uint32_t)(ctx->tmdTitleId));
     return ctx;
 }
 
@@ -150,7 +143,7 @@ bool WAD_IsSafeTitle(WADContext* ctx) {
 #define WAD_TRY(c) \
     if (!(c)) \
         do { \
-            WAD_Log("Install failed\n"); \
+            WUPI_Log("Install failed\n"); \
             goto error; \
     } while (0)
 

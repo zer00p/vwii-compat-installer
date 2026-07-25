@@ -45,7 +45,6 @@
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
 void WUPI_printTop();
-void WUPI_putstr(const char *str);
 void WUPI_resetScreen();
 
 int32_t wupiLine;
@@ -100,14 +99,6 @@ void WUPI_printTop() {
     wupiPrintln(0, "Compat Title Installer v1.6");
     wupiPrintln(1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
 }
-
-/* I don't care enough to implement a va arg function */
-#define WUPI_printf(...)                             \
-    do {                                             \
-        char _wupi_print_str[256];                   \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
-        WUPI_putstr(_wupi_print_str);                \
-    } while (0)
 
 void WUPI_putstr(const char *str) {
     wupiPrintln(wupiLine++, str);
@@ -181,7 +172,7 @@ void WUPI_install() {
     free(title_00000000_bin_aligned);
     free(title_00000001_bin_aligned);
     if (ret < 0)
-        WUPI_printf("Install failed. Error Code: %06X\n", -ret);
+        WUPI_Log("Install failed. Error Code: %06X\n", -ret);
     WUPI_waitButton();
 }
 
@@ -210,11 +201,11 @@ void WUPI_installWAD() {
 
     for (const auto& wadPath : selectedWads) {
         WUPI_resetScreen();
-        WUPI_printf("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
+        WUPI_Log("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
         
         const char* filename = strrchr(wadPath.c_str(), '/');
         filename = filename ? filename + 1 : wadPath.c_str();
-        WUPI_printf("%s\n", filename);
+        WUPI_Log("%s\n", filename);
 
         WUPI_putstr("Loading and decrypting WAD...\n");
 
@@ -251,9 +242,9 @@ void WUPI_installWAD() {
     }
 
     WUPI_resetScreen();
-    WUPI_printf("Batch Install Complete!\n");
-    WUPI_printf("Successful: %d\n", successCount);
-    WUPI_printf("Failed: %d\n", failCount);
+    WUPI_Log("Batch Install Complete!\n");
+    WUPI_Log("Successful: %d\n", successCount);
+    WUPI_Log("Failed: %d\n", failCount);
     WUPI_waitButton();
 }
 
