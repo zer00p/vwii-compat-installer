@@ -93,10 +93,10 @@ static void DrawBrowserInner(int selected) {
     ScreenUtils_ClearBuffer(0);
 
     std::string pathStr = "Path: " + s_CurrentPath;
-    ScreenUtils_PutFont(0, 3, pathStr.c_str());
+    ScreenUtils_PutFont(0, 0, pathStr.c_str());
 
     if (!s_Entries.empty()) {
-        int visible_lines = 12;
+        int visible_lines = 14;
         int start_idx = selected - visible_lines / 2;
         if (start_idx < 0) start_idx = 0;
         if (start_idx + visible_lines > (int)s_Entries.size()) {
@@ -111,10 +111,10 @@ static void DrawBrowserInner(int selected) {
             std::string checkbox = entry.isDir ? "[DIR]" : (entry.isSelected ? "[X]" : "[ ]");
             
             std::string lineStr = cursor + " " + checkbox + " " + entry.name;
-            ScreenUtils_PutFont(0, 5 + i, lineStr.c_str());
+            ScreenUtils_PutFont(0, 2 + i, lineStr.c_str());
         }
     } else {
-        ScreenUtils_PutFont(0, 5, "No files or subdirectories found.");
+        ScreenUtils_PutFont(0, 2, "No files or subdirectories found.");
     }
 
     ScreenUtils_PutFont(0, 16, "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");

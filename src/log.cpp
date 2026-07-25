@@ -26,6 +26,9 @@ void WUPI_putstr(const char *str) {
 
 void WUPI_resetScreen() {
     ScreenUtils_ClearBuffer(0);
+    ScreenUtils_FlipBuffers();
+    ScreenUtils_ClearBuffer(0);
+    ScreenUtils_FlipBuffers();
     wupiLine = 4;
 
     WUPI_printTop();
