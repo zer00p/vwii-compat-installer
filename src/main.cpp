@@ -113,8 +113,12 @@ void WUPI_resetScreen() {
 
 void WUPI_waitHome() {
     WUPI_putstr("Press HOME to exit.");
-    while (State::AppRunning())
-        continue;
+    while (State::AppRunning()) {
+        if (State::ForegroundReacquired()) {
+            WUPI_resetScreen();
+            WUPI_putstr("Press HOME to exit.");
+        }
+    }
     return;
 }
 
@@ -122,6 +126,11 @@ void WUPI_waitButton() {
     WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
     Input input;
     while (State::AppRunning()) {
+        if (State::ForegroundReacquired()) {
+            WUPI_resetScreen();
+            WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
+        }
+
         input.read();
         if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
             return;

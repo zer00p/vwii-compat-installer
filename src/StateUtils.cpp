@@ -24,13 +24,13 @@ void State::init() {
 
 bool State::AppRunning() {
     if (aroma) {
-        bool app = true;
-        if (OSIsMainCore()) {
+        if (!OSIsMainCore()) return true;
+
+        while (true) {
             switch (ProcUIProcessMessages(true)) {
                 case PROCUI_STATUS_EXITING:
                     // Being closed, prepare to exit
-                    app = false;
-                    break;
+                    return false;
                 case PROCUI_STATUS_RELEASE_FOREGROUND:
                     // Free up MEM1 to next foreground app, deinit screen, etc.
                     ProcUIDrawDoneRelease();
@@ -43,16 +43,15 @@ bool State::AppRunning() {
                         foregroundReacquired = true;
                         wasBackground = false;
                     }
-                    app = true;
-                    break;
+                    return true;
                 case PROCUI_STATUS_IN_BACKGROUND:
                     wasBackground = true;
                     OSSleepTicks(OSMillisecondsToTicks(20));
                     break;
+                default:
+                    break;
             }
         }
-
-        return app;
     }
     return WHBProcIsRunning();
 }
