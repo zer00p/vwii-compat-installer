@@ -24,6 +24,8 @@ void State::init() {
 }
 
 bool State::AppRunning() {
+    if (exiting) return false;
+
     if (aroma) {
         if (!OSIsMainCore()) return true;
 
