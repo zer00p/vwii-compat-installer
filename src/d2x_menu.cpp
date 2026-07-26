@@ -95,10 +95,11 @@ std::string BrowseD2XVersions() {
     int selected = 0;
     std::string result = "";
 
-    DoInputLoop([&selected]() {
-        DrawBrowser(selected);
-    }, [&selected, &result](Input& input) {
-        bool needs_redraw = false;
+    DrawBrowser(selected);
+    Input input;
+    while (State::AppRunning()) {
+        input.read();
+        bool needs_redraw = State::ForegroundReacquired();
         if (input.get(TRIGGER, PAD_BUTTON_UP)) {
             if (selected > 0) { selected--; needs_redraw = true; }
         }
@@ -106,17 +107,17 @@ std::string BrowseD2XVersions() {
             if (selected < (int)s_D2XDirs.size() - 1) { selected++; needs_redraw = true; }
         }
         if (input.get(TRIGGER, PAD_BUTTON_B)) {
-            return true; // Cancel
+            break; // Cancel
         }
         if (input.get(TRIGGER, PAD_BUTTON_A) && !s_D2XDirs.empty()) {
             result = s_D2XDirs[selected];
-            return true; // Confirmed
+            break; // Confirmed
         }
         if (needs_redraw) {
             DrawBrowser(selected);
         }
-        return false;
-    });
+        usleep(16000);
+    }
 
     ClearDirList();
 

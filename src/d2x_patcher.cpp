@@ -421,7 +421,7 @@ void InstallD2X(const std::string& versionFolder) {
     std::vector<Config> configs = { {249, 56}, {250, 57}, {251, 58} };
     
     bool cancel = false;
-    DoInputLoop([&configs]() {
+    auto drawPatcherMenu = [&configs]() {
         WUPI_resetScreen();
         WUPI_putstr("d2x cIOS Installation");
         WUPI_putstr("---------------------");
@@ -433,11 +433,20 @@ void InstallD2X(const std::string& versionFolder) {
         WUPI_putstr("");
         WUPI_putstr("Press A to confirm and start installation.");
         WUPI_putstr("Press B to cancel.");
-    }, [&cancel](Input& input) {
-        if (input.get(TRIGGER, PAD_BUTTON_A)) { return true; }
-        if (input.get(TRIGGER, PAD_BUTTON_B)) { cancel = true; return true; }
-        return false;
-    });
+    };
+
+    drawPatcherMenu();
+    Input input;
+    while (State::AppRunning()) {
+        if (State::ForegroundReacquired()) {
+            drawPatcherMenu();
+        }
+
+        input.read();
+        if (input.get(TRIGGER, PAD_BUTTON_A)) { break; }
+        if (input.get(TRIGGER, PAD_BUTTON_B)) { cancel = true; break; }
+        usleep(16000);
+    }
     
     if (cancel) return;
     

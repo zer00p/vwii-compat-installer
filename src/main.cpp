@@ -312,21 +312,21 @@ int main() {
     } else {
         WUPI_showMenu();
 
-        DoInputLoop([]() {
-            WUPI_showMenu();
-        }, [](Input& input) {
+        while (State::AppRunning()) {
+            input.read();
             if (input.get(TRIGGER, PAD_BUTTON_A)) {
                 WUPI_install();
-                if (State::AppRunning()) WUPI_showMenu();
             } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
                 WUPI_installWAD();
-                if (State::AppRunning()) WUPI_showMenu();
             } else if (input.get(TRIGGER, PAD_BUTTON_Y)) {
                 WUPI_installD2X();
-                if (State::AppRunning()) WUPI_showMenu();
+            } else if (!State::ForegroundReacquired()) {
+                usleep(16000);
+                continue;
             }
-            return false;
-        });
+            
+            WUPI_showMenu();
+        }
     }
 
     deinitFS();
