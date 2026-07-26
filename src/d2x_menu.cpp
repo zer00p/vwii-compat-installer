@@ -9,8 +9,7 @@
 #include <unistd.h>
 
 extern FSAClientHandle fsaClient;
-extern void WUPI_resetScreen();
-
+#include "log.h"
 #include <vector>
 #include <string>
 

@@ -28,7 +28,7 @@
 #include <algorithm>
 
 extern FSAClientHandle fsaClient;
-extern void WUPI_resetScreen();
+#include "log.h"
 
 struct FileEntry {
     std::string name;

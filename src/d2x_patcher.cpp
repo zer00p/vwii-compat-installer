@@ -38,9 +38,7 @@ static uint8_t common_key[16] = {
 };
 
 extern FSAClientHandle fsaClient;
-extern void WUPI_resetScreen();
-extern void WUPI_putstr(const char *);
-
+#include "log.h"
 #include <sstream>
 #include <iomanip>
 
