@@ -158,7 +158,7 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
     (void)fsaFd;
     if (!ctx) return false;
 
-    return CINS_Install(ctx->tmdTitleId, ctx->ticketData, ctx->ticketSize,
-                        ctx->tmdData, ctx->tmdSize, ctx->contentsArray,
+    return CINS_Install(ctx->tmdTitleId, (const TitleTicket *)ctx->ticketData, ctx->ticketSize,
+                        (const TitleTmd *)ctx->tmdData, ctx->tmdSize, ctx->contentsArray,
                         ctx->numContents) == 0;
 }

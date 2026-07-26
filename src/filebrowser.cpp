@@ -162,8 +162,10 @@ std::vector<std::string> BrowseWADs() {
     int hold_timer_left = 0;
     int hold_timer_right = 0;
 
-    while (State::AppRunning()) {
-        input.read();
+    DoInputLoop([&selected, &last_selected]() {
+        DrawBrowser(selected);
+        last_selected = selected;
+    }, [&](Input& input) {
         bool needsRedraw = false;
 
         bool moveUp = false;
@@ -230,7 +232,7 @@ std::vector<std::string> BrowseWADs() {
                 selected = 0;
                 needsRedraw = true;
             } else {
-                break; // Exit browser
+                return true; // Exit browser
             }
         }
         if (input.get(TRIGGER, PAD_BUTTON_A) && !s_Entries.empty()) {
@@ -277,20 +279,17 @@ std::vector<std::string> BrowseWADs() {
                 result.push_back(s_Entries[selected].path);
             }
             if (!result.empty()) {
-                break;
+                return true;
             }
         }
 
-        if (State::ForegroundReacquired()) {
-            needsRedraw = true;
-        }
-
-        if (needsRedraw || last_selected == -1) {
+        if (needsRedraw) {
             DrawBrowser(selected);
             last_selected = selected;
         }
-        usleep(16000); // ~60fps
-    }
+        
+        return false;
+    });
 
     ClearWadList();
 

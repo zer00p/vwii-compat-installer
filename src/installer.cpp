@@ -17,6 +17,7 @@
  */
 
 #include "installer.h"
+#include "EndianUtils.h"
 #include <coreinit/filesystem_fsa.h>
 #include <stdio.h>
 #include <string.h>
@@ -44,7 +45,7 @@ void WUPI_putstr(const char *);
 
 extern FSAClientHandle fsaClient;
 
-int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size, const void *tmd,
+int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
                      uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents) {
     FSError ret = FS_ERROR_NOT_INIT;
@@ -72,7 +73,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         ret = FSAMakeDir(fsaClient, ticketFolder, (FSMode) 0x666);
         if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
             CINS_TRY(FSAOpenFileEx(fsaClient, ticketPath, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(ticket), ticket_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+            CINS_TRY(FSAWriteFile(fsaClient, (void *)ticket, ticket_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
 
             FSACloseFile(fsaClient, fd);
 
@@ -128,7 +129,7 @@ int32_t CINS_Install(uint64_t titleId, const void *ticket, uint32_t ticket_size,
         strncat(path, "/title.tmd", CINS_PATH_LEN - 1);
 
         CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(tmd), tmd_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+        CINS_TRY(FSAWriteFile(fsaClient, (void *)tmd, tmd_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
 
         FSACloseFile(fsaClient, fd);
     }

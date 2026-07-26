@@ -22,10 +22,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
-#include "installer.h"
+#include "EndianUtils.h"
 #include <unistd.h>
 #include <vector>
 #include <string>
+#include <memory>
 
 extern "C" {
 #include "wad_tools/tools.h"
@@ -40,12 +41,18 @@ extern FSAClientHandle fsaClient;
 extern void WUPI_resetScreen();
 extern void WUPI_putstr(const char *);
 
-#define D2X_Log(...) \
-    do { \
-        char _wupi_print_str[256]; \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
-        WUPI_putstr(_wupi_print_str); \
-    } while (0)
+#include <sstream>
+#include <iomanip>
+
+static inline void D2X_Log(const std::string& msg) {
+    WUPI_putstr(msg.c_str());
+}
+
+static inline std::string ToHexString(uint32_t val, int width = 8) {
+    std::stringstream ss;
+    ss << std::setfill('0') << std::setw(width) << std::hex << val;
+    return ss.str();
+}
 
 
 static inline void Write16BE(uint8_t* p, uint16_t v) {
@@ -87,30 +94,33 @@ struct MemContent {
 };
 
 struct MemIOS {
-    uint8_t* tmd;
-    uint32_t tmdSize;
-    uint8_t* ticket;
-    uint32_t ticketSize;
-    MemContent* contents;
-    uint32_t numContents;
-    uint32_t maxContents;
+    TitleTmd* tmd = nullptr;
+    uint32_t tmdSize = 0;
+    TitleTicket* ticket = nullptr;
+    uint32_t ticketSize = 0;
+    MemContent* contents = nullptr;
+    uint32_t numContents = 0;
+    uint32_t maxContents = 0;
+
+    ~MemIOS() {
+        if (tmd) free(tmd);
+        if (ticket) free(ticket);
+        if (contents) {
+            for (uint32_t i = 0; i < numContents; i++) {
+                if (contents[i].data) free(contents[i].data);
+            }
+            free(contents);
+        }
+    }
+
+    MemIOS() = default;
+    MemIOS(const MemIOS&) = delete;
+    MemIOS& operator=(const MemIOS&) = delete;
 };
 
-static void FreeIOS(MemIOS* ios) {
-    if (!ios) return;
-    if (ios->tmd) free(ios->tmd);
-    if (ios->ticket) free(ios->ticket);
-    if (ios->contents) {
-        for (uint32_t i = 0; i < ios->numContents; i++) {
-            if (ios->contents[i].data) free(ios->contents[i].data);
-        }
-        free(ios->contents);
-    }
-}
-
-static bool ReadFileToBuffer(const char* path, uint8_t** outBuf, uint32_t* outSize) {
+static bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize) {
     FSAFileHandle fd;
-    if (FSAOpenFileEx(fsaClient, path, "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+    if (FSAOpenFileEx(fsaClient, path.c_str(), "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
         return false;
     }
     
@@ -136,67 +146,65 @@ static bool ReadFileToBuffer(const char* path, uint8_t** outBuf, uint32_t* outSi
     return true;
 }
 
-static bool ReadBaseIOS(uint32_t baseIos, MemIOS* outIos) {
-    memset(outIos, 0, sizeof(MemIOS));
-    char path[256];
-    
+static std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
+    auto outIos = std::unique_ptr<MemIOS>(new MemIOS());
     // Read Ticket
-    snprintf(path, sizeof(path), "/vol/slccmpt01/ticket/00000001/%08x.tik", baseIos);
-    if (!ReadFileToBuffer(path, &outIos->ticket, &outIos->ticketSize)) {
-        D2X_Log("Failed to read ticket for base IOS %u\n", baseIos);
-        return false;
+    std::string path = "/vol/slccmpt01/ticket/00000001/" + ToHexString(baseIos, 8) + ".tik";
+    uint8_t* tikBuf = nullptr;
+    if (!ReadFileToBuffer(path, &tikBuf, &outIos->ticketSize)) {
+        D2X_Log("Failed to read ticket for base IOS " + std::to_string(baseIos) + "\n");
+        return nullptr;
     }
+    outIos->ticket = (TitleTicket*)tikBuf;
     
     // Read TMD
-    snprintf(path, sizeof(path), "/vol/slccmpt01/title/00000001/%08x/content/title.tmd", baseIos);
-    if (!ReadFileToBuffer(path, &outIos->tmd, &outIos->tmdSize)) {
-        D2X_Log("Failed to read TMD for base IOS %u\n", baseIos);
-        FreeIOS(outIos);
-        return false;
+    path = "/vol/slccmpt01/title/00000001/" + ToHexString(baseIos, 8) + "/content/title.tmd";
+    uint8_t* tmdBuf = nullptr;
+    if (!ReadFileToBuffer(path, &tmdBuf, &outIos->tmdSize)) {
+        D2X_Log("Failed to read TMD for base IOS " + std::to_string(baseIos) + "\n");
+        return nullptr;
     }
+    outIos->tmd = (TitleTmd*)tmdBuf;
     
     // Parse TMD contents
-    uint16_t numContents = Read16BE(outIos->tmd + 0x1DE);
+    uint16_t numContents = FromBE16(outIos->tmd->numContents);
     outIos->numContents = numContents;
     outIos->maxContents = numContents + 10; // Extra space for modules
     outIos->contents = (MemContent*)calloc(outIos->maxContents, sizeof(MemContent));
     
     // Reallocate TMD buffer to have space for maxContents
-    uint32_t maxTmdSize = outIos->tmdSize + (10 * 36);
+    uint32_t maxTmdSize = outIos->tmdSize + (10 * sizeof(TitleContentRecord));
     uint8_t* newTmd = (uint8_t*)memalign(0x40, (maxTmdSize + 0x3F) & ~0x3F);
     if (!newTmd) {
         D2X_Log("Failed to reallocate TMD buffer\n");
-        FreeIOS(outIos);
-        return false;
+        return nullptr;
     }
     memset(newTmd, 0, (maxTmdSize + 0x3F) & ~0x3F);
     memcpy(newTmd, outIos->tmd, outIos->tmdSize);
     free(outIos->tmd);
-    outIos->tmd = newTmd;
+    outIos->tmd = (TitleTmd*)newTmd;
     
     for (uint16_t i = 0; i < numContents; i++) {
-        uint32_t recordOffset = 0x1E4 + (i * 36);
-        uint32_t cid = Read32BE(outIos->tmd + recordOffset);
+        uint32_t cid = FromBE32(outIos->tmd->contents[i].contentId);
         outIos->contents[i].cid = cid;
         
-        snprintf(path, sizeof(path), "/vol/slccmpt01/title/00000001/%08x/content/%08x.app", baseIos, cid);
+        path = "/vol/slccmpt01/title/00000001/" + ToHexString(baseIos, 8) + "/content/" + ToHexString(cid, 8) + ".app";
         if (!ReadFileToBuffer(path, &outIos->contents[i].data, &outIos->contents[i].size)) {
-            D2X_Log("Failed to read content %08x.app\n", cid);
-            FreeIOS(outIos);
-            return false;
+            D2X_Log("Failed to read content " + ToHexString(cid, 8) + ".app\n");
+            return nullptr;
         }
     }
     
-    return true;
+    return outIos;
 }
 
 #include <vector>
 #include <string>
 
-static std::vector<uint8_t> ParseHexBytes(const char* str) {
+static std::vector<uint8_t> ParseHexBytes(const std::string& str) {
     std::vector<uint8_t> bytes;
-    if (!str) return bytes;
-    std::string s(str);
+    if (str.empty()) return bytes;
+    std::string s = str;
     size_t pos = 0;
     while ((pos = s.find(',')) != std::string::npos) {
         bytes.push_back((uint8_t)strtoul(s.substr(0, pos).c_str(), NULL, 16));
@@ -221,193 +229,180 @@ static bool ApplyBinaryPatch(MemContent* content, int32_t offset, const std::vec
     return false;
 }
 
-static bool AppendModule(MemIOS* ios, const char* versionFolder, const char* moduleName, int tmdModuleId, int xmlId) {
-    char path[512];
-    snprintf(path, sizeof(path), "%s/%s.app", versionFolder, moduleName);
+static bool AppendModule(MemIOS& ios, const std::string& versionFolder, const std::string& moduleName, int tmdModuleId) {
+
+    if (ios.numContents >= ios.maxContents) {
+        D2X_Log("Too many contents to append!\n");
+        return false;
+    }
+
+    std::string path = versionFolder + "/" + moduleName + ".app";
 
     uint8_t* moduleData = NULL;
     uint32_t moduleSize = 0;
 
     if (!ReadFileToBuffer(path, &moduleData, &moduleSize)) {
-        D2X_Log("Failed to read module %s\n", path);
+        D2X_Log("Failed to read module " + path + "\n");
         return false;
     }
 
-    // We do NOT need to align the size to 64 bytes for WAD install,
-    // and using alignedSize in the TMD can break module loading!
-    // We will just use the exact moduleSize.
-    uint8_t* moduleDataBuffer = (uint8_t*)malloc(moduleSize);
-    memcpy(moduleDataBuffer, moduleData, moduleSize);
-    free(moduleData);
-
-    uint32_t newContentId = 0;
-    if (xmlId != -1) {
-        newContentId = xmlId;
-    } else {
-        for (uint32_t i = 0; i < ios->numContents; i++) {
-            if (ios->contents[i].cid > newContentId) newContentId = ios->contents[i].cid;
+    uint32_t maxCid = 0;
+    for (uint32_t i = 0; i < ios.numContents; i++) {
+        if (ios.contents[i].cid > maxCid) {
+            maxCid = ios.contents[i].cid;
         }
-        newContentId++;
     }
-
-    if (ios->numContents >= ios->maxContents) {
-        D2X_Log("Too many contents to append!\n");
-        free(moduleDataBuffer);
-        return false;
-    }
+    uint32_t newContentId = maxCid + 1;
 
     // Update TMD record
-    uint8_t* tmdContentRecords = ios->tmd + 0x1E4;
+    TitleContentRecord* records = ios.tmd->contents;
 
     if (tmdModuleId != -1) {
         // Move original content to end
-        uint32_t oldIdx = ios->numContents++;
-        ios->contents[oldIdx] = ios->contents[tmdModuleId];
+        uint32_t oldIdx = ios.numContents++;
+        ios.contents[oldIdx] = ios.contents[tmdModuleId];
 
         // Put new module at tmdModuleId
         uint32_t idx = tmdModuleId;
-        ios->contents[idx].cid = newContentId;
-        ios->contents[idx].size = moduleSize;
-        ios->contents[idx].data = moduleDataBuffer;
+        ios.contents[idx].cid = newContentId;
+        ios.contents[idx].size = moduleSize;
+        ios.contents[idx].data = moduleData;
 
         // Copy original TMD record to end and update its index
-        memcpy(tmdContentRecords + (oldIdx * 36), tmdContentRecords + (tmdModuleId * 36), 36);
-        Write16BE(tmdContentRecords + (oldIdx * 36) + 4, oldIdx);
+        records[oldIdx] = records[tmdModuleId];
+        records[oldIdx].index = ToBE16(oldIdx);
 
         // Overwrite tmdModuleId TMD record for the new module
-        memset(tmdContentRecords + (idx * 36), 0, 36);
-        Write32BE(tmdContentRecords + (idx * 36), newContentId); // CID
-        Write16BE(tmdContentRecords + (idx * 36) + 4, idx); // Index
-        Write16BE(tmdContentRecords + (idx * 36) + 6, 1); // Type = normal
-        Write64BE(tmdContentRecords + (idx * 36) + 8, moduleSize); // Exact Size
+        memset(&records[idx], 0, sizeof(TitleContentRecord));
+        records[idx].contentId = ToBE32(newContentId); // CID
+        records[idx].index = ToBE16(idx); // Index
+        records[idx].type = ToBE16(1); // Type = normal
+        records[idx].size = ToBE64(moduleSize); // Exact Size
 
         uint8_t hash[20];
-        SHA1(moduleDataBuffer, moduleSize, hash);
-        memcpy(tmdContentRecords + (idx * 36) + 16, hash, 20);
+        SHA1(moduleData, moduleSize, hash);
+        memcpy(records[idx].hash, hash, 20);
     } else {
         // Just append new content
-        uint32_t idx = ios->numContents++;
-        ios->contents[idx].cid = newContentId;
-        ios->contents[idx].size = moduleSize;
-        ios->contents[idx].data = moduleDataBuffer;
+        uint32_t idx = ios.numContents++;
+        ios.contents[idx].cid = newContentId;
+        ios.contents[idx].size = moduleSize;
+        ios.contents[idx].data = moduleData;
 
-        memset(tmdContentRecords + (idx * 36), 0, 36);
-        Write32BE(tmdContentRecords + (idx * 36), newContentId); // CID
-        Write16BE(tmdContentRecords + (idx * 36) + 4, idx); // Index
-        Write16BE(tmdContentRecords + (idx * 36) + 6, 1); // Type = normal
-        Write64BE(tmdContentRecords + (idx * 36) + 8, moduleSize); // Exact Size
+        memset(&records[idx], 0, sizeof(TitleContentRecord));
+        records[idx].contentId = ToBE32(newContentId); // CID
+        records[idx].index = ToBE16(idx); // Index
+        records[idx].type = ToBE16(1); // Type = normal
+        records[idx].size = ToBE64(moduleSize); // Exact Size
 
         uint8_t hash[20];
-        SHA1(moduleDataBuffer, moduleSize, hash);
-        memcpy(tmdContentRecords + (idx * 36) + 16, hash, 20);
+        SHA1(moduleData, moduleSize, hash);
+        memcpy(records[idx].hash, hash, 20);
     }
 
     // Update numContents in TMD header
-    Write16BE(ios->tmd + 0x1DE, ios->numContents);
-    ios->tmdSize += 36;
+    ios.tmd->numContents = ToBE16(ios.numContents);
+    ios.tmdSize += sizeof(TitleContentRecord);
 
     return true;
 }
 
-static void BruteTmd(uint8_t* tmd, uint32_t size) {
+static void BruteTmd(TitleTmd* tmd, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
-        Write16BE(tmd + 0x1D4, fill); // Reserved field instead of boot_index
-        SHA1(tmd + 0x140, size - 0x140, hash);
+        tmd->fakeBootIndex = fill; // Reserved field instead of boot_index
+        SHA1((uint8_t*)tmd + offsetof(TitleTmd, issuer), size - offsetof(TitleTmd, issuer), hash);
         if (hash[0] == 0) return;
     }
 }
 
-static void BruteTicket(uint8_t* tik, uint32_t size) {
+static void BruteTicket(TitleTicket* ticket, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
-        Write16BE(tik + 0x1F8, fill); // padding
-        SHA1(tik + 0x140, size - 0x140, hash);
+        ticket->padding2 = fill;
+        SHA1((uint8_t*)ticket + offsetof(TitleTicket, issuer), size - offsetof(TitleTicket, issuer), hash);
         if (hash[0] == 0) return;
     }
 }
 
 
-static bool WritePatchedIOS(uint32_t titleIdLow, MemIOS* ios) {
+static bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
     // No local path or fd variables needed anymore
     
     // Forge Ticket
-    if (ios->ticketSize >= 0x1E0 + 2) {
-        memset(ios->ticket + 4, 0, 256); // Zero out signature
+    if (ios.ticketSize >= sizeof(TitleTicket)) {
+        memset(ios.ticket->signature, 0, sizeof(ios.ticket->signature)); // Zero out signature
         
         // Decrypt Title Key using old Title ID as IV
         uint8_t titleKey[16];
         uint8_t iv[16] = {0};
-        memcpy(iv, ios->ticket + 0x1DC, 8); // Old Title ID
-        aes_cbc_dec(common_key, iv, ios->ticket + 0x1BF, 16, titleKey);
+        memcpy(iv, &ios.ticket->titleId, 8); // Old Title ID
+        aes_cbc_dec(common_key, iv, ios.ticket->titleKey, 16, titleKey);
         
         // Write new Title ID
-        Write32BE(ios->ticket + 0x1DC, 1); // System Title High
-        Write32BE(ios->ticket + 0x1E0, titleIdLow); // Title ID Low
+        ios.ticket->titleId = ToBE64(((uint64_t)1 << 32) | titleIdLow);
         
         // Re-encrypt Title Key using new Title ID as IV
         memset(iv, 0, 16);
-        memcpy(iv, ios->ticket + 0x1DC, 8); // New Title ID
-        aes_cbc_enc(common_key, iv, titleKey, 16, ios->ticket + 0x1BF);
+        memcpy(iv, &ios.ticket->titleId, 8); // New Title ID
+        aes_cbc_enc(common_key, iv, titleKey, 16, ios.ticket->titleKey);
         
-        BruteTicket(ios->ticket, ios->ticketSize);
+        BruteTicket(ios.ticket, ios.ticketSize);
     } else {
         D2X_Log("Ticket size too small\n");
         return false;
     }
     
     // Forge TMD
-    if (ios->tmdSize >= 0x190 + 4 && ios->numContents > 0) {
-        memset(ios->tmd + 4, 0, 256); // Zero out signature
-        Write32BE(ios->tmd + 0x18C, 1); // System Title
-        Write32BE(ios->tmd + 0x190, titleIdLow);
-        Write16BE(ios->tmd + 0x1DC, 0xFFFF); // Patch Title Version
+    if (ios.tmdSize >= offsetof(TitleTmd, contents) && ios.numContents > 0) {
+        memset(ios.tmd->signature, 0, sizeof(ios.tmd->signature)); // Zero out signature
+        ios.tmd->titleId = ToBE64(((uint64_t)1 << 32) | titleIdLow); // System Title High & Low
+        ios.tmd->titleVersion = ToBE16(0xFFFF); // Patch Title Version
     } else {
         D2X_Log("TMD size too small\n");
         return false;
     }
     
     // Recalculate content hashes
-    uint8_t* tmdContentRecords = ios->tmd + 0x1E4;
-    for (uint32_t i = 0; i < ios->numContents; i++) {
-        uint32_t cid = Read32BE(tmdContentRecords + (i * 36));
-        for (uint32_t j = 0; j < ios->numContents; j++) {
-            if (ios->contents[j].cid == cid) {
+    TitleContentRecord* records = ios.tmd->contents;
+    for (uint32_t i = 0; i < ios.numContents; i++) {
+        uint32_t cid = FromBE32(records[i].contentId);
+        for (uint32_t j = 0; j < ios.numContents; j++) {
+            if (ios.contents[j].cid == cid) {
                 uint8_t hash[20];
-                SHA1(ios->contents[j].data, ios->contents[j].size, hash);
-                memcpy(tmdContentRecords + (i * 36) + 16, hash, 20);
+                SHA1(ios.contents[j].data, ios.contents[j].size, hash);
+                memcpy(records[i].hash, hash, 20);
                 break;
             }
         }
     }
     
-    BruteTmd(ios->tmd, ios->tmdSize);
+    BruteTmd(ios.tmd, ios.tmdSize);
     
-    CINS_Content* cins_contents = (CINS_Content*)malloc(sizeof(CINS_Content) * ios->numContents);
+    CINS_Content* cins_contents = (CINS_Content*)malloc(sizeof(CINS_Content) * ios.numContents);
     if (!cins_contents) return false;
     
-    for (uint32_t i = 0; i < ios->numContents; i++) {
-        cins_contents[i].data = ios->contents[i].data;
-        cins_contents[i].length = ios->contents[i].size;
+    for (uint32_t i = 0; i < ios.numContents; i++) {
+        cins_contents[i].data = ios.contents[i].data;
+        cins_contents[i].length = ios.contents[i].size;
     }
     
     uint64_t fullTitleId = 0x0000000100000000ULL | titleIdLow;
-    int32_t ret = CINS_Install(fullTitleId, ios->ticket, ios->ticketSize, ios->tmd, ios->tmdSize, cins_contents, ios->numContents);
+    int32_t ret = CINS_Install(fullTitleId, ios.ticket, ios.ticketSize, ios.tmd, ios.tmdSize, cins_contents, ios.numContents);
     
     free(cins_contents);
     
     return ret >= 0;
 }
 
-void InstallD2X(const char* versionFolder) {
-    char xmlPath[512];
-    char parentDir[512];
-    strncpy(parentDir, versionFolder, sizeof(parentDir) - 1);
-    parentDir[sizeof(parentDir) - 1] = '\0';
-    char* lastSlash = strrchr(parentDir, '/');
-    if (lastSlash) *lastSlash = '\0';
+void InstallD2X(const std::string& versionFolder) {
+    std::string parentDir = versionFolder;
+    size_t lastSlash = parentDir.find_last_of('/');
+    if (lastSlash != std::string::npos) {
+        parentDir = parentDir.substr(0, lastSlash);
+    }
     
-    snprintf(xmlPath, sizeof(xmlPath), "%s/ciosmaps.xml", parentDir);
+    std::string xmlPath = parentDir + "/ciosmaps.xml";
     
     uint8_t* xmlData = NULL;
     uint32_t xmlSize = 0;
@@ -417,45 +412,43 @@ void InstallD2X(const char* versionFolder) {
     }
     
     tinyxml2::XMLDocument doc;
-    if (doc.Parse((const char*)xmlData, xmlSize) != tinyxml2::XML_SUCCESS) {
+    tinyxml2::XMLError parseResult = doc.Parse((const char*)xmlData, xmlSize);
+    free(xmlData);
+    if (parseResult != tinyxml2::XML_SUCCESS) {
         D2X_Log("Failed to parse ciosmaps.xml\n");
-        free(xmlData);
-        return;
-    }
-    
-    WUPI_resetScreen();
-    WUPI_putstr("d2x cIOS Installation");
-    WUPI_putstr("---------------------");
-    WUPI_putstr("The following standard configuration will be installed:");
-    WUPI_putstr(" - Slot 249: Base IOS 56");
-    WUPI_putstr(" - Slot 250: Base IOS 57");
-    WUPI_putstr(" - Slot 251: Base IOS 58");
-    WUPI_putstr("");
-    WUPI_putstr("Press A to confirm and start installation.");
-    WUPI_putstr("Press B to cancel.");
-    
-    Input input;
-    bool confirmed = false;
-    while (State::AppRunning()) {
-        input.read();
-        if (input.get(TRIGGER, PAD_BUTTON_A)) { confirmed = true; break; }
-        if (input.get(TRIGGER, PAD_BUTTON_B)) { break; }
-        usleep(16000);
-    }
-    
-    if (!confirmed) {
-        free(xmlData);
         return;
     }
     
     struct Config { int slot; int base; };
-    Config configs[] = { {249, 56}, {250, 57}, {251, 58} };
-    bool failures[3] = {false, false, false};
+    std::vector<Config> configs = { {249, 56}, {250, 57}, {251, 58} };
     
-    for (int i = 0; i < 3; i++) {
+    bool cancel = false;
+    DoInputLoop([&configs]() {
+        WUPI_resetScreen();
+        WUPI_putstr("d2x cIOS Installation");
+        WUPI_putstr("---------------------");
+        WUPI_putstr("The following standard configuration will be installed:");
+        for (const auto& config : configs) {
+            std::string line = " - Slot " + std::to_string(config.slot) + ": Base IOS " + std::to_string(config.base);
+            WUPI_putstr(line.c_str());
+        }
+        WUPI_putstr("");
+        WUPI_putstr("Press A to confirm and start installation.");
+        WUPI_putstr("Press B to cancel.");
+    }, [&cancel](Input& input) {
+        if (input.get(TRIGGER, PAD_BUTTON_A)) { return true; }
+        if (input.get(TRIGGER, PAD_BUTTON_B)) { cancel = true; return true; }
+        return false;
+    });
+    
+    if (cancel) return;
+    
+    std::vector<bool> failures(configs.size(), false);
+    
+    for (size_t i = 0; i < configs.size(); i++) {
         if (!State::AppRunning()) break;
         WUPI_resetScreen();
-        D2X_Log("Installing cIOS slot %d (base %d)...\n", configs[i].slot, configs[i].base);
+        D2X_Log("Installing cIOS slot " + std::to_string(configs[i].slot) + " (base " + std::to_string(configs[i].base) + ")...\n");
         
         tinyxml2::XMLElement* root = doc.RootElement();
         tinyxml2::XMLElement* group = root ? root->FirstChildElement("ciosgroup") : NULL;
@@ -476,8 +469,8 @@ void InstallD2X(const char* versionFolder) {
             continue;
         }
         
-        MemIOS ios;
-        if (!ReadBaseIOS(configs[i].base, &ios)) {
+        auto ios = ReadBaseIOS(configs[i].base);
+        if (!ios) {
             failures[i] = true;
             sleep(2);
             continue;
@@ -489,12 +482,17 @@ void InstallD2X(const char* versionFolder) {
             const char* moduleAttr = cEl->Attribute("module");
             
             if (moduleAttr) {
-                AppendModule(&ios, versionFolder, moduleAttr, tmdModuleId, id);
-            } else if (id != -1) {
+                AppendModule(*ios, versionFolder, moduleAttr, tmdModuleId);
+            } else {
+                if (id == -1) {
+                    D2X_Log("Missing id attribute for content patch in CIOSMAPS.xml\n");
+                    failures[i] = true;
+                    break;
+                }
                 MemContent* content = NULL;
-                for (uint32_t j = 0; j < ios.numContents; j++) {
-                    if (ios.contents[j].cid == (uint32_t)id) {
-                        content = &ios.contents[j];
+                for (uint32_t j = 0; j < ios->numContents; j++) {
+                    if (ios->contents[j].cid == (uint32_t)id) {
+                        content = &ios->contents[j];
                         break;
                     }
                 }
@@ -504,19 +502,21 @@ void InstallD2X(const char* versionFolder) {
                         int offset = pEl->IntAttribute("offset", 0);
                         const char* orig = pEl->Attribute("originalbytes");
                         const char* newb = pEl->Attribute("newbytes");
-                        if (ApplyBinaryPatch(content, offset, ParseHexBytes(orig), ParseHexBytes(newb)))
-                            patched = true;
+                        if (orig && newb) {
+                            if (ApplyBinaryPatch(content, offset, ParseHexBytes(orig), ParseHexBytes(newb)))
+                                patched = true;
+                        }
                     }
                     // If we patched a shared content, change its type to normal
                     // so the IOS kernel loads it from the title directory
                     // instead of the (unpatched) shared content store.
                     if (patched) {
-                        uint8_t* tmdRecords = ios.tmd + 0x1E4;
-                        for (uint32_t k = 0; k < ios.numContents; k++) {
-                            if (Read32BE(tmdRecords + (k * 36)) == (uint32_t)id) {
-                                uint16_t type = Read16BE(tmdRecords + (k * 36) + 6);
+                        TitleContentRecord* records = ios->tmd->contents;
+                        for (uint32_t k = 0; k < ios->numContents; k++) {
+                            if (FromBE32(records[k].contentId) == (uint32_t)id) {
+                                uint16_t type = FromBE16(records[k].type);
                                 if (type & 0x8000) {
-                                    Write16BE(tmdRecords + (k * 36) + 6, type & ~0x8000);
+                                    records[k].type = ToBE16(type & ~0x8000);
                                 }
                                 break;
                             }
@@ -526,31 +526,26 @@ void InstallD2X(const char* versionFolder) {
             }
         }
         
-        if (WritePatchedIOS(configs[i].slot, &ios)) {
-            D2X_Log("Successfully installed slot %d.\n", configs[i].slot);
-        } else {
-            failures[i] = true;
-        }
-        FreeIOS(&ios);
+        if (!failures[i]) {
+            failures[i] = !WritePatchedIOS(configs[i].slot, *ios);
+            if(!failures[i])
+                D2X_Log("Successfully installed slot " + std::to_string(configs[i].slot) + ".\n");
+        } 
         sleep(2);
     }
     
-    free(xmlData);
     WUPI_resetScreen();
     D2X_Log("Installation process finished.\n\n");
     bool anyFailures = false;
-    for (int i = 0; i < 3; i++) {
-        if (failures[i]) {
-            anyFailures = true;
-            break;
-        }
+    for (size_t i = 0; i < configs.size(); i++) {
+        anyFailures |= failures[i];
     }
     
     if (anyFailures) {
         D2X_Log("Summary of failures:\n");
-        for (int i = 0; i < 3; i++) {
+        for (size_t i = 0; i < configs.size(); i++) {
             if (failures[i]) {
-                D2X_Log(" - Failed to install cIOS to slot %d (base %d)\n", configs[i].slot, configs[i].base);
+                D2X_Log(" - Failed to install cIOS to slot " + std::to_string(configs[i].slot) + " (base " + std::to_string(configs[i].base) + ")\n");
             }
         }
     } else {

@@ -63,14 +63,7 @@ typedef struct {
 
 } WADContext;
 
-// Content record in TMD
-typedef struct {
-    uint32_t contentId;
-    uint16_t index;
-    uint16_t type;
-    uint64_t size;
-    uint8_t hash[20];
-} WADContentRecord;
+#include "title.h"
 
 // Load a WAD file from SD card, parse it, and decrypt its contents.
 // Returns a WADContext if successful, or NULL on failure.

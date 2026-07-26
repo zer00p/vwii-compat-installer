@@ -140,21 +140,22 @@ void WUPI_resetScreen() {
 }
 
 void WUPI_waitHome() {
-    WUPI_putstr("Press HOME to exit.");
-    while (State::AppRunning())
-        continue;
-    return;
+    DoInputLoop([]() {
+        WUPI_putstr("Press HOME to exit.");
+    }, [](Input& input) {
+        return false; // Wait until HOME menu terminates the app
+    });
 }
 
 void WUPI_waitButton() {
-    WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
-    Input input;
-    while (State::AppRunning()) {
-        input.read();
+    DoInputLoop([]() {
+        WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
+    }, [](Input& input) {
         if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
-            return;
+            return true;
         }
-    }
+        return false;
+    });
 }
 
 int32_t WUPI_setupInstall() {
@@ -194,8 +195,8 @@ void WUPI_install() {
     contents[0].length = title_00000000_bin_size;
     contents[1].data = (const void *) title_00000001_bin_aligned;
     contents[1].length = title_00000001_bin_size;
-    ret = CINS_Install(CINS_TITLEID, (const void *) title_cetk_bin_aligned, title_cetk_bin_size,
-                       (const void *) title_tmd_bin_aligned, title_tmd_bin_size, contents,
+    ret = CINS_Install(CINS_TITLEID, (const TitleTicket *) title_cetk_bin_aligned, title_cetk_bin_size,
+                       (const TitleTmd *) title_tmd_bin_aligned, title_tmd_bin_size, contents,
                        2);
     free(title_cetk_bin_aligned);
     free(title_tmd_bin_aligned);
@@ -298,20 +299,17 @@ void WUPI_installD2X() {
         mounted = true;
     }
 
-    char* selectedVersion = BrowseD2XVersions();
-    if (!selectedVersion) {
+    std::string selectedVersion = BrowseD2XVersions();
+    if (selectedVersion.empty()) {
         WUPI_resetScreen();
-        WUPI_putstr("No d2x version selected.");
-        WUPI_waitButton();
+        WUPI_putstr("Installation cancelled.");
+        sleep(2);
         return;
     }
-
+    
+    // Perform installation
     WUPI_resetScreen();
-
-    // Call the patcher engine
     InstallD2X(selectedVersion);
-
-    free(selectedVersion);
     WUPI_waitButton();
 }
 
@@ -347,27 +345,21 @@ int main() {
     } else {
         WUPI_showMenu();
 
-        while (State::AppRunning()) {
-            input.read();
-            
-            if (!State::ForegroundReacquired() && !input.get(TRIGGER, PAD_BUTTON_ANY)) {
-                continue;
-            }
-
+        DoInputLoop([]() {
+            WUPI_showMenu();
+        }, [](Input& input) {
             if (input.get(TRIGGER, PAD_BUTTON_A)) {
                 WUPI_install();
+                if (State::AppRunning()) WUPI_showMenu();
             } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
                 WUPI_installWAD();
+                if (State::AppRunning()) WUPI_showMenu();
             } else if (input.get(TRIGGER, PAD_BUTTON_Y)) {
                 WUPI_installD2X();
+                if (State::AppRunning()) WUPI_showMenu();
             }
-            
-            if (!State::AppRunning()) {
-                break;
-            }
-            
-            WUPI_showMenu();
-        }
+            return false;
+        });
     }
 
     deinitFS();

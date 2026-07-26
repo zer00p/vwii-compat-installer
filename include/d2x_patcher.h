@@ -11,14 +11,8 @@
 
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <string>
 
 // Will install d2x cIOS using the selected version folder on the SD card.
 // Prompts the user to confirm the installation of the standard configurations.
-void InstallD2X(const char* versionFolder);
-
-#ifdef __cplusplus
-}
-#endif
+void InstallD2X(const std::string& versionFolder);

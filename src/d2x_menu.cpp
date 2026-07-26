@@ -11,32 +11,29 @@
 extern FSAClientHandle fsaClient;
 extern void WUPI_resetScreen();
 
+#include <vector>
+#include <string>
+
 #define MAX_D2X_VERSIONS 20
 
-static char* s_D2XDirs[MAX_D2X_VERSIONS];
-static int s_NumDirs = 0;
+static std::vector<std::string> s_D2XDirs;
 static FSError s_OpenDirErr = FS_ERROR_OK;
 
 static void ClearDirList() {
-    for (int i = 0; i < s_NumDirs; i++) {
-        if (s_D2XDirs[i]) free(s_D2XDirs[i]);
-    }
-    s_NumDirs = 0;
+    s_D2XDirs.clear();
 }
 
-static void PopulateDirList(const char* dirPath) {
+static void PopulateDirList(const std::string& dirPath) {
     FSADirectoryHandle dir;
-    s_OpenDirErr = FSAOpenDir(fsaClient, dirPath, &dir);
+    s_OpenDirErr = FSAOpenDir(fsaClient, dirPath.c_str(), &dir);
     if (s_OpenDirErr == FS_ERROR_OK) {
         FSADirectoryEntry entry;
-        while (FSAReadDir(fsaClient, dir, &entry) == FS_ERROR_OK && s_NumDirs < MAX_D2X_VERSIONS) {
+        while (FSAReadDir(fsaClient, dir, &entry) == FS_ERROR_OK && s_D2XDirs.size() < MAX_D2X_VERSIONS) {
             if (entry.info.flags & FS_STAT_DIRECTORY) {
                 // Ignore . and ..
                 if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0) continue;
 
-                char fullPath[512];
-                snprintf(fullPath, sizeof(fullPath), "%s/%s", dirPath, entry.name);
-                s_D2XDirs[s_NumDirs++] = strdup(fullPath);
+                s_D2XDirs.push_back(dirPath + "/" + entry.name);
             }
         }
         FSACloseDir(fsaClient, dir);
@@ -52,38 +49,34 @@ static void DrawBrowserInner(int selected) {
     OSScreenPutFontEx(SCREEN_TV, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
     OSScreenPutFontEx(SCREEN_DRC, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
 
-    char buf[256];
-    if (s_NumDirs > 0) {
-        snprintf(buf, sizeof(buf), "Select a d2x version to install (Found %d):", s_NumDirs);
-        OSScreenPutFontEx(SCREEN_TV, 0, 3, buf);
-        OSScreenPutFontEx(SCREEN_DRC, 0, 3, buf);
+    if (!s_D2XDirs.empty()) {
+        std::string header = "Select a d2x version to install (Found " + std::to_string(s_D2XDirs.size()) + "):";
+        OSScreenPutFontEx(SCREEN_TV, 0, 3, header.c_str());
+        OSScreenPutFontEx(SCREEN_DRC, 0, 3, header.c_str());
 
-        for (int i = 0; i < s_NumDirs; i++) {
-            const char* filename = strrchr(s_D2XDirs[i], '/');
-            filename = filename ? filename + 1 : s_D2XDirs[i];
+        for (size_t i = 0; i < s_D2XDirs.size(); i++) {
+            size_t slashPos = s_D2XDirs[i].find_last_of('/');
+            std::string filename = (slashPos != std::string::npos) ? s_D2XDirs[i].substr(slashPos + 1) : s_D2XDirs[i];
             
-            snprintf(buf, sizeof(buf), "%s %s", (i == selected) ? "->" : "  ", filename);
-            OSScreenPutFontEx(SCREEN_TV, 0, 5 + i, buf);
-            OSScreenPutFontEx(SCREEN_DRC, 0, 5 + i, buf);
+            std::string line = std::string((i == (size_t)selected) ? "-> " : "   ") + filename;
+            OSScreenPutFontEx(SCREEN_TV, 0, 5 + i, line.c_str());
+            OSScreenPutFontEx(SCREEN_DRC, 0, 5 + i, line.c_str());
         }
     } else {
         if (s_OpenDirErr != FS_ERROR_OK) {
-            snprintf(buf, sizeof(buf), "Error opening dir (Code: %d):", s_OpenDirErr);
-            OSScreenPutFontEx(SCREEN_TV, 0, 3, buf);
-            OSScreenPutFontEx(SCREEN_DRC, 0, 3, buf);
-            snprintf(buf, sizeof(buf), "sd:/apps/d2x-cios-installer");
-            OSScreenPutFontEx(SCREEN_TV, 0, 4, buf);
-            OSScreenPutFontEx(SCREEN_DRC, 0, 4, buf);
+            std::string errStr = "Error opening dir (Code: " + std::to_string(s_OpenDirErr) + "):";
+            OSScreenPutFontEx(SCREEN_TV, 0, 3, errStr.c_str());
+            OSScreenPutFontEx(SCREEN_DRC, 0, 3, errStr.c_str());
+            OSScreenPutFontEx(SCREEN_TV, 0, 4, "sd:/apps/d2x-cios-installer");
+            OSScreenPutFontEx(SCREEN_DRC, 0, 4, "sd:/apps/d2x-cios-installer");
         } else {
-            snprintf(buf, sizeof(buf), "No d2x versions found in sd:/apps/d2x-cios-installer.");
-            OSScreenPutFontEx(SCREEN_TV, 0, 3, buf);
-            OSScreenPutFontEx(SCREEN_DRC, 0, 3, buf);
+            OSScreenPutFontEx(SCREEN_TV, 0, 3, "No d2x versions found in sd:/apps/d2x-cios-installer.");
+            OSScreenPutFontEx(SCREEN_DRC, 0, 3, "No d2x versions found in sd:/apps/d2x-cios-installer.");
         }
     }
 
-    snprintf(buf, sizeof(buf), "A: Select | B: Cancel | UP/DOWN: Move");
-    OSScreenPutFontEx(SCREEN_TV, 0, 6 + s_NumDirs, buf);
-    OSScreenPutFontEx(SCREEN_DRC, 0, 6 + s_NumDirs, buf);
+    OSScreenPutFontEx(SCREEN_TV, 0, 6 + s_D2XDirs.size(), "A: Select | B: Cancel | UP/DOWN: Move");
+    OSScreenPutFontEx(SCREEN_DRC, 0, 6 + s_D2XDirs.size(), "A: Select | B: Cancel | UP/DOWN: Move");
 }
 
 static void DrawBrowser(int selected) {
@@ -96,37 +89,35 @@ static void DrawBrowser(int selected) {
     OSScreenFlipBuffersEx(SCREEN_DRC);
 }
 
-char* BrowseD2XVersions(void) {
+std::string BrowseD2XVersions() {
     ClearDirList();
     PopulateDirList("/vol/external01/apps/d2x-cios-installer");
 
     int selected = 0;
-    int last_selected = -1;
-    Input input;
-    char* result = NULL;
+    std::string result = "";
 
-    while (State::AppRunning()) {
-        input.read();
+    DoInputLoop([&selected]() {
+        DrawBrowser(selected);
+    }, [&selected, &result](Input& input) {
+        bool needs_redraw = false;
         if (input.get(TRIGGER, PAD_BUTTON_UP)) {
-            if (selected > 0) selected--;
+            if (selected > 0) { selected--; needs_redraw = true; }
         }
         if (input.get(TRIGGER, PAD_BUTTON_DOWN)) {
-            if (selected < s_NumDirs - 1) selected++;
+            if (selected < (int)s_D2XDirs.size() - 1) { selected++; needs_redraw = true; }
         }
         if (input.get(TRIGGER, PAD_BUTTON_B)) {
-            break; // Cancel
+            return true; // Cancel
         }
-        if (input.get(TRIGGER, PAD_BUTTON_A) && s_NumDirs > 0) {
-            result = strdup(s_D2XDirs[selected]);
-            break; // Confirmed
+        if (input.get(TRIGGER, PAD_BUTTON_A) && !s_D2XDirs.empty()) {
+            result = s_D2XDirs[selected];
+            return true; // Confirmed
         }
-
-        if (selected != last_selected) {
+        if (needs_redraw) {
             DrawBrowser(selected);
-            last_selected = selected;
         }
-        usleep(16000); // ~60fps
-    }
+        return false;
+    });
 
     ClearDirList();
 

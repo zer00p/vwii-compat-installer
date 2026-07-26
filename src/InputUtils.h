@@ -36,3 +36,22 @@ private:
     VPADReadError vpad_error;
     KPADStatus kpad[4], kpad_status;
 };
+
+#include "StateUtils.h"
+#include <unistd.h>
+
+template <typename DrawFunc, typename InputFunc>
+inline void DoInputLoop(DrawFunc draw, InputFunc handleInput) {
+    draw();
+    Input input;
+    while (State::AppRunning()) {
+        if (State::ForegroundReacquired()) {
+            draw();
+        }
+        input.read();
+        if (handleInput(input)) {
+            break;
+        }
+        usleep(16000);
+    }
+}

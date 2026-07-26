@@ -1,16 +1,9 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <string>
 
 /*
- * Returns an allocated string with the full path to the selected d2x version folder.
- * Returns NULL if the user cancelled or no folders were found.
- * Caller must free() the returned string.
+ * Returns the full path to the selected d2x version folder.
+ * Returns an empty string if the user cancelled or no folders were found.
  */
-char* BrowseD2XVersions(void);
-
-#ifdef __cplusplus
-}
-#endif
+std::string BrowseD2XVersions();

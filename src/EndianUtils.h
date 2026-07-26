@@ -24,3 +24,17 @@ static inline uint32_t GetPayloadOffset(const uint8_t* data) {
     if (sigType == 0x00010002) return 0x80;
     return 0x140;
 }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define ToBE16(x) __builtin_bswap16(x)
+#define ToBE32(x) __builtin_bswap32(x)
+#define ToBE64(x) __builtin_bswap64(x)
+#else
+#define ToBE16(x) (x)
+#define ToBE32(x) (x)
+#define ToBE64(x) (x)
+#endif
+
+#define FromBE16(x) ToBE16(x)
+#define FromBE32(x) ToBE32(x)
+#define FromBE64(x) ToBE64(x)
