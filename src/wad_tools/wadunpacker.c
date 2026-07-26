@@ -114,6 +114,14 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 		len = be64(tmd + tmd_payloadOffset + 0xac + 0x24*i);
 		rounded_len = round_up(len, 0x40);
 
+		if (rounded_len < len || rounded_len > app_len || (u32)(p - app) > app_len - rounded_len) {
+			for (u32 j = 0; j < i; j++) free((void*)c_arr[j].data);
+			free(c_arr);
+			free(cert); free(trailer); free(app);
+			free(tik); free(tmd);
+			return -1;
+		}
+
 		memset(iv, 0, sizeof iv);
 		memcpy(iv, tmd + tmd_payloadOffset + 0xa8 + 0x24*i, 2);
 		aes_cbc_dec(title_key, iv, p, rounded_len, p);

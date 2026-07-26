@@ -18,9 +18,9 @@
 
 #include "filebrowser.h"
 #include "InputUtils.h"
+#include "ScreenUtils.h"
 #include "StateUtils.h"
 #include <coreinit/filesystem_fsa.h>
-#include <coreinit/screen.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -90,20 +90,13 @@ static void PopulateWadList(const std::string& dirPath) {
 }
 
 static void DrawBrowserInner(int selected) {
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
-
-    OSScreenPutFontEx(SCREEN_TV, 0, 0, "Compat Title Installer v1.6");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 0, "Compat Title Installer v1.6");
-    OSScreenPutFontEx(SCREEN_TV, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
+    ScreenUtils_ClearBuffer(0);
 
     std::string pathStr = "Path: " + s_CurrentPath;
-    OSScreenPutFontEx(SCREEN_TV, 0, 3, pathStr.c_str());
-    OSScreenPutFontEx(SCREEN_DRC, 0, 3, pathStr.c_str());
+    ScreenUtils_PutFont(0, 3, pathStr.c_str());
 
     if (!s_Entries.empty()) {
-        int visible_lines = 10;
+        int visible_lines = 12;
         int start_idx = selected - visible_lines / 2;
         if (start_idx < 0) start_idx = 0;
         if (start_idx + visible_lines > (int)s_Entries.size()) {
@@ -118,26 +111,21 @@ static void DrawBrowserInner(int selected) {
             std::string checkbox = entry.isDir ? "[DIR]" : (entry.isSelected ? "[X]" : "[ ]");
             
             std::string lineStr = cursor + " " + checkbox + " " + entry.name;
-            OSScreenPutFontEx(SCREEN_TV, 0, 5 + i, lineStr.c_str());
-            OSScreenPutFontEx(SCREEN_DRC, 0, 5 + i, lineStr.c_str());
+            ScreenUtils_PutFont(0, 5 + i, lineStr.c_str());
         }
     } else {
-        OSScreenPutFontEx(SCREEN_TV, 0, 5, "No files or subdirectories found.");
-        OSScreenPutFontEx(SCREEN_DRC, 0, 5, "No files or subdirectories found.");
+        ScreenUtils_PutFont(0, 5, "No files or subdirectories found.");
     }
 
-    OSScreenPutFontEx(SCREEN_TV, 0, 16, "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 16, "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");
+    ScreenUtils_PutFont(0, 16, "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");
 }
 
 static void DrawBrowser(int selected) {
     DrawBrowserInner(selected);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
+    ScreenUtils_FlipBuffers();
 
     DrawBrowserInner(selected);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
+    ScreenUtils_FlipBuffers();
 }
 
 std::vector<std::string> BrowseWADs() {
@@ -293,14 +281,10 @@ std::vector<std::string> BrowseWADs() {
 
     ClearWadList();
 
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
+    ScreenUtils_ClearBuffer(0);
+    ScreenUtils_FlipBuffers();
+    ScreenUtils_ClearBuffer(0);
+    ScreenUtils_FlipBuffers();
 
     return result;
 }

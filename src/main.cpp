@@ -17,6 +17,7 @@
  */
 
 #include "installer.h"
+#include "log.h"
 #include <coreinit/cache.h>
 #include <coreinit/debug.h>
 #include <coreinit/filesystem_fsa.h>
@@ -37,6 +38,7 @@
 #include <whb/proc.h>
 
 #include "InputUtils.h"
+#include "ScreenUtils.h"
 #include "StateUtils.h"
 #include "filebrowser.h"
 #include "wad.h"
@@ -45,11 +47,6 @@
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
-void WUPI_printTop();
-void WUPI_putstr(const char *str);
-void WUPI_resetScreen();
-
-int32_t wupiLine;
 uint8_t *screen_buffer;
 uint32_t screen_size;
 
@@ -102,61 +99,6 @@ void deinitFS() {
     }
 }
 
-static void wupiPrintln(int32_t line, const char *str) {
-    /* put line twice for double buffer */
-    OSScreenPutFontEx(SCREEN_TV, 0, line, str);
-    OSScreenPutFontEx(SCREEN_DRC, 0, line, str);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
-
-    OSScreenPutFontEx(SCREEN_TV, 0, line, str);
-    OSScreenPutFontEx(SCREEN_DRC, 0, line, str);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
-}
-
-void WUPI_printTop() {
-    wupiPrintln(0, "Compat Title Installer v1.6");
-    wupiPrintln(1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
-}
-
-/* I don't care enough to implement a va arg function */
-#define WUPI_printf(...)                             \
-    do {                                             \
-        char _wupi_print_str[256];                   \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
-        WUPI_putstr(_wupi_print_str);                \
-    } while (0)
-
-void WUPI_putstr(const char *str) {
-    wupiPrintln(wupiLine++, str);
-}
-
-void WUPI_resetScreen() {
-    memset((void *) screen_buffer, 0, screen_size);
-    wupiLine = 4;
-
-    WUPI_printTop();
-}
-
-void WUPI_waitHome() {
-    DoInputLoop([]() {
-        WUPI_putstr("Press HOME to exit.");
-    }, [](Input& input) {
-        return false; // Wait until HOME menu terminates the app
-    });
-}
-
-void WUPI_waitButton() {
-    DoInputLoop([]() {
-        WUPI_putstr("Press ANY button to return to menu, or HOME to exit.");
-    }, [](Input& input) {
-        if (input.get(TRIGGER, PAD_BUTTON_ANY)) {
-            return true;
-        }
-        return false;
-    });
-}
 
 int32_t WUPI_setupInstall() {
     if (Mocha_InitLibrary() == MOCHA_RESULT_SUCCESS) {
@@ -203,7 +145,7 @@ void WUPI_install() {
     free(title_00000000_bin_aligned);
     free(title_00000001_bin_aligned);
     if (ret < 0)
-        WUPI_printf("Install failed. Error Code: %06X\n", -ret);
+        WUPI_Log("Install failed. Error Code: %06X\n", -ret);
     WUPI_waitButton();
 }
 
@@ -232,11 +174,11 @@ void WUPI_installWAD() {
 
     for (const auto& wadPath : selectedWads) {
         WUPI_resetScreen();
-        WUPI_printf("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
+        WUPI_Log("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
         
         const char* filename = strrchr(wadPath.c_str(), '/');
         filename = filename ? filename + 1 : wadPath.c_str();
-        WUPI_printf("%s\n", filename);
+        WUPI_Log("%s\n", filename);
 
         WUPI_putstr("Loading and decrypting WAD...\n");
 
@@ -273,9 +215,9 @@ void WUPI_installWAD() {
     }
 
     WUPI_resetScreen();
-    WUPI_printf("Batch Install Complete!\n");
-    WUPI_printf("Successful: %d\n", successCount);
-    WUPI_printf("Failed: %d\n", failCount);
+    WUPI_Log("Batch Install Complete!\n");
+    WUPI_Log("Successful: %d\n", successCount);
+    WUPI_Log("Failed: %d\n", failCount);
     WUPI_waitButton();
 }
 
@@ -333,10 +275,8 @@ int main() {
     screen_buffer = (uint8_t *) memalign(0x100, screen_size);
     OSScreenSetBufferEx(SCREEN_TV, screen_buffer);                   /* TV */
     OSScreenSetBufferEx(SCREEN_DRC, screen_buffer + tv_screen_size); /* DRC */
-    OSScreenEnableEx(SCREEN_TV, 1);
-    OSScreenEnableEx(SCREEN_DRC, 1);
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
+    ScreenUtils_Enable();
+    ScreenUtils_ClearBuffer(0);
 
     if (WUPI_setupInstall() < 0) {
         WUPI_resetScreen();

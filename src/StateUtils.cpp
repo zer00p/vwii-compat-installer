@@ -1,4 +1,5 @@
 #include "StateUtils.h"
+#include "ScreenUtils.h"
 #include <coreinit/core.h>
 #include <coreinit/dynload.h>
 #include <coreinit/foreground.h>
@@ -23,13 +24,13 @@ void State::init() {
 
 bool State::AppRunning() {
     if (aroma) {
-        bool app = true;
-        if (OSIsMainCore()) {
+        if (!OSIsMainCore()) return true;
+
+        while (true) {
             switch (ProcUIProcessMessages(true)) {
                 case PROCUI_STATUS_EXITING:
                     // Being closed, prepare to exit
-                    app = false;
-                    break;
+                    return false;
                 case PROCUI_STATUS_RELEASE_FOREGROUND:
                     // Free up MEM1 to next foreground app, deinit screen, etc.
                     ProcUIDrawDoneRelease();
@@ -38,21 +39,19 @@ bool State::AppRunning() {
                 case PROCUI_STATUS_IN_FOREGROUND:
                     // Re-enable screens after returning from background
                     if (wasBackground) {
-                        OSScreenEnableEx(SCREEN_TV, 1);
-                        OSScreenEnableEx(SCREEN_DRC, 1);
+                        ScreenUtils_Enable();
                         foregroundReacquired = true;
                         wasBackground = false;
                     }
-                    app = true;
-                    break;
+                    return true;
                 case PROCUI_STATUS_IN_BACKGROUND:
                     wasBackground = true;
                     OSSleepTicks(OSMillisecondsToTicks(20));
                     break;
+                default:
+                    break;
             }
         }
-
-        return app;
     }
     return WHBProcIsRunning();
 }
