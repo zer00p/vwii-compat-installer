@@ -37,6 +37,81 @@
 
 extern FSAClientHandle fsaClient;
 
+static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
+    FSAFileHandle fd = 0;
+    char path[] = "/vol/slccmpt01/shared1/content.map";
+    
+    FSAMakeDir(fsaClient, "/vol/slccmpt01/shared1", (FSMode) 0x666);
+    
+    if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        if (FSAOpenFileEx(fsaClient, path, "w+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+            WUPI_Log("Failed to open content.map\n");
+            return -1;
+        }
+    }
+
+    alignas(0x40) struct __attribute__((packed)) {
+        char name[8];
+        uint8_t hash[20];
+    } entry;
+    
+    int32_t freeIndex = -1;
+    int32_t currentIndex = 0;
+
+    while (true) {
+        int readRes = FSAReadFile(fsaClient, &entry, sizeof(entry), 1, fd, 0);
+        if (readRes != 1) {
+            break; 
+        }
+        
+        if (memcmp(entry.hash, expectedHash, 20) == 0) {
+            FSACloseFile(fsaClient, fd);
+            return currentIndex;
+        }
+        
+        bool isZero = true;
+        for (int i = 0; i < 20; i++) {
+            if (entry.hash[i] != 0) {
+                isZero = false;
+                break;
+            }
+        }
+        
+        if (isZero && freeIndex == -1) {
+            freeIndex = currentIndex;
+        }
+        
+        currentIndex++;
+    }
+    
+    int32_t targetIndex = currentIndex;
+    if (freeIndex != -1) {
+        targetIndex = freeIndex;
+    }
+    
+    char nameBuf[9];
+    snprintf(nameBuf, sizeof(nameBuf), "%08x", targetIndex);
+    memcpy(entry.name, nameBuf, 8);
+    memcpy(entry.hash, expectedHash, 20);
+    
+    FSError setPosRes = FSASetPosFile(fsaClient, fd, targetIndex * sizeof(entry));
+    if (setPosRes != FS_ERROR_OK) {
+        WUPI_Log("Failed to set pos in content.map, res: %d\n", setPosRes);
+        FSACloseFile(fsaClient, fd);
+        return -1;
+    }
+    
+    int writeRes = FSAWriteFile(fsaClient, &entry, sizeof(entry), 1, fd, FSA_WRITE_FLAG_NONE);
+    if (writeRes != 1) {
+        WUPI_Log("Failed to write to content.map, res: %d\n", writeRes);
+        FSACloseFile(fsaClient, fd);
+        return -1;
+    }
+    
+    FSACloseFile(fsaClient, fd);
+    return targetIndex;
+}
+
 int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
                      uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents) {
@@ -132,11 +207,29 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         for (uint16_t i = 0; i < numContents; i++) {
             uint32_t recordOffset = tmdPayloadOffset + 0xA4 + (i * 36);
             uint32_t cId = Read32BE((const uint8_t*)tmd + recordOffset);
+            uint16_t cType = Read16BE((const uint8_t*)tmd + recordOffset + 6);
             uint64_t cSize = Read64BE((const uint8_t*)tmd + recordOffset + 8);
 
-            snprintf(path, CINS_PATH_LEN,
-                     "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", idHi,
-                     idLo, cId);
+            if ((cType & 0x8000) != 0) {
+                int32_t sharedIndex = GetSharedContentIndex((const uint8_t*)tmd + recordOffset + 0x10);
+                if (sharedIndex < 0) {
+                    WUPI_Log("Failed to get shared content index for content %08x\n", cId);
+                    goto error;
+                }
+                
+                snprintf(path, CINS_PATH_LEN,
+                         "/vol/slccmpt01/shared1/%08x.app", sharedIndex);
+
+                FSAFileHandle testFd;
+                if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+                    FSACloseFile(fsaClient, testFd);
+                    continue;
+                }
+            } else {
+                snprintf(path, CINS_PATH_LEN,
+                         "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", idHi,
+                         idLo, cId);
+            }
 
             CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
             CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(contents[i].data), cSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);

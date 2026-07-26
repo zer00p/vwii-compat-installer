@@ -9,9 +9,11 @@ public:
     // Returns true once after the app re-acquires the foreground (e.g. after HOME menu).
     // Clears the flag after reading.
     static bool ForegroundReacquired();
+    static bool isExiting();
 
 private:
     static bool aroma;
     static bool wasBackground;
     static bool foregroundReacquired;
+    static bool exiting;
 };

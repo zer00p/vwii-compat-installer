@@ -16,6 +16,7 @@
 
 #include "tools.h"
 #include "../installer.h"
+#include "../log.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -44,7 +45,7 @@ static u8 *get_wad(u32 len)
 int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket_size, void** out_tmd, uint32_t* tmd_size, CINS_Content** out_contents, uint16_t* out_numContents, uint64_t* out_titleId)
 {
 	u8 header[0x80];
-	u32 header_len, cert_len, tik_len, tmd_len, app_len, trailer_len;
+	u32 header_len, cert_len, tik_len, tmd_len, app_len, trailer_len, rounded_app_len;
 	u8 *cert, *tik, *tmd, *app, *trailer;
 	u8 title_key[16], iv[16];
 	u32 i, len, rounded_len;
@@ -53,16 +54,21 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	CINS_Content *c_arr;
 
 	fp = fopen(filepath, "rb");
-	if (!fp) return -1;
+	if (!fp) {
+		WUPI_Log("ExtractWadToMemory: Failed to open WAD\n");
+		return -1;
+	}
 
 	if (fread(header, 0x40, 1, fp) != 1) {
 		fclose(fp);
+		WUPI_Log("ExtractWadToMemory: Failed to read header\n");
 		return -1;
 	}
 	header_len = be32(header);
 	if (header_len >= 0x40) {
 		if (fread(header + 0x40, 0x40, 1, fp) != 1) {
 			fclose(fp);
+			WUPI_Log("ExtractWadToMemory: Failed to read extended header\n");
 			return -1;
 		}
 	}
@@ -79,6 +85,8 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	app = get_wad(app_len);
 	trailer = get_wad(trailer_len);
 	fclose(fp);
+
+	rounded_app_len = round_up(app_len, 0x40);
 
 	u32 tmd_payloadOffset = get_payload_offset(tmd);
 	u32 tik_payloadOffset = get_payload_offset(tik);
@@ -99,6 +107,7 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 		set_common_key(dynamic_common_key);
 	} else {
 		free(cert); free(tik); free(tmd); free(app); free(trailer);
+		WUPI_Log("ExtractWadToMemory: Failed to get common key (idx %d)\n", ckey_idx);
 		return -1;
 	}
 
@@ -107,18 +116,23 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	*out_numContents = num_contents;
 
 	c_arr = (CINS_Content*)malloc(sizeof(CINS_Content) * num_contents);
-	if (!c_arr) return -1;
+	if (!c_arr) {
+		free(cert); free(tik); free(tmd); free(app); free(trailer);
+		WUPI_Log("ExtractWadToMemory: Failed to allocate contents array\n");
+		return -1;
+	}
 
 	p = app;
 	for (i = 0; i < num_contents; i++) {
 		len = be64(tmd + tmd_payloadOffset + 0xac + 0x24*i);
 		rounded_len = round_up(len, 0x40);
 
-		if (rounded_len < len || rounded_len > app_len || (u32)(p - app) > app_len - rounded_len) {
+		if (rounded_len < len || rounded_len > rounded_app_len || (u32)(p - app) > rounded_app_len - rounded_len) {
 			for (u32 j = 0; j < i; j++) free((void*)c_arr[j].data);
 			free(c_arr);
 			free(cert); free(trailer); free(app);
 			free(tik); free(tmd);
+			WUPI_Log("ExtractWad: OoB %d (l=%u, a=%u)\n", i, len, app_len);
 			return -1;
 		}
 
@@ -141,6 +155,7 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 			free(c_arr);
 			free(cert); free(trailer); free(app);
 			free(tik); free(tmd);
+			WUPI_Log("ExtractWadToMemory: Hash check failed for content %d\n", i);
 			return -1;
 		}
 

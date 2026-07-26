@@ -182,36 +182,63 @@ void WUPI_installWAD() {
 
         WUPI_putstr("Loading and decrypting WAD...\n");
 
+        bool failed = false;
         WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
         if (!ctx) {
             WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
-            failCount++;
-            sleep(3);
-            continue;
-        }
-
-        if (!WAD_IsSafeTitle(ctx)) {
+            failed = true;
+        } else if (!WAD_IsSafeTitle(ctx)) {
             WUPI_putstr("Error: This is an original Wii System Title!");
             WUPI_putstr("Installing this WILL BRICK your vWii.");
             WUPI_putstr("Skipping this WAD for safety.");
-            WAD_Free(ctx);
-            failCount++;
-            sleep(4);
-            continue;
-        }
-
-        WUPI_putstr("Writing to slccmpt...\n");
-        if (WAD_InstallToVWii(ctx, 0)) {
-            WUPI_putstr("WAD Installation complete!\n");
-            successCount++;
-            sleep(1);
+            failed = true;
         } else {
-            WUPI_putstr("Error: WAD installation failed.\n");
-            failCount++;
-            sleep(3);
+            WUPI_putstr("Writing to slccmpt...\n");
+            if (WAD_InstallToVWii(ctx, 0)) {
+                WUPI_putstr("WAD Installation complete!\n");
+                successCount++;
+                sleep(1);
+            } else {
+                WUPI_putstr("Error: WAD installation failed.\n");
+                failed = true;
+            }
         }
 
-        WAD_Free(ctx);
+        if (ctx) {
+            WAD_Free(ctx);
+        }
+
+        if (failed) {
+            failCount++;
+            WUPI_putstr("");
+            WUPI_putstr("Press A to continue with next WAD.");
+            WUPI_putstr("Press B to abort batch install.");
+            
+            Input input;
+            bool abort = false;
+            while (State::AppRunning()) {
+                if (State::ForegroundReacquired()) {
+                    WUPI_resetScreen();
+                    WUPI_Log("Installing (%d/%d):\n", successCount + failCount, (int)selectedWads.size());
+                    WUPI_Log("%s\n", filename);
+                    WUPI_putstr("Installation failed.");
+                    WUPI_putstr("");
+                    WUPI_putstr("Press A to continue with next WAD.");
+                    WUPI_putstr("Press B to abort batch install.");
+                }
+
+                input.read();
+                if (input.get(TRIGGER, PAD_BUTTON_A)) {
+                    break;
+                } else if (input.get(TRIGGER, PAD_BUTTON_B)) {
+                    abort = true;
+                    break;
+                }
+            }
+            if (abort || !State::AppRunning()) {
+                break;
+            }
+        }
     }
 
     WUPI_resetScreen();
