@@ -37,7 +37,43 @@
 
 extern FSAClientHandle fsaClient;
 
+int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
+    FSAFileHandle fd = 0;
+    char path[] = "/vol/slccmpt01/shared1/content.map";
+    
+    if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        return -1;
+    }
+
+    alignas(0x40) struct __attribute__((packed)) {
+        char name[8];
+        uint8_t hash[20];
+    } entry;
+    
+    int32_t currentIndex = 0;
+    while (true) {
+        int readRes = FSAReadFile(fsaClient, &entry, sizeof(entry), 1, fd, 0);
+        if (readRes != 1) {
+            break; 
+        }
+        
+        if (memcmp(entry.hash, expectedHash, 20) == 0) {
+            FSACloseFile(fsaClient, fd);
+            return currentIndex;
+        }
+        currentIndex++;
+    }
+    
+    FSACloseFile(fsaClient, fd);
+    return -1;
+}
+
 static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
+    int32_t existingIndex = FindSharedContentIndex(expectedHash);
+    if (existingIndex >= 0) {
+        return existingIndex;
+    }
+
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
     
@@ -62,11 +98,6 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
         int readRes = FSAReadFile(fsaClient, &entry, sizeof(entry), 1, fd, 0);
         if (readRes != 1) {
             break; 
-        }
-        
-        if (memcmp(entry.hash, expectedHash, 20) == 0) {
-            FSACloseFile(fsaClient, fd);
-            return currentIndex;
         }
         
         bool isZero = true;

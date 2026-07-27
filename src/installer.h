@@ -43,7 +43,7 @@ typedef struct
 extern int32_t CINS_iosuhaxFd;
 extern int32_t CINS_fsaFd;
 extern int32_t CINS_logLine;
-
+int32_t FindSharedContentIndex(const uint8_t* expectedHash);
 
 int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
                      uint32_t tmd_size, const CINS_Content *contents,

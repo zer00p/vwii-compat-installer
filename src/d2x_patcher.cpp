@@ -188,7 +188,18 @@ static std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
         uint32_t cid = FromBE32(outIos->tmd->contents[i].contentId);
         outIos->contents[i].cid = cid;
         
-        path = "/vol/slccmpt01/title/00000001/" + ToHexString(baseIos, 8) + "/content/" + ToHexString(cid, 8) + ".app";
+        uint16_t cType = FromBE16(outIos->tmd->contents[i].type);
+        if ((cType & 0x8000) != 0) {
+            int32_t sharedIndex = FindSharedContentIndex(outIos->tmd->contents[i].hash);
+            if (sharedIndex < 0) {
+                D2X_Log("Failed to find shared content for cid " + ToHexString(cid, 8) + "\n");
+                return nullptr;
+            }
+            path = "/vol/slccmpt01/shared1/" + ToHexString(sharedIndex, 8) + ".app";
+        } else {
+            path = "/vol/slccmpt01/title/00000001/" + ToHexString(baseIos, 8) + "/content/" + ToHexString(cid, 8) + ".app";
+        }
+
         if (!ReadFileToBuffer(path, &outIos->contents[i].data, &outIos->contents[i].size)) {
             D2X_Log("Failed to read content " + ToHexString(cid, 8) + ".app\n");
             return nullptr;
