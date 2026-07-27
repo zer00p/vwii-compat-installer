@@ -25,6 +25,8 @@ If everything is installed, run 'make release' and the output will be available 
 * WiiBrew contributors (wiibrew.org), for the invaluable documentation on the WAD file format and title structures
 * davebaol, xperia64, blackb0x / wiidev, and other contributors to d2x-cios-installer for the cIOS patching engine
 * leethomason/tinyxml2 for the tinyxml2 parsing library
+* The Open Shop Channel (oscwii.org) for their backend repository API used for downloading homebrew apps.
+* richgel999/miniz for the single-file ZIP extraction library.
 
 ## License
 

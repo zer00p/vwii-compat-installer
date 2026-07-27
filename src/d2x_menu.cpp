@@ -12,6 +12,7 @@ extern FSAClientHandle fsaClient;
 #include "log.h"
 #include <vector>
 #include <string>
+#include "downloader.h"
 
 #define MAX_D2X_VERSIONS 20
 
@@ -44,6 +45,28 @@ std::string BrowseD2XVersions() {
     PopulateDirList("/vol/external01/apps/d2x-cios-installer");
 
     std::string result = "";
+
+    if (s_D2XDirs.empty()) {
+        int dlChoice = ShowMenu({"d2x cIOS installer not found.", "Download it from the Open Shop Channel?"}, {"Yes", "No"});
+        if (dlChoice == 0) {
+            if (DownloadAndExtractApp("d2x-cios-installer")) {
+                ClearDirList();
+                PopulateDirList("/vol/external01/apps/d2x-cios-installer");
+            } else {
+                ScreenUtils_ClearBuffer(0);
+                ScreenUtils_PutFont(0, 3, "Download failed.");
+                ScreenUtils_FlipBuffers();
+                WUPI_waitButton();
+                ClearDirList();
+                ScreenUtils_ClearBothBuffers();
+                return "";
+            }
+        } else {
+            ClearDirList();
+            ScreenUtils_ClearBothBuffers();
+            return "";
+        }
+    }
 
     if (s_D2XDirs.empty()) {
         ScreenUtils_ClearBuffer(0);
