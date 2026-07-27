@@ -45,6 +45,7 @@
 #include "d2x_menu.h"
 #include "d2x_patcher.h"
 #include "MenuUtils.h"
+#include "downloader.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -269,6 +270,66 @@ void WUPI_installD2X() {
     WUPI_waitButton();
 }
 
+void WUPI_downloadMenu() {
+    WUPI_resetScreen();
+    std::vector<std::string> options = {
+        "LibreShop",
+        "Homebrew Browser",
+        "USB Loader GX",
+        "d2x cIOS installer"
+    };
+    std::vector<std::string> appIds = {
+        "libreshop",
+        "homebrew_browser",
+        "usbloader_gx",
+        "d2x-cios-installer"
+    };
+    std::vector<std::string> header = {
+        "Select apps to download:"
+    };
+
+    std::vector<int> selected = ShowMultiSelectMenu(header, options);
+    if (selected.empty()) {
+        return;
+    }
+
+    int successCount = 0;
+    int failCount = 0;
+
+    for (int idx : selected) {
+        WUPI_resetScreen();
+        WUPI_Log("Downloading (%d/%d):\n", successCount + failCount + 1, (int)selected.size());
+        WUPI_Log("%s\n", options[idx].c_str());
+
+        if (DownloadAndExtractApp(appIds[idx])) {
+            successCount++;
+        } else {
+            failCount++;
+            
+            // Wait on error
+            ScreenUtils_ClearBuffer(0);
+            char buf[256];
+            snprintf(buf, sizeof(buf), "Downloading (%d/%d):", successCount + failCount, (int)selected.size());
+            ScreenUtils_PutFont(0, 1, buf);
+            ScreenUtils_PutFont(0, 2, options[idx].c_str());
+            ScreenUtils_PutFont(0, 3, "Download failed.");
+            ScreenUtils_PutFont(0, 5, "Press A to continue with next app.");
+            ScreenUtils_PutFont(0, 6, "Press B to abort batch download.");
+            ScreenUtils_FlipBuffers();
+            
+            if (!WaitPrompt()) {
+                break;
+            }
+        }
+    }
+
+    WUPI_resetScreen();
+    WUPI_Log("Batch Download Complete!\n");
+    WUPI_Log("Successful: %d\n", successCount);
+    WUPI_Log("Failed: %d\n", failCount);
+    WUPI_waitButton();
+}
+
 int main() {
     int32_t tv_screen_size, drc_screen_size;
 
@@ -299,7 +360,8 @@ int main() {
         std::vector<std::string> options = {
             "Install the Homebrew Channel to the Wii Menu",
             "Install a WAD from the SD Card",
-            "Install d2x cIOS"
+            "Install d2x cIOS",
+            "Download Apps"
         };
         std::vector<std::string> header = {
             "Compat Title Installer v1.6",
@@ -315,6 +377,8 @@ int main() {
                 WUPI_installWAD();
             } else if (selected == 2) {
                 WUPI_installD2X();
+            } else if (selected == 3) {
+                WUPI_downloadMenu();
             } else if (selected == -1) {
                 break;
             }
