@@ -185,9 +185,6 @@ void WUPI_installWAD() {
 
     std::vector<std::string> selectedWads = BrowseWADs();
     if (selectedWads.empty()) {
-        WUPI_resetScreen();
-        WUPI_putstr("No WADs selected.");
-        WUPI_waitButton();
         return;
     }
 

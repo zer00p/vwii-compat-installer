@@ -28,7 +28,6 @@
 #include <algorithm>
 
 extern FSAClientHandle fsaClient;
-#include "log.h"
 
 struct FileEntry {
     std::string name;
@@ -119,7 +118,7 @@ static void DrawBrowserInner(int selected) {
         ScreenUtils_PutFont(0, 2, "No files found.");
     }
 
-    ScreenUtils_PutFont(0, 18, "A: Enter/Select | X: Select All | +: Confirm | B: Back | UP/DOWN/LEFT/RIGHT: Move");
+    ScreenUtils_PutFont(0, 17, "A: Select | X: Select All | +: Confirm | B: Back | D-Pad: Move");
 }
 
 static bool ProcessHoldInput(const Input& input, Button button, int& timer) {
