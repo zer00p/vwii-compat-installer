@@ -1,8 +1,8 @@
 #include "d2x_menu.h"
-#include "InputUtils.h"
+#include "MenuUtils.h"
+#include "ScreenUtils.h"
 #include "StateUtils.h"
 #include <coreinit/filesystem_fsa.h>
-#include <coreinit/screen.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -39,98 +39,38 @@ static void PopulateDirList(const std::string& dirPath) {
     }
 }
 
-static void DrawBrowserInner(int selected) {
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
-
-    OSScreenPutFontEx(SCREEN_TV, 0, 0, "Compat Title Installer v1.6");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 0, "Compat Title Installer v1.6");
-    OSScreenPutFontEx(SCREEN_TV, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 1, "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair");
-
-    if (!s_D2XDirs.empty()) {
-        std::string header = "Select a d2x version to install (Found " + std::to_string(s_D2XDirs.size()) + "):";
-        OSScreenPutFontEx(SCREEN_TV, 0, 3, header.c_str());
-        OSScreenPutFontEx(SCREEN_DRC, 0, 3, header.c_str());
-
-        for (size_t i = 0; i < s_D2XDirs.size(); i++) {
-            size_t slashPos = s_D2XDirs[i].find_last_of('/');
-            std::string filename = (slashPos != std::string::npos) ? s_D2XDirs[i].substr(slashPos + 1) : s_D2XDirs[i];
-            
-            std::string line = std::string((i == (size_t)selected) ? "-> " : "   ") + filename;
-            OSScreenPutFontEx(SCREEN_TV, 0, 5 + i, line.c_str());
-            OSScreenPutFontEx(SCREEN_DRC, 0, 5 + i, line.c_str());
-        }
-    } else {
-        if (s_OpenDirErr != FS_ERROR_OK) {
-            std::string errStr = "Error opening dir (Code: " + std::to_string(s_OpenDirErr) + "):";
-            OSScreenPutFontEx(SCREEN_TV, 0, 3, errStr.c_str());
-            OSScreenPutFontEx(SCREEN_DRC, 0, 3, errStr.c_str());
-            OSScreenPutFontEx(SCREEN_TV, 0, 4, "sd:/apps/d2x-cios-installer");
-            OSScreenPutFontEx(SCREEN_DRC, 0, 4, "sd:/apps/d2x-cios-installer");
-        } else {
-            OSScreenPutFontEx(SCREEN_TV, 0, 3, "No d2x versions found in sd:/apps/d2x-cios-installer.");
-            OSScreenPutFontEx(SCREEN_DRC, 0, 3, "No d2x versions found in sd:/apps/d2x-cios-installer.");
-        }
-    }
-
-    OSScreenPutFontEx(SCREEN_TV, 0, 6 + s_D2XDirs.size(), "A: Select | B: Cancel | UP/DOWN: Move");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 6 + s_D2XDirs.size(), "A: Select | B: Cancel | UP/DOWN: Move");
-}
-
-static void DrawBrowser(int selected) {
-    DrawBrowserInner(selected);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
-
-    DrawBrowserInner(selected);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
-}
-
 std::string BrowseD2XVersions() {
     ClearDirList();
     PopulateDirList("/vol/external01/apps/d2x-cios-installer");
 
-    int selected = 0;
     std::string result = "";
 
-    DrawBrowser(selected);
-    Input input;
-    while (State::AppRunning()) {
-        input.read();
-        bool needs_redraw = State::ForegroundReacquired();
-        if (input.get(TRIGGER, PAD_BUTTON_UP)) {
-            if (selected > 0) { selected--; needs_redraw = true; }
+    if (s_D2XDirs.empty()) {
+        ScreenUtils_ClearBuffer(0);
+        if (s_OpenDirErr != FS_ERROR_OK) {
+            std::string errStr = "Error opening dir (Code: " + std::to_string(s_OpenDirErr) + "):";
+            ScreenUtils_PutFont(0, 3, errStr.c_str());
+            ScreenUtils_PutFont(0, 4, "sd:/apps/d2x-cios-installer");
+        } else {
+            ScreenUtils_PutFont(0, 3, "No d2x versions found in sd:/apps/d2x-cios-installer.");
         }
-        if (input.get(TRIGGER, PAD_BUTTON_DOWN)) {
-            if (selected < (int)s_D2XDirs.size() - 1) { selected++; needs_redraw = true; }
+        ScreenUtils_FlipBuffers();
+        WUPI_waitButton();
+    } else {
+        std::vector<std::string> displayNames;
+        for (const auto& dir : s_D2XDirs) {
+            size_t slashPos = dir.find_last_of('/');
+            displayNames.push_back((slashPos != std::string::npos) ? dir.substr(slashPos + 1) : dir);
         }
-        if (input.get(TRIGGER, PAD_BUTTON_B)) {
-            break; // Cancel
-        }
-        if (input.get(TRIGGER, PAD_BUTTON_A) && !s_D2XDirs.empty()) {
+
+        int selected = ShowMenu({"Select a d2x version to install (Found " + std::to_string(s_D2XDirs.size()) + "):"}, displayNames);
+        if (selected != -1) {
             result = s_D2XDirs[selected];
-            break; // Confirmed
         }
-        if (needs_redraw) {
-            DrawBrowser(selected);
-        }
-        usleep(16000);
     }
 
     ClearDirList();
-
-    // Since we took over the screen loop, we need to clear both buffers
-    // to black so main.cpp can redraw its UI cleanly.
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
-    OSScreenClearBufferEx(SCREEN_TV, 0);
-    OSScreenClearBufferEx(SCREEN_DRC, 0);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
+    ScreenUtils_ClearBothBuffers();
 
     return result;
 }

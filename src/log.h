@@ -5,11 +5,11 @@ extern "C" {
 #endif
 
 #include <stdio.h>
+#include <stdbool.h>
 
 void WUPI_putstr(const char *str);
 void WUPI_printTop();
 void WUPI_resetScreen();
-void WUPI_waitHome();
 void WUPI_waitButton();
 
 #define WUPI_Log(...) \

@@ -44,6 +44,7 @@
 #include "wad.h"
 #include "d2x_menu.h"
 #include "d2x_patcher.h"
+#include "MenuUtils.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -149,6 +150,27 @@ void WUPI_install() {
     WUPI_waitButton();
 }
 
+static void DrawBatchError(int current, int total, const char* filename) {
+    ScreenUtils_ClearBuffer(0);
+
+    char buf[256];
+    snprintf(buf, sizeof(buf), "Installing (%d/%d):", current, total);
+    ScreenUtils_PutFont(0, 1, buf);
+    ScreenUtils_PutFont(0, 2, filename);
+    ScreenUtils_PutFont(0, 3, "Installation failed.");
+    ScreenUtils_PutFont(0, 5, "Press A to continue with next WAD.");
+    ScreenUtils_PutFont(0, 6, "Press B to abort batch install.");
+}
+
+/* Shows the batch-error screen and waits for A (continue) or B (abort).
+ * Returns true if the user wants to continue, false to abort. */
+static bool WaitForBatchError(int current, int total, const char* filename) {
+    DrawBatchError(current, total, filename);
+    ScreenUtils_FlipBuffers();
+
+    return WaitPrompt();
+}
+
 void WUPI_installWAD() {
     WUPI_resetScreen();
 
@@ -210,32 +232,7 @@ void WUPI_installWAD() {
 
         if (failed) {
             failCount++;
-            WUPI_putstr("");
-            WUPI_putstr("Press A to continue with next WAD.");
-            WUPI_putstr("Press B to abort batch install.");
-            
-            Input input;
-            bool abort = false;
-            while (State::AppRunning()) {
-                if (State::ForegroundReacquired()) {
-                    WUPI_resetScreen();
-                    WUPI_Log("Installing (%d/%d):\n", successCount + failCount, (int)selectedWads.size());
-                    WUPI_Log("%s\n", filename);
-                    WUPI_putstr("Installation failed.");
-                    WUPI_putstr("");
-                    WUPI_putstr("Press A to continue with next WAD.");
-                    WUPI_putstr("Press B to abort batch install.");
-                }
-
-                input.read();
-                if (input.get(TRIGGER, PAD_BUTTON_A)) {
-                    break;
-                } else if (input.get(TRIGGER, PAD_BUTTON_B)) {
-                    abort = true;
-                    break;
-                }
-            }
-            if (abort || !State::AppRunning()) {
+            if (!WaitForBatchError(successCount + failCount, (int)selectedWads.size(), filename)) {
                 break;
             }
         }
@@ -248,13 +245,6 @@ void WUPI_installWAD() {
     WUPI_waitButton();
 }
 
-void WUPI_showMenu() {
-    WUPI_resetScreen();
-    WUPI_putstr("Press A to install the Homebrew Channel to the Wii Menu.");
-    WUPI_putstr("Press X to install a WAD from the SD Card.");
-    WUPI_putstr("Press Y to install d2x cIOS.");
-    WUPI_putstr("Press HOME to exit.");
-}
 
 void WUPI_installD2X() {
     WUPI_resetScreen();
@@ -284,7 +274,6 @@ void WUPI_installD2X() {
 
 int main() {
     int32_t tv_screen_size, drc_screen_size;
-    Input input;
 
     State::init();
     AXInit();
@@ -310,22 +299,28 @@ int main() {
         WUPI_putstr("Error: Mocha not found, you need to run this from Aroma.");
         WUPI_waitButton();
     } else {
-        WUPI_showMenu();
-
+        std::vector<std::string> options = {
+            "Install the Homebrew Channel to the Wii Menu",
+            "Install a WAD from the SD Card",
+            "Install d2x cIOS"
+        };
+        std::vector<std::string> header = {
+            "Compat Title Installer v1.6",
+            "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair",
+            "",
+            "Main Menu:"
+        };
         while (State::AppRunning()) {
-            input.read();
-            if (input.get(TRIGGER, PAD_BUTTON_A)) {
+            int selected = ShowMenu(header, options);
+            if (selected == 0) {
                 WUPI_install();
-            } else if (input.get(TRIGGER, PAD_BUTTON_X)) {
+            } else if (selected == 1) {
                 WUPI_installWAD();
-            } else if (input.get(TRIGGER, PAD_BUTTON_Y)) {
+            } else if (selected == 2) {
                 WUPI_installD2X();
-            } else if (!State::ForegroundReacquired()) {
-                usleep(16000);
-                continue;
+            } else if (selected == -1) {
+                break;
             }
-            
-            WUPI_showMenu();
         }
     }
 

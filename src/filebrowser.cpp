@@ -92,40 +92,56 @@ static void PopulateWadList(const std::string& dirPath) {
 static void DrawBrowserInner(int selected) {
     ScreenUtils_ClearBuffer(0);
 
-    std::string pathStr = "Path: " + s_CurrentPath;
-    ScreenUtils_PutFont(0, 0, pathStr.c_str());
+    std::string headerStr;
+    if (s_CurrentPath == "/vol/external01") {
+        headerStr = "Select a directory:";
+    } else {
+        headerStr = "Select WADs to install from " + s_CurrentPath + " (Found " + std::to_string(s_Entries.size()) + "):";
+    }
+    ScreenUtils_PutFont(0, 0, headerStr.c_str());
 
-    if (!s_Entries.empty()) {
-        int visible_lines = 14;
-        int start_idx = selected - visible_lines / 2;
-        if (start_idx < 0) start_idx = 0;
-        if (start_idx + visible_lines > (int)s_Entries.size()) {
-            start_idx = std::max(0, (int)s_Entries.size() - visible_lines);
-        }
+    int count = (int)s_Entries.size();
+    if (count > 0) {
+        int max_display = 15;
+        int start_idx = std::max(0, std::min(selected - max_display / 2, count - max_display));
 
-        for (int i = 0; i < visible_lines && (start_idx + i) < (int)s_Entries.size(); i++) {
+        for (int i = 0; i < max_display && start_idx + i < count; i++) {
             int idx = start_idx + i;
-            const auto& entry = s_Entries[idx];
-            
-            std::string cursor = (idx == selected) ? "->" : "  ";
-            std::string checkbox = entry.isDir ? "[DIR]" : (entry.isSelected ? "[X]" : "[ ]");
-            
-            std::string lineStr = cursor + " " + checkbox + " " + entry.name;
+            auto& entry = s_Entries[idx];
+
+            std::string prefix = (idx == selected) ? "-> " : "   ";
+            std::string type = entry.isDir ? "[DIR] " : (entry.isSelected ? "[X]  " : "[ ]  ");
+
+            std::string lineStr = prefix + type + entry.name;
             ScreenUtils_PutFont(0, 2 + i, lineStr.c_str());
         }
     } else {
-        ScreenUtils_PutFont(0, 2, "No files or subdirectories found.");
+        ScreenUtils_PutFont(0, 2, "No files found.");
     }
 
-    ScreenUtils_PutFont(0, 16, "A: Select/Enter | B: Back | X: Toggle All | +: Confirm");
+    ScreenUtils_PutFont(0, 18, "A: Enter/Select | X: Select All | +: Confirm | B: Back | UP/DOWN/LEFT/RIGHT: Move");
 }
 
-static void DrawBrowser(int selected) {
-    DrawBrowserInner(selected);
-    ScreenUtils_FlipBuffers();
+static bool ProcessHoldInput(const Input& input, Button button, int& timer) {
+    if (input.get(TRIGGER, button)) {
+        timer = 0;
+        return true;
+    }
+    if (input.get(HOLD, button)) {
+        return (++timer > 20 && timer % 4 == 0);
+    }
+    timer = 0;
+    return false;
+}
 
-    DrawBrowserInner(selected);
-    ScreenUtils_FlipBuffers();
+static void NavigateUp(int& selected) {
+    size_t lastSlash = s_CurrentPath.find_last_of('/');
+    if (lastSlash != std::string::npos && lastSlash > 0) {
+        PopulateWadList(s_CurrentPath.substr(0, lastSlash));
+    } else {
+        PopulateWadList("/vol/external01");
+    }
+    selected = 0;
 }
 
 std::vector<std::string> BrowseWADs() {
@@ -137,116 +153,63 @@ std::vector<std::string> BrowseWADs() {
         FSACloseDir(fsaClient, dir);
         PopulateWadList("/vol/external01/wads");
     } else {
-        PopulateWadList("/vol/external01"); // fallback to root
+        PopulateWadList("/vol/external01");
     }
 
     int selected = 0;
-    int last_selected = -1;
     Input input;
     std::vector<std::string> result;
+    int hold_timer_up = 0, hold_timer_down = 0;
+    int hold_timer_left = 0, hold_timer_right = 0;
 
-    int hold_timer_up = 0;
-    int hold_timer_down = 0;
-    int hold_timer_left = 0;
-    int hold_timer_right = 0;
+    DrawBrowserInner(selected);
+    ScreenUtils_FlipBuffers();
 
-    DrawBrowser(selected);
-    last_selected = selected;
     while (State::AppRunning()) {
-        if (State::ForegroundReacquired()) {
-            DrawBrowser(selected);
-            last_selected = selected;
-        }
-
         input.read();
-        bool needsRedraw = false;
+        int count = (int)s_Entries.size();
+        bool changed = false;
 
-        bool moveUp = false;
-        bool moveDown = false;
-        bool pageUp = false;
-        bool pageDown = false;
-
-        if (input.get(TRIGGER, PAD_BUTTON_UP)) {
-            moveUp = true; hold_timer_up = 0;
-        } else if (input.get(HOLD, PAD_BUTTON_UP)) {
-            if (++hold_timer_up > 20 && (hold_timer_up % 4 == 0)) moveUp = true;
-        } else {
-            hold_timer_up = 0;
+        // Cursor movement (with hold-repeat)
+        if (ProcessHoldInput(input, PAD_BUTTON_UP, hold_timer_up) && selected > 0) {
+            selected--;
+            changed = true;
         }
-
-        if (input.get(TRIGGER, PAD_BUTTON_DOWN)) {
-            moveDown = true; hold_timer_down = 0;
-        } else if (input.get(HOLD, PAD_BUTTON_DOWN)) {
-            if (++hold_timer_down > 20 && (hold_timer_down % 4 == 0)) moveDown = true;
-        } else {
-            hold_timer_down = 0;
+        if (ProcessHoldInput(input, PAD_BUTTON_DOWN, hold_timer_down) && selected < count - 1) {
+            selected++;
+            changed = true;
+        }
+        if (ProcessHoldInput(input, PAD_BUTTON_LEFT, hold_timer_left) && selected > 0) {
+            selected = std::max(0, selected - 10);
+            changed = true;
+        }
+        if (ProcessHoldInput(input, PAD_BUTTON_RIGHT, hold_timer_right) && selected < count - 1) {
+            selected = std::min(count - 1, selected + 10);
+            changed = true;
         }
 
-        if (input.get(TRIGGER, PAD_BUTTON_LEFT)) {
-            pageUp = true; hold_timer_left = 0;
-        } else if (input.get(HOLD, PAD_BUTTON_LEFT)) {
-            if (++hold_timer_left > 20 && (hold_timer_left % 4 == 0)) pageUp = true;
-        } else {
-            hold_timer_left = 0;
-        }
-
-        if (input.get(TRIGGER, PAD_BUTTON_RIGHT)) {
-            pageDown = true; hold_timer_right = 0;
-        } else if (input.get(HOLD, PAD_BUTTON_RIGHT)) {
-            if (++hold_timer_right > 20 && (hold_timer_right % 4 == 0)) pageDown = true;
-        } else {
-            hold_timer_right = 0;
-        }
-
-        if (moveUp && selected > 0) {
-            selected--; needsRedraw = true;
-        }
-        if (moveDown && selected < (int)s_Entries.size() - 1) {
-            selected++; needsRedraw = true;
-        }
-        if (pageUp && selected > 0) {
-            selected -= 10;
-            if (selected < 0) selected = 0;
-            needsRedraw = true;
-        }
-        if (pageDown && selected < (int)s_Entries.size() - 1) {
-            selected += 10;
-            if (selected >= (int)s_Entries.size()) selected = s_Entries.size() - 1;
-            needsRedraw = true;
-        }
+        // Directory navigation
         if (input.get(TRIGGER, PAD_BUTTON_B)) {
-            if (s_CurrentPath != "/vol/external01") {
-                size_t lastSlash = s_CurrentPath.find_last_of('/');
-                if (lastSlash != std::string::npos && lastSlash > 0) {
-                    PopulateWadList(s_CurrentPath.substr(0, lastSlash));
-                } else {
-                    PopulateWadList("/vol/external01");
-                }
-                selected = 0;
-                needsRedraw = true;
-            } else {
-                break; // Exit browser
-            }
+            if (s_CurrentPath == "/vol/external01") break;
+            NavigateUp(selected);
+            changed = true;
         }
         if (input.get(TRIGGER, PAD_BUTTON_A) && !s_Entries.empty()) {
             auto& entry = s_Entries[selected];
             if (entry.isDir) {
                 if (entry.name == "..") {
-                    size_t lastSlash = s_CurrentPath.find_last_of('/');
-                    if (lastSlash != std::string::npos && lastSlash > 0) {
-                        PopulateWadList(s_CurrentPath.substr(0, lastSlash));
-                    } else {
-                        PopulateWadList("/vol/external01");
-                    }
+                    NavigateUp(selected);
                 } else {
                     PopulateWadList(entry.path);
+                    selected = 0;
                 }
-                selected = 0;
             } else {
                 entry.isSelected = !entry.isSelected;
             }
-            needsRedraw = true;
+            changed = true;
         }
+
+        // Toggle all
         if (input.get(TRIGGER, PAD_BUTTON_X)) {
             bool anyUnselected = false;
             for (auto& entry : s_Entries) {
@@ -256,12 +219,12 @@ std::vector<std::string> BrowseWADs() {
                 }
             }
             for (auto& entry : s_Entries) {
-                if (!entry.isDir) {
-                    entry.isSelected = anyUnselected;
-                }
+                if (!entry.isDir) entry.isSelected = anyUnselected;
             }
-            needsRedraw = true;
+            changed = true;
         }
+
+        // Confirm selection
         if (input.get(TRIGGER, PAD_BUTTON_PLUS)) {
             for (auto& entry : s_Entries) {
                 if (!entry.isDir && entry.isSelected) {
@@ -271,25 +234,18 @@ std::vector<std::string> BrowseWADs() {
             if (result.empty() && !s_Entries.empty() && !s_Entries[selected].isDir) {
                 result.push_back(s_Entries[selected].path);
             }
-            if (!result.empty()) {
-                break;
-            }
+            if (!result.empty()) break;
         }
 
-        if (needsRedraw) {
-            DrawBrowser(selected);
-            last_selected = selected;
+        if (changed) {
+            DrawBrowserInner(selected);
+            ScreenUtils_FlipBuffers();
         }
-        
+
         usleep(16000);
     }
 
     ClearWadList();
-
-    ScreenUtils_ClearBuffer(0);
-    ScreenUtils_FlipBuffers();
-    ScreenUtils_ClearBuffer(0);
-    ScreenUtils_FlipBuffers();
-
+    ScreenUtils_ClearBothBuffers();
     return result;
 }

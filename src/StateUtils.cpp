@@ -9,7 +9,6 @@
 
 bool State::aroma = false;
 bool State::wasBackground = false;
-bool State::foregroundReacquired = false;
 bool State::exiting = false;
 
 void State::init() {
@@ -41,10 +40,10 @@ bool State::AppRunning() {
                     wasBackground = true;
                     break;
                 case PROCUI_STATUS_IN_FOREGROUND:
-                    // Re-enable screens after returning from background
+                    // Re-enable screens and replay shadow buffer after returning from background
                     if (wasBackground) {
                         ScreenUtils_Enable();
-                        foregroundReacquired = true;
+                        ScreenUtils_Redraw();
                         wasBackground = false;
                     }
                     return true;
@@ -64,13 +63,7 @@ bool State::AppRunning() {
     return running;
 }
 
-bool State::ForegroundReacquired() {
-    if (foregroundReacquired) {
-        foregroundReacquired = false;
-        return true;
-    }
-    return false;
-}
+
 
 bool State::isExiting() {
     return exiting;

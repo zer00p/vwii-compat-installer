@@ -14,6 +14,8 @@
 #include "tinyxml2.h"
 #include "wad.h"
 #include "InputUtils.h"
+#include "log.h"
+#include "MenuUtils.h"
 #include "StateUtils.h"
 #include <coreinit/filesystem_fsa.h>
 #include <coreinit/screen.h>
@@ -436,17 +438,7 @@ void InstallD2X(const std::string& versionFolder) {
     };
 
     drawPatcherMenu();
-    Input input;
-    while (State::AppRunning()) {
-        if (State::ForegroundReacquired()) {
-            drawPatcherMenu();
-        }
-
-        input.read();
-        if (input.get(TRIGGER, PAD_BUTTON_A)) { break; }
-        if (input.get(TRIGGER, PAD_BUTTON_B)) { cancel = true; break; }
-        usleep(16000);
-    }
+    cancel = !WaitPrompt();
     
     if (cancel) return;
     
