@@ -114,15 +114,6 @@ void WUPI_install() {
     /* We should only end up here if the A button was pressed. */
     WUPI_resetScreen();
 
-    if (!mounted) {
-        if (!(ret = initFS())) {
-            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-            WUPI_waitButton();
-            return;
-        }
-        mounted = true;
-    }
-
     WUPI_putstr("Installing the Homebrew Channel...\n");
 
     void *title_cetk_bin_aligned = aligned_alloc(0x40, FS_ALIGN(title_cetk_bin_size));
@@ -174,15 +165,6 @@ static bool WaitForBatchError(int current, int total, const char* filename) {
 
 void WUPI_installWAD() {
     WUPI_resetScreen();
-
-    if (!mounted) {
-        if (!(ret = initFS())) {
-            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-            WUPI_waitButton();
-            return;
-        }
-        mounted = true;
-    }
 
     std::vector<std::string> selectedWads = BrowseWADs();
     if (selectedWads.empty()) {
@@ -246,15 +228,6 @@ void WUPI_installWAD() {
 
 void WUPI_installD2X() {
     WUPI_resetScreen();
-    
-    if (!mounted) {
-        if (!(ret = initFS())) {
-            WUPI_putstr("Error: Failed to mount /vol/slccmpt01.\n");
-            WUPI_waitButton();
-            return;
-        }
-        mounted = true;
-    }
 
     std::string selectedVersion = BrowseD2XVersions();
     if (selectedVersion.empty()) {
@@ -306,17 +279,7 @@ void WUPI_downloadMenu() {
         } else {
             failCount++;
             
-            // Wait on error
-            ScreenUtils_ClearBuffer(0);
-            char buf[256];
-            snprintf(buf, sizeof(buf), "Downloading (%d/%d):", successCount + failCount, (int)selected.size());
-            ScreenUtils_PutFont(0, 1, buf);
-            ScreenUtils_PutFont(0, 2, options[idx].c_str());
-            ScreenUtils_PutFont(0, 3, "Download failed.");
-            ScreenUtils_PutFont(0, 5, "Press A to continue with next app.");
-            ScreenUtils_PutFont(0, 6, "Press B to abort batch download.");
-            ScreenUtils_FlipBuffers();
-            
+            WUPI_putstr("Press A to continue with next app, B to abort.");
             if (!WaitPrompt()) {
                 break;
             }
@@ -356,7 +319,12 @@ int main() {
         WUPI_resetScreen();
         WUPI_putstr("Error: Mocha not found, you need to run this from Aroma.");
         WUPI_waitButton();
+    } else if (!(ret = initFS())) {
+        WUPI_resetScreen();
+        WUPI_putstr("Error: Failed to mount /vol/slccmpt01.");
+        WUPI_waitButton();
     } else {
+        mounted = true;
         std::vector<std::string> options = {
             "Install the Homebrew Channel to the Wii Menu",
             "Install a WAD from the SD Card",
