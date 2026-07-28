@@ -22,7 +22,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <malloc.h>
 #include "EndianUtils.h"
+#include "MenuUtils.h"
 
 #define IOS_SUCCESS             FS_ERROR_OK
 
@@ -253,8 +255,47 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
                 FSAFileHandle testFd;
                 if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+                    bool matches = true;
+                    const uint32_t chunkSize = 64 * 1024;
+                    void* chunkBuf = memalign(0x40, chunkSize);
+                    if (chunkBuf) {
+                        uint64_t offset = 0;
+                        while (offset < cSize) {
+                            uint32_t toRead = (uint32_t)((cSize - offset > chunkSize) ? chunkSize : (cSize - offset));
+                            int readRes = FSAReadFile(fsaClient, chunkBuf, toRead, 1, testFd, 0);
+                            if (readRes != 1) {
+                                matches = false;
+                                break;
+                            }
+                            if (memcmp(chunkBuf, (const uint8_t*)contents[i].data + offset, toRead) != 0) {
+                                matches = false;
+                                break;
+                            }
+                            offset += toRead;
+                        }
+                        
+                        if (matches) {
+                            int extraRead = FSAReadFile(fsaClient, chunkBuf, 1, 1, testFd, 0);
+                            if (extraRead > 0) {
+                                matches = false;
+                            }
+                        }
+                        free(chunkBuf);
+                    } else {
+                        matches = false;
+                    }
+
                     FSACloseFile(fsaClient, testFd);
-                    continue;
+
+                    if (matches) {
+                        continue;
+                    }
+                    
+                    WUPI_Log("Warning: Shared content %08x exists but differs!\n", cId);
+                    WUPI_Log("Press A to reinstall it, B to keep existing.\n");
+                    if (!WaitPrompt()) {
+                        continue;
+                    }
                 }
             } else {
                 snprintf(path, CINS_PATH_LEN,
