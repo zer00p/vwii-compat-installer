@@ -249,22 +249,18 @@ void WUPI_installIOS80() {
     InstallIOS80();
 }
 
-void WUPI_downloadMenu() {
+void WUPI_openShopChannelMenu() {
     WUPI_resetScreen();
     std::vector<std::string> options = {
         "LibreShop",
-        "Homebrew Browser",
-        "USB Loader GX",
-        "d2x cIOS installer"
+        "Homebrew Browser"
     };
     std::vector<std::string> appIds = {
         "libreshop",
-        "homebrew_browser",
-        "usbloader_gx",
-        "d2x-cios-installer"
+        "homebrew_browser"
     };
     std::vector<std::string> header = {
-        "Select apps to download:"
+        "Open Shop Channel:"
     };
 
     std::vector<int> selected = ShowMultiSelectMenu(header, options);
@@ -297,6 +293,38 @@ void WUPI_downloadMenu() {
     WUPI_Log("Successful: %d\n", successCount);
     WUPI_Log("Failed: %d\n", failCount);
     WUPI_waitButton();
+}
+
+void WUPI_cIOSMenu() {
+    while (State::AppRunning()) {
+        WUPI_resetScreen();
+        std::vector<std::string> options = {
+            "Install d2x cIOS",
+            "Patch IOS80 (SD Card Menu Channels)",
+            "Download d2x-cios-installer"
+        };
+        std::vector<std::string> header = {
+            "cIOS Menu:"
+        };
+
+        int selected = ShowMenu(header, options);
+        if (selected == 0) {
+            WUPI_installD2X();
+        } else if (selected == 1) {
+            WUPI_installIOS80();
+        } else if (selected == 2) {
+            WUPI_resetScreen();
+            WUPI_Log("Downloading d2x-cios-installer...\n");
+            if (DownloadAndExtractApp("d2x-cios-installer")) {
+                WUPI_Log("Download complete!\n");
+            } else {
+                WUPI_Log("Download failed.\n");
+            }
+            WUPI_waitButton();
+        } else if (selected == -1) {
+            break;
+        }
+    }
 }
 
 void WUPI_usbLoaderGXMenu() {
@@ -412,9 +440,8 @@ int main() {
         std::vector<std::string> options = {
             "Install the Homebrew Channel to the Wii Menu",
             "Install a WAD from the SD Card",
-            "Install d2x cIOS",
-            "Patch IOS80 (SD Card Menu Channels)",
-            "Download Apps",
+            "cIOS Menu",
+            "Open Shop Channel",
             "USB Loader GX"
         };
         std::vector<std::string> header = {
@@ -430,12 +457,10 @@ int main() {
             } else if (selected == 1) {
                 WUPI_installWAD();
             } else if (selected == 2) {
-                WUPI_installD2X();
+                WUPI_cIOSMenu();
             } else if (selected == 3) {
-                WUPI_installIOS80();
+                WUPI_openShopChannelMenu();
             } else if (selected == 4) {
-                WUPI_downloadMenu();
-            } else if (selected == 5) {
                 WUPI_usbLoaderGXMenu();
             } else if (selected == -1) {
                 break;
