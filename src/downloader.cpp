@@ -32,10 +32,7 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 }
 
 static void ShowDownloadStatus(const char* message) {
-    ScreenUtils_ClearBuffer(0);
-    ScreenUtils_PutFont(0, 3, "Downloading from Open Shop Channel...");
-    ScreenUtils_PutFont(0, 5, message);
-    ScreenUtils_FlipBuffers();
+    WUPI_Log("%s\n", message);
 }
 
 static void EnsureFSADirectory(const char* path) {
@@ -62,6 +59,7 @@ bool DownloadAndExtractApp(const std::string& appId) {
     
     CURL *curl_handle = curl_easy_init();
     if(!curl_handle) {
+        WUPI_Log("Download failed: Could not initialize cURL.\n");
         return false;
     }
 
@@ -84,7 +82,14 @@ bool DownloadAndExtractApp(const std::string& appId) {
     CURLcode res = curl_easy_perform(curl_handle);
     curl_easy_cleanup(curl_handle);
 
-    if (res != CURLE_OK || chunk.size == 0) {
+    if (res != CURLE_OK) {
+        WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
+        free(chunk.memory);
+        return false;
+    }
+
+    if (chunk.size == 0) {
+        WUPI_Log("Download failed: Empty response received.\n");
         free(chunk.memory);
         return false;
     }
@@ -95,6 +100,7 @@ bool DownloadAndExtractApp(const std::string& appId) {
     memset(&zip_archive, 0, sizeof(zip_archive));
 
     if (!mz_zip_reader_init_mem(&zip_archive, chunk.memory, chunk.size, 0)) {
+        WUPI_Log("Download failed: Invalid ZIP archive.\n");
         free(chunk.memory);
         return false;
     }
@@ -135,5 +141,8 @@ bool DownloadAndExtractApp(const std::string& appId) {
 
     mz_zip_reader_end(&zip_archive);
     free(chunk.memory);
+    if (!success) {
+        WUPI_Log("Download failed: File extraction failed.\n");
+    }
     return success;
 }

@@ -49,13 +49,13 @@ std::string BrowseD2XVersions() {
     if (s_D2XDirs.empty()) {
         int dlChoice = ShowMenu({"d2x cIOS installer not found.", "Download it from the Open Shop Channel?"}, {"Yes", "No"});
         if (dlChoice == 0) {
+            WUPI_resetScreen();
+            WUPI_Log("Downloading d2x-cios-installer...\n");
             if (DownloadAndExtractApp("d2x-cios-installer")) {
                 ClearDirList();
                 PopulateDirList("/vol/external01/apps/d2x-cios-installer");
             } else {
-                ScreenUtils_ClearBuffer(0);
-                ScreenUtils_PutFont(0, 3, "Download failed.");
-                ScreenUtils_FlipBuffers();
+                WUPI_Log("Download failed.\n");
                 WUPI_waitButton();
                 ClearDirList();
                 ScreenUtils_ClearBothBuffers();
