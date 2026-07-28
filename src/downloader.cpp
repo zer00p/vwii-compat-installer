@@ -1,6 +1,7 @@
 #include "downloader.h"
 #include <curl/curl.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 #include "miniz.h"
 #include "ScreenUtils.h"
@@ -48,12 +49,49 @@ static void EnsureFSADirectory(const char* path) {
     }
 }
 
-bool DownloadAndExtractApp(const std::string& appId) {
-    static bool curl_initialized = false;
+static bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, void* buffer, size_t size) {
+    if (size == 0) return true;
+    
+    const size_t CHUNK_SIZE = 256 * 1024; // 256KB chunks
+    void* aligned_buf = memalign(0x40, CHUNK_SIZE);
+    if (!aligned_buf) {
+        WUPI_Log("Failed to allocate aligned chunk buffer\n");
+        return false;
+    }
+    
+    uint8_t* ptr = (uint8_t*)buffer;
+    size_t remaining = size;
+    
+    while (remaining > 0) {
+        size_t write_size = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
+        memcpy(aligned_buf, ptr, write_size);
+        
+        int res = FSAWriteFile(fsa, aligned_buf, 1, write_size, fd, 0);
+        if (res < 0 || (size_t)res != write_size) {
+            WUPI_Log("FSAWriteFile failed: %d\n", res);
+            free(aligned_buf);
+            return false;
+        }
+        
+        ptr += write_size;
+        remaining -= write_size;
+    }
+    
+    free(aligned_buf);
+    return true;
+}
+
+static bool curl_initialized = false;
+
+static void InitCurl() {
     if (!curl_initialized) {
         curl_global_init(CURL_GLOBAL_DEFAULT);
         curl_initialized = true;
     }
+}
+
+bool DownloadAndExtractApp(const std::string& appId) {
+    InitCurl();
 
     ShowDownloadStatus("Initializing connection...");
     
@@ -125,7 +163,10 @@ bool DownloadAndExtractApp(const std::string& appId) {
             if (p) {
                 FSAFileHandle fd = 0;
                 if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {
-                    FSAWriteFile(fsaClient, p, 1, uncomp_size, fd, 0);
+                    if (!FSAWriteAligned(fsaClient, fd, p, uncomp_size)) {
+                        WUPI_Log("Failed to write to file: %s\n", outPath.c_str());
+                        success = false;
+                    }
                     FSACloseFile(fsaClient, fd);
                 } else {
                     WUPI_Log("Failed to open file for writing: %s\n", outPath.c_str());
@@ -148,11 +189,7 @@ bool DownloadAndExtractApp(const std::string& appId) {
 }
 
 bool DownloadFile(const std::string& url, const std::string& outPath) {
-    static bool curl_initialized = false;
-    if (!curl_initialized) {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-        curl_initialized = true;
-    }
+    InitCurl();
 
     std::string msg = "Downloading to " + outPath;
     ShowDownloadStatus(msg.c_str());
@@ -195,9 +232,12 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
     FSAFileHandle fd = 0;
     bool success = false;
     if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {
-        FSAWriteFile(fsaClient, chunk.memory, 1, chunk.size, fd, 0);
+        if (FSAWriteAligned(fsaClient, fd, chunk.memory, chunk.size)) {
+            success = true;
+        } else {
+            WUPI_Log("Failed to write aligned data to file: %s\n", outPath.c_str());
+        }
         FSACloseFile(fsaClient, fd);
-        success = true;
     } else {
         WUPI_Log("Failed to open file for writing: %s\n", outPath.c_str());
     }

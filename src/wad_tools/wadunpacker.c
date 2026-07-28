@@ -12,6 +12,7 @@
 #endif
 #include <string.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <stdio.h>
 
 #include "tools.h"
@@ -32,7 +33,7 @@ static u8 *get_wad(u32 len)
 	u8 *p;
 
 	rounded_len = round_up(len, 0x40);
-	p = (u8*)malloc(rounded_len);
+	p = (u8*)memalign(0x40, rounded_len);
 	if (p == 0)
 		fatal("malloc");
 	if (len)
@@ -140,7 +141,7 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 		memcpy(iv, tmd + tmd_payloadOffset + 0xa8 + 0x24*i, 2);
 		aes_cbc_dec(title_key, iv, p, rounded_len, p);
 
-		u8* decrypted_app = (u8*)malloc(len);
+		u8* decrypted_app = (u8*)memalign(0x40, round_up(len, 0x40));
 		memcpy(decrypted_app, p, len);
 
 		u8 expected_hash[20];

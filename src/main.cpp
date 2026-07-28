@@ -362,15 +362,7 @@ void WUPI_usbLoaderGXMenu() {
         } else {
             failCount++;
 
-            ScreenUtils_ClearBuffer(0);
-            char buf[256];
-            snprintf(buf, sizeof(buf), "Processing (%d/%d):", successCount + failCount, (int)selected.size());
-            ScreenUtils_PutFont(0, 1, buf);
-            ScreenUtils_PutFont(0, 2, options[idx].c_str());
-            ScreenUtils_PutFont(0, 3, "Operation failed.");
-            ScreenUtils_PutFont(0, 5, "Press A to continue.");
-            ScreenUtils_PutFont(0, 6, "Press B to abort.");
-            ScreenUtils_FlipBuffers();
+            WUPI_putstr("\nOperation failed.\nPress A to continue, B to abort.\n");
 
             if (!WaitPrompt()) {
                 break;
