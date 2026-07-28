@@ -299,6 +299,92 @@ void WUPI_downloadMenu() {
     WUPI_waitButton();
 }
 
+void WUPI_usbLoaderGXMenu() {
+    WUPI_resetScreen();
+
+    std::vector<std::string> options = {
+        "Download USB Loader GX (Open Shop Channel)",
+        "Download & Install Forwarder Channel",
+        "Download Aroma Forwarder (Boot2vWii)"
+    };
+    std::vector<std::string> header = {
+        "USB Loader GX Menu:"
+    };
+
+    std::vector<int> selected = ShowMultiSelectMenu(header, options);
+    if (selected.empty()) {
+        return;
+    }
+
+    int successCount = 0;
+    int failCount = 0;
+
+    for (int idx : selected) {
+        WUPI_resetScreen();
+        WUPI_Log("Processing (%d/%d):\n", successCount + failCount + 1, (int)selected.size());
+        WUPI_Log("%s\n", options[idx].c_str());
+
+        bool success = false;
+        if (idx == 0) {
+            success = DownloadAndExtractApp("usbloader_gx");
+        } else if (idx == 1) {
+            std::string wadUrl = "https://github.com/wiidev/usbloadergx/raw/refs/heads/updates/USBLoaderGX_forwarder%5BUNEO%5D.wad";
+            std::string wadPath = "/vol/external01/wad/USBLoaderGX_forwarder_UNEO.wad";
+            if (DownloadFile(wadUrl, wadPath)) {
+                WUPI_putstr("Loading and decrypting WAD...\n");
+                WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
+                if (!ctx) {
+                    WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
+                } else if (!WAD_IsSafeTitle(ctx)) {
+                    WUPI_putstr("Error: Unsafe WAD! Skipping for safety.\n");
+                } else {
+                    WUPI_putstr("Writing to slccmpt...\n");
+                    if (WAD_InstallToVWii(ctx, 0)) {
+                        WUPI_putstr("WAD Installation complete!\n");
+                        success = true;
+                    } else {
+                        WUPI_putstr("Error: WAD installation failed.\n");
+                    }
+                }
+                if (ctx) {
+                    WAD_Free(ctx);
+                }
+            }
+        } else if (idx == 2) {
+            std::string wuhbUrl = "https://github.com/WiiDatabase/Boot2vWii/releases/latest/download/USB-Loader-GX-UNEO.wuhb";
+            std::string wuhbPath = "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb";
+            success = DownloadFile(wuhbUrl, wuhbPath);
+        }
+
+        if (success) {
+            successCount++;
+            sleep(1);
+        } else {
+            failCount++;
+
+            ScreenUtils_ClearBuffer(0);
+            char buf[256];
+            snprintf(buf, sizeof(buf), "Processing (%d/%d):", successCount + failCount, (int)selected.size());
+            ScreenUtils_PutFont(0, 1, buf);
+            ScreenUtils_PutFont(0, 2, options[idx].c_str());
+            ScreenUtils_PutFont(0, 3, "Operation failed.");
+            ScreenUtils_PutFont(0, 5, "Press A to continue.");
+            ScreenUtils_PutFont(0, 6, "Press B to abort.");
+            ScreenUtils_FlipBuffers();
+
+            if (!WaitPrompt()) {
+                break;
+            }
+        }
+    }
+
+    WUPI_resetScreen();
+    WUPI_Log("Batch Complete!\n");
+    WUPI_Log("Successful: %d\n", successCount);
+    WUPI_Log("Failed: %d\n", failCount);
+    WUPI_waitButton();
+}
+
 int main() {
     int32_t tv_screen_size, drc_screen_size;
 
@@ -336,7 +422,8 @@ int main() {
             "Install a WAD from the SD Card",
             "Install d2x cIOS",
             "Patch IOS80 (SD Card Menu Channels)",
-            "Download Apps"
+            "Download Apps",
+            "USB Loader GX"
         };
         std::vector<std::string> header = {
             "Compat Title Installer v1.6",
@@ -356,6 +443,8 @@ int main() {
                 WUPI_installIOS80();
             } else if (selected == 4) {
                 WUPI_downloadMenu();
+            } else if (selected == 5) {
+                WUPI_usbLoaderGXMenu();
             } else if (selected == -1) {
                 break;
             }

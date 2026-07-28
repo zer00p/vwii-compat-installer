@@ -146,3 +146,62 @@ bool DownloadAndExtractApp(const std::string& appId) {
     }
     return success;
 }
+
+bool DownloadFile(const std::string& url, const std::string& outPath) {
+    static bool curl_initialized = false;
+    if (!curl_initialized) {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+        curl_initialized = true;
+    }
+
+    std::string msg = "Downloading to " + outPath;
+    ShowDownloadStatus(msg.c_str());
+
+    CURL *curl_handle = curl_easy_init();
+    if(!curl_handle) {
+        WUPI_Log("Download failed: Could not initialize cURL.\n");
+        return false;
+    }
+
+    struct MemoryStruct chunk;
+    chunk.memory = (char*)malloc(1);
+    chunk.size = 0;
+
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
+    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
+
+    CURLcode res = curl_easy_perform(curl_handle);
+    curl_easy_cleanup(curl_handle);
+
+    if (res != CURLE_OK) {
+        WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
+        free(chunk.memory);
+        return false;
+    }
+
+    if (chunk.size == 0) {
+        WUPI_Log("Download failed: Empty response received.\n");
+        free(chunk.memory);
+        return false;
+    }
+
+    ShowDownloadStatus("Saving file...");
+
+    EnsureFSADirectory(outPath.c_str());
+    FSAFileHandle fd = 0;
+    bool success = false;
+    if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {
+        FSAWriteFile(fsaClient, chunk.memory, 1, chunk.size, fd, 0);
+        FSACloseFile(fsaClient, fd);
+        success = true;
+    } else {
+        WUPI_Log("Failed to open file for writing: %s\n", outPath.c_str());
+    }
+
+    free(chunk.memory);
+    return success;
+}
