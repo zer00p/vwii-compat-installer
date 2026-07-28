@@ -27,6 +27,7 @@ If everything is installed, run 'make release' and the output will be available 
 * leethomason/tinyxml2 for the tinyxml2 parsing library
 * The Open Shop Channel (oscwii.org) for their backend repository API used for downloading homebrew apps.
 * richgel999/miniz for the single-file ZIP extraction library.
+* Dr Clipper, damysteryman and contributors to the Patched IOS80 Installer for vWii project.
 
 ## License
 

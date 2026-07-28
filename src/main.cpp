@@ -44,6 +44,7 @@
 #include "wad.h"
 #include "d2x_menu.h"
 #include "d2x_patcher.h"
+#include "ios80_patcher.h"
 #include "MenuUtils.h"
 #include "downloader.h"
 
@@ -243,6 +244,11 @@ void WUPI_installD2X() {
     WUPI_waitButton();
 }
 
+void WUPI_installIOS80() {
+    WUPI_resetScreen();
+    InstallIOS80();
+}
+
 void WUPI_downloadMenu() {
     WUPI_resetScreen();
     std::vector<std::string> options = {
@@ -329,6 +335,7 @@ int main() {
             "Install the Homebrew Channel to the Wii Menu",
             "Install a WAD from the SD Card",
             "Install d2x cIOS",
+            "Patch IOS80 (SD Card Menu Channels)",
             "Download Apps"
         };
         std::vector<std::string> header = {
@@ -346,6 +353,8 @@ int main() {
             } else if (selected == 2) {
                 WUPI_installD2X();
             } else if (selected == 3) {
+                WUPI_installIOS80();
+            } else if (selected == 4) {
                 WUPI_downloadMenu();
             } else if (selected == -1) {
                 break;

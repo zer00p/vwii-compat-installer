@@ -79,6 +79,10 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd);
 // Check if the given Title ID is a safe title type (blocks System Menu and critical IOS).
 bool WAD_IsSafeTitle(WADContext* ctx);
 
+// Reads the common key from OTP hardware
+bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]);
+
+
 #ifdef __cplusplus
 }
 #endif
