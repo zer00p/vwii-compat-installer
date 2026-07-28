@@ -72,12 +72,12 @@ static void DrawMultiSelectMenu(const std::vector<std::string>& header, const st
     ScreenUtils_FlipBuffers();
 }
 
-std::vector<int> ShowMultiSelectMenu(const std::vector<std::string>& header, const std::vector<std::string>& options) {
+std::vector<int> ShowMultiSelectMenu(const std::vector<std::string>& header, const std::vector<std::string>& options, bool defaultSelected) {
     std::vector<int> result;
     if (options.empty()) return result;
     
     int cursor = 0;
-    std::vector<bool> selectedOptions(options.size(), false);
+    std::vector<bool> selectedOptions(options.size(), defaultSelected);
     
     auto Draw = [&]() {
         DrawMultiSelectMenu(header, options, selectedOptions, cursor);

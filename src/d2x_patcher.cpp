@@ -431,31 +431,30 @@ void InstallD2X(const std::string& versionFolder) {
     }
     
     struct Config { int slot; int base; };
-    std::vector<Config> configs = { {249, 56}, {250, 57}, {251, 58} };
-    
-    bool cancel = false;
-    auto drawPatcherMenu = [&configs]() {
-        WUPI_resetScreen();
-        WUPI_putstr("d2x cIOS Installation");
-        WUPI_putstr("---------------------");
-        WUPI_putstr("The following standard configuration will be installed:");
-        for (const auto& config : configs) {
-            std::string line = " - Slot " + std::to_string(config.slot) + ": Base IOS " + std::to_string(config.base);
-            WUPI_putstr(line.c_str());
-        }
-        WUPI_putstr("");
-        WUPI_putstr("Press A to confirm and start installation.");
-        WUPI_putstr("Press B to cancel.");
+    std::vector<Config> configs = {
+        {248, 38},
+        {249, 56},
+        {250, 57},
+        {251, 58}
     };
-
-    drawPatcherMenu();
-    cancel = !WaitPrompt();
     
-    if (cancel) return;
+    std::vector<std::string> header = {
+        "Select d2x cIOS configurations to install:"
+    };
+    std::vector<std::string> options;
+    for (const auto& config : configs) {
+        options.push_back("Slot " + std::to_string(config.slot) + " (Base IOS " + std::to_string(config.base) + ")");
+    }
     
-    std::vector<bool> failures(configs.size(), false);
+    std::vector<int> selected = ShowMultiSelectMenu(header, options, true);
+    if (selected.empty()) {
+        return;
+    }
     
-    for (size_t i = 0; i < configs.size(); i++) {
+    std::vector<bool> failures(selected.size(), false);
+    
+    for (size_t selIdx = 0; selIdx < selected.size(); selIdx++) {
+        int i = selected[selIdx];
         if (!State::AppRunning()) break;
         WUPI_resetScreen();
         D2X_Log("Installing cIOS slot " + std::to_string(configs[i].slot) + " (base " + std::to_string(configs[i].base) + ")...\n");
@@ -474,14 +473,14 @@ void InstallD2X(const std::string& versionFolder) {
         
         if (!baseEl) {
             D2X_Log("Could not find configuration in XML.\n");
-            failures[i] = true;
+            failures[selIdx] = true;
             sleep(2);
             continue;
         }
         
         auto ios = ReadBaseIOS(configs[i].base);
         if (!ios) {
-            failures[i] = true;
+            failures[selIdx] = true;
             sleep(2);
             continue;
         }
@@ -496,7 +495,7 @@ void InstallD2X(const std::string& versionFolder) {
             } else {
                 if (id == -1) {
                     D2X_Log("Missing id attribute for content patch in CIOSMAPS.xml\n");
-                    failures[i] = true;
+                    failures[selIdx] = true;
                     break;
                 }
                 MemContent* content = NULL;
@@ -536,9 +535,9 @@ void InstallD2X(const std::string& versionFolder) {
             }
         }
         
-        if (!failures[i]) {
-            failures[i] = !WritePatchedIOS(configs[i].slot, *ios);
-            if(!failures[i])
+        if (!failures[selIdx]) {
+            failures[selIdx] = !WritePatchedIOS(configs[i].slot, *ios);
+            if(!failures[selIdx])
                 D2X_Log("Successfully installed slot " + std::to_string(configs[i].slot) + ".\n");
         } 
         sleep(2);
@@ -547,18 +546,19 @@ void InstallD2X(const std::string& versionFolder) {
     WUPI_resetScreen();
     D2X_Log("Installation process finished.\n\n");
     bool anyFailures = false;
-    for (size_t i = 0; i < configs.size(); i++) {
-        anyFailures |= failures[i];
+    for (size_t selIdx = 0; selIdx < selected.size(); selIdx++) {
+        anyFailures |= failures[selIdx];
     }
     
     if (anyFailures) {
         D2X_Log("Summary of failures:\n");
-        for (size_t i = 0; i < configs.size(); i++) {
-            if (failures[i]) {
+        for (size_t selIdx = 0; selIdx < selected.size(); selIdx++) {
+            if (failures[selIdx]) {
+                int i = selected[selIdx];
                 D2X_Log(" - Failed to install cIOS to slot " + std::to_string(configs[i].slot) + " (base " + std::to_string(configs[i].base) + ")\n");
             }
         }
     } else {
-        D2X_Log("All cIOS installed successfully!\n");
+        D2X_Log("All selected cIOS installed successfully!\n");
     }
 }

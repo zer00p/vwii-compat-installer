@@ -8,7 +8,7 @@ int ShowMenu(const std::vector<std::string>& header, const std::vector<std::stri
 
 // Shows a multi-select vertical menu.
 // Returns a vector of selected indices, or an empty vector if canceled (B button).
-std::vector<int> ShowMultiSelectMenu(const std::vector<std::string>& header, const std::vector<std::string>& options);
+std::vector<int> ShowMultiSelectMenu(const std::vector<std::string>& header, const std::vector<std::string>& options, bool defaultSelected = false);
 
 // Waits for A or B. Returns true for A, false for B.
 bool WaitPrompt();
