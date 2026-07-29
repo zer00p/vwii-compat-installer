@@ -72,6 +72,9 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath);
 // Download a title from NUS (handling vWii 00000007 logic and resigning).
 WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version);
 
+// Get the latest version of a title from NUS. Returns -1 on failure.
+int32_t NUS_GetLatestVersion(uint64_t titleId);
+
 // Free a WADContext and its associated memory.
 void WAD_Free(WADContext* ctx);
 

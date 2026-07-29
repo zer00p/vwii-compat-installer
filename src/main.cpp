@@ -428,11 +428,11 @@ int32_t GetVWiiRegion() {
                 DecryptSettingTxt(alignBuf, res);
                 std::string settings(alignBuf, res);
                 free(alignBuf);
-                if (settings.find("AREA=EUR") != std::string::npos) return 610;
-                if (settings.find("AREA=USA") != std::string::npos) return 609;
-                if (settings.find("AREA=JPN") != std::string::npos) return 608;
+                if (settings.find("AREA=EUR") != std::string::npos) return 2;
+                if (settings.find("AREA=USA") != std::string::npos) return 1;
+                if (settings.find("AREA=JPN") != std::string::npos) return 0;
                 // There is no Korean vWii System Menu, but keeping a fallback just in case
-                if (settings.find("AREA=KOR") != std::string::npos) return 515;
+                if (settings.find("AREA=KOR") != std::string::npos) return 3;
                 WUPI_Log("Setting.txt opened, but AREA= string not found!\n");
             } else {
                 WUPI_Log("Failed to read setting.txt, res: %d\n", res);
@@ -461,10 +461,17 @@ void WUPI_NusMenu() {
         int selected = ShowMenu(header, options);
         if (selected == 0) {
             WUPI_resetScreen();
-            int32_t version = GetVWiiRegion();
-            if (version == -1) {
+            int32_t regionCode = GetVWiiRegion();
+            if (regionCode == -1) {
                 WUPI_Log("Error: Could not determine vWii region from setting.txt\n");
             } else {
+                int32_t latestVersion = NUS_GetLatestVersion(0x0000000100000002ULL);
+                if (latestVersion == -1) {
+                    WUPI_Log("Error: Failed to fetch latest version from NUS.\n");
+                    WUPI_waitButton();
+                    continue;
+                }
+                int32_t version = (latestVersion & ~3) | regionCode;
                 WUPI_Log("Detected vWii version code: %d\n", version);
                 WADContext* ctx = NUS_DownloadTitle(0x0000000100000002ULL, version);
                 if (!ctx) {

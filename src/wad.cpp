@@ -164,6 +164,33 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
                         ctx->numContents) == 0;
 }
 
+int32_t NUS_GetLatestVersion(uint64_t titleId) {
+    uint64_t fetchTitleId = titleId;
+    
+    // Shenanigans: Use 00000007 prefix for vWii titles on NUS
+    if ((fetchTitleId >> 32) == 1) {
+        fetchTitleId = (fetchTitleId & 0xFFFFFFFF) | (0x00000007ULL << 32);
+    }
+
+    std::string url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/tmd", fetchTitleId);
+    
+    uint8_t* tmdData = NULL;
+    size_t tmdSize = 0;
+    if (!DownloadToMemory(url, &tmdData, &tmdSize)) {
+        return -1;
+    }
+    
+    uint32_t tmdPayloadOffset = get_payload_offset(tmdData);
+    if (tmdSize < tmdPayloadOffset + 0x1DE) {
+        free(tmdData);
+        return -1;
+    }
+    
+    uint16_t version = be16(tmdData + tmdPayloadOffset + 0x9C);
+    free(tmdData);
+    return version;
+}
+
 WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     uint64_t fetchTitleId = titleId;
     
