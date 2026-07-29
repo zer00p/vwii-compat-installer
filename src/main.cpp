@@ -100,6 +100,7 @@ void deinitFS() {
         Mocha_DeInitLibrary();
         mochaInit = false;
     }
+    DeinitCurl();
 }
 
 
@@ -178,7 +179,7 @@ void WUPI_installWAD() {
     for (const auto& wadPath : selectedWads) {
         WUPI_resetScreen();
         WUPI_Log("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
-        
+
         const char* filename = strrchr(wadPath.c_str(), '/');
         filename = filename ? filename + 1 : wadPath.c_str();
         WUPI_Log("%s\n", filename);
@@ -237,7 +238,7 @@ void WUPI_installD2X() {
         sleep(2);
         return;
     }
-    
+
     // Perform installation
     WUPI_resetScreen();
     InstallD2X(selectedVersion);
@@ -280,7 +281,7 @@ void WUPI_openShopChannelMenu() {
             successCount++;
         } else {
             failCount++;
-            
+
             WUPI_putstr("Press A to continue with next app, B to abort.");
             if (!WaitPrompt()) {
                 break;
@@ -405,6 +406,88 @@ void WUPI_usbLoaderGXMenu() {
     WUPI_waitButton();
 }
 
+// Decryption logic documented at: https://wiibrew.org/wiki//title/00000001/00000002/data/setting.txt
+void DecryptSettingTxt(char* buf, size_t len) {
+    uint32_t key = 0x73B5DBFA;
+    for (size_t i = 0; i < len; i++) {
+        buf[i] ^= key & 0xff;
+        key = (key << 1) | (key >> 31);
+    }
+}
+
+int32_t GetVWiiRegion() {
+    FSAFileHandle fd = 0;
+    int openRes = FSAOpenFileEx(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data/setting.txt", "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd);
+    if (openRes == FS_ERROR_OK) {
+        char* alignBuf = (char*)memalign(0x40, 2048);
+        if (alignBuf) {
+            memset(alignBuf, 0, 2048);
+            int res = FSAReadFile(fsaClient, alignBuf, 1, 1024, fd, 0);
+            FSACloseFile(fsaClient, fd);
+            if (res > 0) {
+                DecryptSettingTxt(alignBuf, res);
+                std::string settings(alignBuf, res);
+                free(alignBuf);
+                if (settings.find("AREA=EUR") != std::string::npos) return 610;
+                if (settings.find("AREA=USA") != std::string::npos) return 609;
+                if (settings.find("AREA=JPN") != std::string::npos) return 608;
+                // There is no Korean vWii System Menu, but keeping a fallback just in case
+                if (settings.find("AREA=KOR") != std::string::npos) return 515;
+                WUPI_Log("Setting.txt opened, but AREA= string not found!\n");
+            } else {
+                WUPI_Log("Failed to read setting.txt, res: %d\n", res);
+                free(alignBuf);
+            }
+        } else {
+            WUPI_Log("Failed to allocate memory for setting.txt\n");
+            FSACloseFile(fsaClient, fd);
+        }
+    } else {
+        WUPI_Log("Failed to open setting.txt, error: %d\n", openRes);
+    }
+    return -1;
+}
+
+void WUPI_NusMenu() {
+    while (State::AppRunning()) {
+        WUPI_resetScreen();
+        std::vector<std::string> options = {
+            "System Menu (vWii)"
+        };
+        std::vector<std::string> header = {
+            "Install System Titles from NUS:"
+        };
+
+        int selected = ShowMenu(header, options);
+        if (selected == 0) {
+            WUPI_resetScreen();
+            int32_t version = GetVWiiRegion();
+            if (version == -1) {
+                WUPI_Log("Error: Could not determine vWii region from setting.txt\n");
+            } else {
+                WUPI_Log("Detected vWii version code: %d\n", version);
+                WADContext* ctx = NUS_DownloadTitle(0x0000000100000002ULL, version);
+                if (!ctx) {
+                    WUPI_Log("Error: Failed to download or prepare title.\n");
+                } else if (!WAD_IsSafeTitle(ctx)) {
+                    WUPI_Log("Error: Title is unsafe. Aborting installation.\n");
+                } else {
+                    WUPI_Log("Writing to slccmpt...\n");
+                    if (WAD_InstallToVWii(ctx, 0)) {
+                        WUPI_Log("Installation complete!\n");
+                    } else {
+                        WUPI_Log("Error: Installation failed.\n");
+                    }
+                }
+                if (ctx) WAD_Free(ctx);
+            }
+            WUPI_waitButton();
+        } else if (selected == -1) {
+            break;
+        }
+    }
+}
+
 int main() {
     int32_t tv_screen_size, drc_screen_size;
 
@@ -442,7 +525,8 @@ int main() {
             "Install a WAD from the SD Card",
             "cIOS Menu",
             "Open Shop Channel",
-            "USB Loader GX"
+            "USB Loader GX",
+            "Download System Titles (NUS)"
         };
         std::vector<std::string> header = {
             "Compat Title Installer v1.6",
@@ -462,6 +546,8 @@ int main() {
                 WUPI_openShopChannelMenu();
             } else if (selected == 4) {
                 WUPI_usbLoaderGXMenu();
+            } else if (selected == 5) {
+                WUPI_NusMenu();
             } else if (selected == -1) {
                 break;
             }
@@ -469,6 +555,8 @@ int main() {
     }
 
     deinitFS();
+    KPADShutdown();
+    WPADShutdown();
     State::shutdown();
 
     if (screen_buffer)

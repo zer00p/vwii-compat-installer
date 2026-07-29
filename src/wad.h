@@ -69,6 +69,9 @@ typedef struct {
 // Returns a WADContext if successful, or NULL on failure.
 WADContext* WAD_LoadAndDecrypt(const char* filepath);
 
+// Download a title from NUS (handling vWii 00000007 logic and resigning).
+WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version);
+
 // Free a WADContext and its associated memory.
 void WAD_Free(WADContext* ctx);
 

@@ -17,6 +17,7 @@
  */
 
 #include "installer.h"
+#include "FSAUtils.h"
 #include "log.h"
 #include <coreinit/filesystem_fsa.h>
 #include <stdio.h>
@@ -42,7 +43,7 @@ extern FSAClientHandle fsaClient;
 int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
-    
+
     if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
         return -1;
     }
@@ -51,21 +52,21 @@ int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
         char name[8];
         uint8_t hash[20];
     } entry;
-    
+
     int32_t currentIndex = 0;
     while (true) {
         int readRes = FSAReadFile(fsaClient, &entry, sizeof(entry), 1, fd, 0);
         if (readRes != 1) {
-            break; 
+            break;
         }
-        
+
         if (memcmp(entry.hash, expectedHash, 20) == 0) {
             FSACloseFile(fsaClient, fd);
             return currentIndex;
         }
         currentIndex++;
     }
-    
+
     FSACloseFile(fsaClient, fd);
     return -1;
 }
@@ -78,9 +79,9 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
 
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
-    
+
     FSAMakeDir(fsaClient, "/vol/slccmpt01/shared1", (FSMode) 0x666);
-    
+
     if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
         if (FSAOpenFileEx(fsaClient, path, "w+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
             WUPI_Log("Failed to open content.map\n");
@@ -92,16 +93,16 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
         char name[8];
         uint8_t hash[20];
     } entry;
-    
+
     int32_t freeIndex = -1;
     int32_t currentIndex = 0;
 
     while (true) {
         int readRes = FSAReadFile(fsaClient, &entry, sizeof(entry), 1, fd, 0);
         if (readRes != 1) {
-            break; 
+            break;
         }
-        
+
         bool isZero = true;
         for (int i = 0; i < 20; i++) {
             if (entry.hash[i] != 0) {
@@ -109,38 +110,38 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
                 break;
             }
         }
-        
+
         if (isZero && freeIndex == -1) {
             freeIndex = currentIndex;
         }
-        
+
         currentIndex++;
     }
-    
+
     int32_t targetIndex = currentIndex;
     if (freeIndex != -1) {
         targetIndex = freeIndex;
     }
-    
+
     char nameBuf[9];
     snprintf(nameBuf, sizeof(nameBuf), "%08x", targetIndex);
     memcpy(entry.name, nameBuf, 8);
     memcpy(entry.hash, expectedHash, 20);
-    
+
     FSError setPosRes = FSASetPosFile(fsaClient, fd, targetIndex * sizeof(entry));
     if (setPosRes != FS_ERROR_OK) {
         WUPI_Log("Failed to set pos in content.map, res: %d\n", setPosRes);
         FSACloseFile(fsaClient, fd);
         return -1;
     }
-    
+
     int writeRes = FSAWriteFile(fsaClient, &entry, sizeof(entry), 1, fd, FSA_WRITE_FLAG_NONE);
     if (writeRes != 1) {
         WUPI_Log("Failed to write to content.map, res: %d\n", writeRes);
         FSACloseFile(fsaClient, fd);
         return -1;
     }
-    
+
     FSACloseFile(fsaClient, fd);
     return targetIndex;
 }
@@ -148,6 +149,7 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
 int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
                      uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents) {
+
     FSError ret = FS_ERROR_NOT_INIT;
     FSAFileHandle fd = 0;
     char path[CINS_PATH_LEN], pathd[CINS_PATH_LEN];
@@ -173,7 +175,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         ret = FSAMakeDir(fsaClient, ticketFolder, (FSMode) 0x666);
         if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
             CINS_TRY(FSAOpenFileEx(fsaClient, ticketPath, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteFile(fsaClient, (void *)ticket, ticket_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+            CINS_TRY(FSAWriteAligned(fsaClient, fd, ticket, ticket_size));
 
             FSACloseFile(fsaClient, fd);
 
@@ -229,7 +231,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         strncat(path, "/title.tmd", CINS_PATH_LEN - 1);
 
         CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        CINS_TRY(FSAWriteFile(fsaClient, (void *)tmd, tmd_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+        CINS_TRY(FSAWriteAligned(fsaClient, fd, tmd, tmd_size));
 
         FSACloseFile(fsaClient, fd);
         fd = 0;
@@ -304,7 +306,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
             }
 
             CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(contents[i].data), cSize, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+            CINS_TRY(FSAWriteAligned(fsaClient, fd, contents[i].data, cSize));
 
             FSACloseFile(fsaClient, fd);
             fd = 0;
@@ -316,10 +318,12 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 error:
     if (fd > 0) FSACloseFile(fsaClient, fd);
     if (ret < 0) {
-        WUPI_Log("Install failed, attempting to delete title...\n");
-        /* Installation failed in the final stages. Delete these to be sure
-         * there is no 'half installed' title lurking in the filesystem. */
-        FSARemove(fsaClient, titlePath);
+        WUPI_Log("Install failed, attempting to clean up partial content...\n");
+        /* Installation failed. We only delete the content directory to clean up
+         * partial installations, preserving the data directory and save data. */
+        char contentPath[CINS_PATH_LEN];
+        snprintf(contentPath, CINS_PATH_LEN, "%s/content", titlePath);
+        FSARemove(fsaClient, contentPath);
         FSARemove(fsaClient, ticketPath);
     }
 

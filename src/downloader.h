@@ -10,3 +10,9 @@ bool DownloadAndExtractApp(const std::string& appId);
 // Downloads a file from the given url to the given outPath on the filesystem.
 // Returns true on success, false on failure.
 bool DownloadFile(const std::string& url, const std::string& outPath);
+
+// Downloads a file from the given url to a newly allocated memory buffer.
+bool DownloadToMemory(const std::string& url, uint8_t** outData, size_t* outSize);
+
+// Cleans up cURL resources. Should be called on exit.
+void DeinitCurl();

@@ -23,6 +23,15 @@ void WUPI_putstr(const char *str) {
     wupiPrintln(wupiLine++, str);
 }
 
+void WUPI_putstr_overwrite(const char *str) {
+    if (wupiLine > 0) {
+        ScreenUtils_PutFont(0, wupiLine - 1, str);
+        ScreenUtils_Redraw();
+    } else {
+        wupiPrintln(wupiLine++, str);
+    }
+}
+
 void WUPI_resetScreen() {
     ScreenUtils_ClearBothBuffers();
     wupiLine = 0;

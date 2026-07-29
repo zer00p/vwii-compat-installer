@@ -1,4 +1,5 @@
 #include "downloader.h"
+#include "FSAUtils.h"
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <malloc.h>
@@ -36,50 +37,6 @@ static void ShowDownloadStatus(const char* message) {
     WUPI_Log("%s\n", message);
 }
 
-static void EnsureFSADirectory(const char* path) {
-    char temp[256];
-    strncpy(temp, path, sizeof(temp));
-    temp[sizeof(temp)-1] = '\0';
-    for (char* p = temp + 1; *p; p++) {
-        if (*p == '/') {
-            *p = '\0';
-            FSAMakeDir(fsaClient, temp, (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER | FS_MODE_EXEC_OWNER)); // Ignore errors, as it might already exist
-            *p = '/';
-        }
-    }
-}
-
-static bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, void* buffer, size_t size) {
-    if (size == 0) return true;
-    
-    const size_t CHUNK_SIZE = 256 * 1024; // 256KB chunks
-    void* aligned_buf = memalign(0x40, CHUNK_SIZE);
-    if (!aligned_buf) {
-        WUPI_Log("Failed to allocate aligned chunk buffer\n");
-        return false;
-    }
-    
-    uint8_t* ptr = (uint8_t*)buffer;
-    size_t remaining = size;
-    
-    while (remaining > 0) {
-        size_t write_size = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
-        memcpy(aligned_buf, ptr, write_size);
-        
-        int res = FSAWriteFile(fsa, aligned_buf, 1, write_size, fd, 0);
-        if (res < 0 || (size_t)res != write_size) {
-            WUPI_Log("FSAWriteFile failed: %d\n", res);
-            free(aligned_buf);
-            return false;
-        }
-        
-        ptr += write_size;
-        remaining -= write_size;
-    }
-    
-    free(aligned_buf);
-    return true;
-}
 
 static bool curl_initialized = false;
 
@@ -87,6 +44,13 @@ static void InitCurl() {
     if (!curl_initialized) {
         curl_global_init(CURL_GLOBAL_DEFAULT);
         curl_initialized = true;
+    }
+}
+
+void DeinitCurl() {
+    if (curl_initialized) {
+        curl_global_cleanup();
+        curl_initialized = false;
     }
 }
 
@@ -112,7 +76,6 @@ bool DownloadAndExtractApp(const std::string& appId) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L); // Disable SSL verification for simplicity on Wii U (avoids CA bundle requirements)
 
     std::string fetchMsg = "Fetching " + appId + ".zip...";
     ShowDownloadStatus(fetchMsg.c_str());
@@ -153,10 +116,10 @@ bool DownloadAndExtractApp(const std::string& appId) {
         std::string outPath = std::string("/vol/external01/") + file_stat.m_filename;
         
         if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
-            EnsureFSADirectory(outPath.c_str());
+            EnsureFSADirectory(fsaClient, outPath.c_str());
             FSAMakeDir(fsaClient, outPath.c_str(), (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER | FS_MODE_EXEC_OWNER));
         } else {
-            EnsureFSADirectory(outPath.c_str());
+            EnsureFSADirectory(fsaClient, outPath.c_str());
             
             size_t uncomp_size;
             void* p = mz_zip_reader_extract_file_to_heap(&zip_archive, file_stat.m_filename, &uncomp_size, 0);
@@ -188,6 +151,45 @@ bool DownloadAndExtractApp(const std::string& appId) {
     return success;
 }
 
+bool DownloadToMemory(const std::string& url, uint8_t** outData, size_t* outSize) {
+    InitCurl();
+
+    CURL *curl_handle = curl_easy_init();
+    if(!curl_handle) {
+        WUPI_Log("Download failed: Could not initialize cURL.\n");
+        return false;
+    }
+
+    struct MemoryStruct chunk;
+    chunk.memory = (char*)malloc(1);
+    chunk.size = 0;
+
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
+    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+
+    CURLcode res = curl_easy_perform(curl_handle);
+    curl_easy_cleanup(curl_handle);
+
+    if (res != CURLE_OK) {
+        WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
+        free(chunk.memory);
+        return false;
+    }
+
+    if (chunk.size == 0) {
+        WUPI_Log("Download failed: Empty response received.\n");
+        free(chunk.memory);
+        return false;
+    }
+
+    *outData = (uint8_t*)chunk.memory;
+    *outSize = chunk.size;
+    return true;
+}
+
 bool DownloadFile(const std::string& url, const std::string& outPath) {
     InitCurl();
 
@@ -209,7 +211,6 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
 
     CURLcode res = curl_easy_perform(curl_handle);
     curl_easy_cleanup(curl_handle);
@@ -228,7 +229,7 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
 
     ShowDownloadStatus("Saving file...");
 
-    EnsureFSADirectory(outPath.c_str());
+    EnsureFSADirectory(fsaClient, outPath.c_str());
     FSAFileHandle fd = 0;
     bool success = false;
     if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {
