@@ -32,11 +32,10 @@
 #define CINS_PATH_LEN           (sizeof("/vol/slccmpt01") + 63)
 
 #define CINS_TRY(c)                        \
-    if (!(c))                              \
-        do {                               \
-            WUPI_Log("Failed, please exit and try again\n"); \
-            goto error;                    \
-    } while (0)
+    do { if (!(c)) {                       \
+        WUPI_Log("Failed, please exit and try again\n"); \
+        goto error;                        \
+    } } while (0)
 
 extern FSAClientHandle fsaClient;
 

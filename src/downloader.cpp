@@ -81,10 +81,18 @@ bool DownloadAndExtractApp(const std::string& appId) {
     ShowDownloadStatus(fetchMsg.c_str());
 
     CURLcode res = curl_easy_perform(curl_handle);
+    long httpCode = 0;
+    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpCode);
     curl_easy_cleanup(curl_handle);
 
     if (res != CURLE_OK) {
         WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
+        free(chunk.memory);
+        return false;
+    }
+
+    if (httpCode >= 400) {
+        WUPI_Log("Download failed: HTTP Error %ld\n", httpCode);
         free(chunk.memory);
         return false;
     }
@@ -221,10 +229,18 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
 
     CURLcode res = curl_easy_perform(curl_handle);
+    long httpCode = 0;
+    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpCode);
     curl_easy_cleanup(curl_handle);
 
     if (res != CURLE_OK) {
         WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
+        free(chunk.memory);
+        return false;
+    }
+
+    if (httpCode >= 400) {
+        WUPI_Log("Download failed: HTTP Error %ld\n", httpCode);
         free(chunk.memory);
         return false;
     }

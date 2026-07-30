@@ -37,5 +37,3 @@ private:
     KPADStatus kpad[4], kpad_status;
 };
 
-#include "StateUtils.h"
-#include <unistd.h>

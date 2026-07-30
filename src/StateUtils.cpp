@@ -42,6 +42,9 @@ bool State::AppRunning() {
                 case PROCUI_STATUS_IN_FOREGROUND:
                     // Re-enable screens and replay shadow buffer after returning from background
                     if (wasBackground) {
+                        extern uint8_t *screen_buffer;
+                        OSScreenSetBufferEx(SCREEN_TV, screen_buffer);
+                        OSScreenSetBufferEx(SCREEN_DRC, screen_buffer + OSScreenGetBufferSizeEx(SCREEN_TV));
                         ScreenUtils_Enable();
                         ScreenUtils_Redraw();
                         wasBackground = false;

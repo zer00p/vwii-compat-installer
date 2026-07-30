@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 static int32_t wupiLine = 0;
+static const int32_t WUPI_MAX_LINES = 28;
 
 static void wupiPrintln(int32_t line, const char *str) {
     /* put line twice for double buffer */
@@ -20,6 +21,8 @@ void WUPI_printTop() {
 }
 
 void WUPI_putstr(const char *str) {
+    if (wupiLine >= WUPI_MAX_LINES)
+        wupiLine = WUPI_MAX_LINES - 1;
     wupiPrintln(wupiLine++, str);
 }
 

@@ -78,6 +78,12 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     WADContext* ctx = (WADContext*)malloc(sizeof(WADContext));
     if (!ctx) {
         WUPI_Log("WAD_LoadAndDecrypt: Failed to allocate context\n");
+        for (int i = 0; i < numContents; i++) {
+            free(const_cast<void*>(contents[i].data));
+        }
+        free(contents);
+        free(ticket);
+        free(tmd);
         return NULL;
     }
     memset(ctx, 0, sizeof(WADContext));
@@ -148,12 +154,6 @@ bool WAD_IsSafeTitle(WADContext* ctx) {
     return true;
 }
 
-#define WAD_TRY(c) \
-    if (!(c)) \
-        do { \
-            WUPI_Log("Install failed\n"); \
-            goto error; \
-    } while (0)
 
 bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
     (void)fsaFd;
@@ -180,13 +180,18 @@ int32_t NUS_GetLatestVersion(uint64_t titleId) {
         return -1;
     }
     
-    uint32_t tmdPayloadOffset = get_payload_offset(tmdData);
-    if (tmdSize < tmdPayloadOffset + 0x1DE) {
+    if (tmdSize < 4) {
         free(tmdData);
         return -1;
     }
     
-    uint16_t version = be16(tmdData + tmdPayloadOffset + 0x9C);
+    uint32_t tmdPayloadOffset = GetPayloadOffset(tmdData);
+    if (tmdSize < tmdPayloadOffset + 0x9E) {
+        free(tmdData);
+        return -1;
+    }
+    
+    uint16_t version = Read16BE(tmdData + tmdPayloadOffset + 0x9C);
     free(tmdData);
     return version;
 }
@@ -214,6 +219,12 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         return NULL;
     }
     
+    if (tmdSize < 4) {
+        WUPI_Log("TMD too small.\n");
+        free(tmdData);
+        return NULL;
+    }
+    
     url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/cetk", fetchTitleId);
     uint8_t* tikData = NULL;
     size_t tikSize = 0;
@@ -224,19 +235,46 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         return NULL;
     }
     
+    if (tikSize < 4) {
+        WUPI_Log("Ticket too small.\n");
+        free(tmdData);
+        free(tikData);
+        return NULL;
+    }
+    
     // Do NOT patch the Title ID in the TMD or Ticket back to 00000001!
     // Doing so breaks the signature. The vWii System Menu is signed by Nintendo with 
     // the 00000007 prefix on NUS. We install it into the 00000001 directory via CINS_Install,
     // but we leave the actual file contents exactly as Nintendo signed them.
     
-    uint32_t tmdPayloadOffset = get_payload_offset(tmdData);
-    uint32_t tikPayloadOffset = get_payload_offset(tikData);
+    uint32_t tmdPayloadOffset = GetPayloadOffset(tmdData);
+    uint32_t tikPayloadOffset = GetPayloadOffset(tikData);
     
-    uint16_t numContents = be16(tmdData + tmdPayloadOffset + 0x9E);
+    // Validate TMD has at least the numContents field
+    if (tmdSize < tmdPayloadOffset + 0xA0) {
+        WUPI_Log("TMD truncated.\n");
+        free(tmdData); free(tikData);
+        return NULL;
+    }
+    
+    uint16_t numContents = Read16BE(tmdData + tmdPayloadOffset + 0x9E);
 
-    // Strip certificate chain from TMD and Ticket so they match WAD contents
-    tmdSize = tmdPayloadOffset + 0x9E + 6 + (numContents * 0x24);
-    tikSize = tikPayloadOffset + 0x164;
+    // Validate and strip certificate chain from TMD and Ticket
+    size_t requiredTmdSize = tmdPayloadOffset + 0xA4 + (numContents * 0x24);
+    if (tmdSize < requiredTmdSize) {
+        WUPI_Log("TMD truncated (content records).\n");
+        free(tmdData); free(tikData);
+        return NULL;
+    }
+    tmdSize = requiredTmdSize;
+    
+    size_t requiredTikSize = tikPayloadOffset + 0x164;
+    if (tikSize < requiredTikSize) {
+        WUPI_Log("Ticket truncated.\n");
+        free(tmdData); free(tikData);
+        return NULL;
+    }
+    tikSize = requiredTikSize;
     
     // Decrypt Title Key
     uint8_t ckey_idx = 0;
@@ -264,7 +302,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     
     for (int i = 0; i < numContents; i++) {
         WUPI_Log_Overwrite("Fetching Content %d/%d...\n", i + 1, numContents);
-        uint32_t cid = be32(tmdData + tmdPayloadOffset + 0xA4 + 0x24*i);
+        uint32_t cid = Read32BE(tmdData + tmdPayloadOffset + 0xA4 + 0x24*i);
         url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/{:08x}", fetchTitleId, cid);
         
         uint8_t* encData = NULL;
@@ -274,7 +312,13 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
             goto error;
         }
         
-        uint64_t expectedLen = be64(tmdData + tmdPayloadOffset + 0xac + 0x24*i);
+        uint64_t expectedLen = Read64BE(tmdData + tmdPayloadOffset + 0xac + 0x24*i);
+        
+        if (expectedLen > encSize) {
+            WUPI_Log("Content %d: expected size exceeds download.\n", i);
+            free(encData);
+            goto error;
+        }
         
         uint8_t* decData = (uint8_t*)memalign(0x40, encSize);
         if (!decData) {
@@ -313,7 +357,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         ctx->tmdData = tmdData;
         ctx->tmdSize = tmdSize;
         ctx->tmdTitleId = titleId;
-        ctx->titleType = be32(tmdData + tmdPayloadOffset + 0x48);
+        ctx->titleType = Read32BE(tmdData + tmdPayloadOffset + 0x48);
         ctx->numContents = numContents;
         ctx->contentsArray = c_arr;
         
