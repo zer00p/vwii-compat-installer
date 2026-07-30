@@ -98,7 +98,7 @@ endif
 
 export OFILES	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
 					$(sFILES:.s=.o) $(SFILES:.S=.o) \
-					$(BINFILES:.bin=.o)
+					$(patsubst %.pem,%.pem.o,$(patsubst %.bin,%.o,$(BINFILES)))
 export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
@@ -181,6 +181,11 @@ $(OFILES_SRC)	: $(HFILES_BIN)
 # you need a rule like this for each extension you use as binary data
 #-------------------------------------------------------------------------------
 %.bin.o	%_bin.h :	%.bin
+#-------------------------------------------------------------------------------
+	@echo $(notdir $<)
+	@$(bin2o)
+
+%.pem.o	%_pem.h :	%.pem
 #-------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)

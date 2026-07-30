@@ -8,6 +8,15 @@
 #include "ScreenUtils.h"
 #include "log.h"
 #include <coreinit/filesystem_fsa.h>
+#include "cacert_pem.h"
+
+static void SetCurlCACert(CURL *curl_handle) {
+    curl_blob blob;
+    blob.data  = (void *) cacert_pem;
+    blob.len   = cacert_pem_size;
+    blob.flags = CURL_BLOB_COPY;
+    curl_easy_setopt(curl_handle, CURLOPT_CAINFO_BLOB, &blob);
+}
 
 extern FSAClientHandle fsaClient;
 
@@ -76,6 +85,7 @@ bool DownloadAndExtractApp(const std::string& appId) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    SetCurlCACert(curl_handle);
 
     std::string fetchMsg = "Fetching " + appId + ".zip...";
     ShowDownloadStatus(fetchMsg.c_str());
@@ -177,6 +187,7 @@ bool DownloadToMemory(const std::string& url, uint8_t** outData, size_t* outSize
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    SetCurlCACert(curl_handle);
 
     CURLcode res = curl_easy_perform(curl_handle);
     long httpCode = 0;
@@ -227,6 +238,7 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    SetCurlCACert(curl_handle);
 
     CURLcode res = curl_easy_perform(curl_handle);
     long httpCode = 0;
