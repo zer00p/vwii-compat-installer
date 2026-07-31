@@ -96,8 +96,9 @@ else
 endif
 #-------------------------------------------------------------------------------
 
-export OFILES	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
-					$(sFILES:.s=.o) $(SFILES:.S=.o) \
+export OFILES_SRC	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
+					$(sFILES:.s=.o) $(SFILES:.S=.o)
+export OFILES	:=	$(OFILES_SRC) \
 					$(patsubst %.pem,%.pem.o,$(patsubst %.bin,%.o,$(BINFILES)))
 export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 
