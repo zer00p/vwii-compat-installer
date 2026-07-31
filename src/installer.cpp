@@ -39,6 +39,11 @@
 
 extern FSAClientHandle fsaClient;
 
+struct __attribute__((packed)) content_map_entry {
+    char name[8];
+    uint8_t hash[20];
+};
+
 int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
@@ -47,26 +52,29 @@ int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
         return -1;
     }
 
-    alignas(0x40) struct __attribute__((packed)) {
-        char name[8];
-        uint8_t hash[20];
-    } entry;
+    content_map_entry* entry = (content_map_entry*)memalign(0x40, sizeof(content_map_entry));
+    if (!entry) {
+        FSACloseFile(fsaClient, fd);
+        return -1;
+    }
 
     int32_t currentIndex = 0;
     while (true) {
-        int readRes = FSAReadFile(fsaClient, &entry, sizeof(entry), 1, fd, 0);
+        int readRes = FSAReadFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
         if (readRes != 1) {
             break;
         }
 
-        if (memcmp(entry.hash, expectedHash, 20) == 0) {
+        if (memcmp(entry->hash, expectedHash, 20) == 0) {
             FSACloseFile(fsaClient, fd);
+            free(entry);
             return currentIndex;
         }
         currentIndex++;
     }
 
     FSACloseFile(fsaClient, fd);
+    free(entry);
     return -1;
 }
 
@@ -88,23 +96,24 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
         }
     }
 
-    alignas(0x40) struct __attribute__((packed)) {
-        char name[8];
-        uint8_t hash[20];
-    } entry;
+    content_map_entry* entry = (content_map_entry*)memalign(0x40, sizeof(content_map_entry));
+    if (!entry) {
+        FSACloseFile(fsaClient, fd);
+        return -1;
+    }
 
     int32_t freeIndex = -1;
     int32_t currentIndex = 0;
 
     while (true) {
-        int readRes = FSAReadFile(fsaClient, &entry, sizeof(entry), 1, fd, 0);
+        int readRes = FSAReadFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
         if (readRes != 1) {
             break;
         }
 
         bool isZero = true;
         for (int i = 0; i < 20; i++) {
-            if (entry.hash[i] != 0) {
+            if (entry->hash[i] != 0) {
                 isZero = false;
                 break;
             }
@@ -117,32 +126,33 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
         currentIndex++;
     }
 
-    int32_t targetIndex = currentIndex;
     if (freeIndex != -1) {
-        targetIndex = freeIndex;
+        currentIndex = freeIndex;
     }
 
-    char nameBuf[9];
-    snprintf(nameBuf, sizeof(nameBuf), "%08x", targetIndex);
-    memcpy(entry.name, nameBuf, 8);
-    memcpy(entry.hash, expectedHash, 20);
+    memset(entry, 0, sizeof(content_map_entry));
+    snprintf(entry->name, sizeof(entry->name), "%08x", currentIndex);
+    memcpy(entry->hash, expectedHash, 20);
 
-    FSError setPosRes = FSASetPosFile(fsaClient, fd, targetIndex * sizeof(entry));
+    FSError setPosRes = FSASetPosFile(fsaClient, fd, currentIndex * sizeof(content_map_entry));
     if (setPosRes != FS_ERROR_OK) {
         WUPI_Log("Failed to set pos in content.map, res: %d\n", setPosRes);
         FSACloseFile(fsaClient, fd);
+        free(entry);
         return -1;
     }
 
-    int writeRes = FSAWriteFile(fsaClient, &entry, sizeof(entry), 1, fd, FSA_WRITE_FLAG_NONE);
+    int writeRes = FSAWriteFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, FSA_WRITE_FLAG_NONE);
     if (writeRes != 1) {
         WUPI_Log("Failed to write to content.map, res: %d\n", writeRes);
         FSACloseFile(fsaClient, fd);
+        free(entry);
         return -1;
     }
 
     FSACloseFile(fsaClient, fd);
-    return targetIndex;
+    free(entry);
+    return currentIndex;
 }
 
 int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
