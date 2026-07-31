@@ -42,7 +42,7 @@ static void PopulateDirList(const std::string& dirPath) {
 
 std::string BrowseD2XVersions() {
     ClearDirList();
-    PopulateDirList("/vol/external01/apps/d2x-cios-installer");
+    PopulateDirList("/vol/external01/apps/d2x-cios-installer-vwii");
 
     std::string result = "";
 
@@ -51,9 +51,9 @@ std::string BrowseD2XVersions() {
         if (dlChoice == 0) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
-            if (DownloadAndExtractApp("d2x-cios-installer")) {
+            if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
                 ClearDirList();
-                PopulateDirList("/vol/external01/apps/d2x-cios-installer");
+                PopulateDirList("/vol/external01/apps/d2x-cios-installer-vwii");
             } else {
                 WUPI_Log("Download failed.\n");
                 WUPI_waitButton();

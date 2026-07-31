@@ -316,7 +316,7 @@ void WUPI_cIOSMenu() {
         } else if (selected == 2) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
-            if (DownloadAndExtractApp("d2x-cios-installer")) {
+            if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
                 WUPI_Log("Download complete!\n");
             } else {
                 WUPI_Log("Download failed.\n");
