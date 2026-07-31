@@ -449,47 +449,48 @@ struct NusTitle {
     uint64_t id;
     const char* name;
     bool regionSpecificId;
+    bool regionSpecificVersion;
 };
 
 static const NusTitle g_nusTitles[] = {
-    {0x0000000100000002ULL, "System Menu (vWii)", false},
-    {0x0000000100000009ULL, "IOS9", false},
-    {0x000000010000000cULL, "IOS12", false},
-    {0x000000010000000dULL, "IOS13", false},
-    {0x000000010000000eULL, "IOS14", false},
-    {0x000000010000000fULL, "IOS15", false},
-    {0x0000000100000011ULL, "IOS17", false},
-    {0x0000000100000015ULL, "IOS21", false},
-    {0x0000000100000016ULL, "IOS22", false},
-    {0x000000010000001cULL, "IOS28", false},
-    {0x000000010000001fULL, "IOS31", false},
-    {0x0000000100000021ULL, "IOS33", false},
-    {0x0000000100000022ULL, "IOS34", false},
-    {0x0000000100000023ULL, "IOS35", false},
-    {0x0000000100000024ULL, "IOS36", false},
-    {0x0000000100000025ULL, "IOS37", false},
-    {0x0000000100000026ULL, "IOS38", false},
-    {0x0000000100000029ULL, "IOS41", false},
-    {0x000000010000002bULL, "IOS43", false},
-    {0x000000010000002dULL, "IOS45", false},
-    {0x000000010000002eULL, "IOS46", false},
-    {0x0000000100000030ULL, "IOS48", false},
-    {0x0000000100000035ULL, "IOS53", false},
-    {0x0000000100000037ULL, "IOS55", false},
-    {0x0000000100000038ULL, "IOS56", false},
-    {0x0000000100000039ULL, "IOS57", false},
-    {0x000000010000003aULL, "IOS58", false},
-    {0x000000010000003bULL, "IOS59", false},
-    {0x000000010000003eULL, "IOS62", false},
-    {0x0000000100000050ULL, "IOS80", false},
-    {0x0000000100000200ULL, "BC-Wii", false},
-    {0x0000000100000201ULL, "MIOS", false},
-    {0x0001000248414241ULL, "Shopping Channel", false},
-    {0x0001000248414341ULL, "Mii Channel", false},
-    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true},
-    {0x0001000248435641ULL, "Wii U Menu Channel", false},
-    {0x0001000848414c00ULL, "Region Select", true},
-    {0x0001000848435a00ULL, "vWii System Channel", true},
+    {0x0000000100000002ULL, "System Menu (vWii)", false, true},
+    {0x0000000100000009ULL, "IOS9", false, false},
+    {0x000000010000000cULL, "IOS12", false, false},
+    {0x000000010000000dULL, "IOS13", false, false},
+    {0x000000010000000eULL, "IOS14", false, false},
+    {0x000000010000000fULL, "IOS15", false, false},
+    {0x0000000100000011ULL, "IOS17", false, false},
+    {0x0000000100000015ULL, "IOS21", false, false},
+    {0x0000000100000016ULL, "IOS22", false, false},
+    {0x000000010000001cULL, "IOS28", false, false},
+    {0x000000010000001fULL, "IOS31", false, false},
+    {0x0000000100000021ULL, "IOS33", false, false},
+    {0x0000000100000022ULL, "IOS34", false, false},
+    {0x0000000100000023ULL, "IOS35", false, false},
+    {0x0000000100000024ULL, "IOS36", false, false},
+    {0x0000000100000025ULL, "IOS37", false, false},
+    {0x0000000100000026ULL, "IOS38", false, false},
+    {0x0000000100000029ULL, "IOS41", false, false},
+    {0x000000010000002bULL, "IOS43", false, false},
+    {0x000000010000002dULL, "IOS45", false, false},
+    {0x000000010000002eULL, "IOS46", false, false},
+    {0x0000000100000030ULL, "IOS48", false, false},
+    {0x0000000100000035ULL, "IOS53", false, false},
+    {0x0000000100000037ULL, "IOS55", false, false},
+    {0x0000000100000038ULL, "IOS56", false, false},
+    {0x0000000100000039ULL, "IOS57", false, false},
+    {0x000000010000003aULL, "IOS58", false, false},
+    {0x000000010000003bULL, "IOS59", false, false},
+    {0x000000010000003eULL, "IOS62", false, false},
+    {0x0000000100000050ULL, "IOS80", false, false},
+    {0x0000000100000200ULL, "BC-Wii", false, false},
+    {0x0000000100000201ULL, "MIOS", false, false},
+    {0x0001000248414241ULL, "Shopping Channel", false, false},
+    {0x0001000248414341ULL, "Mii Channel", false, false},
+    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true, false},
+    {0x0001000248435641ULL, "Wii U Menu Channel", false, false},
+    {0x0001000848414c00ULL, "Region Select", true, false},
+    {0x0001000848435a00ULL, "Wii System Transfer", true, false},
 };
 
 void WUPI_NusMenu() {
@@ -516,10 +517,13 @@ void WUPI_NusMenu() {
             continue;
         }
 
+        int successCount = 0;
+        int failCount = 0;
+
         for (int selected : selected_items) {
             if (selected >= 0 && selected < (int)(sizeof(g_nusTitles) / sizeof(g_nusTitles[0]))) {
                 uint64_t titleId = g_nusTitles[selected].id;
-                WUPI_Log("--- Processing %s ---", g_nusTitles[selected].name);
+                WUPI_Log("--- Processing %s (%d/%d) ---", g_nusTitles[selected].name, successCount + failCount + 1, (int)selected_items.size());
 
                 if (g_nusTitles[selected].regionSpecificId) {
                     uint8_t regionChar = 0;
@@ -537,31 +541,51 @@ void WUPI_NusMenu() {
                 int32_t latestVersion = NUS_GetLatestVersion(titleId);
                 if (latestVersion == -1) {
                     WUPI_Log("Error: Failed to fetch latest version from NUS.\n");
+                    failCount++;
+                    WUPI_putstr("Press A to continue with next title, B to abort.");
+                    if (!WaitPrompt()) break;
                     continue;
                 }
 
                 int32_t version = latestVersion;
-                version = (latestVersion & ~3) | regionCode;
+                if (g_nusTitles[selected].regionSpecificVersion) {
+                    version = (latestVersion & ~3) | regionCode;
+                }
                 WUPI_Log("Version: %d\n", version);
 
+                bool failed = false;
                 WADContext* ctx = NUS_DownloadTitle(titleId, version);
                 if (!ctx) {
                     WUPI_Log("Error: Failed to download or prepare title.\n");
+                    failed = true;
                 } else if (!WAD_IsSafeTitle(ctx)) {
                     WUPI_Log("Error: Title is unsafe. Aborting installation.\n");
+                    failed = true;
                 } else {
                     WUPI_Log("Writing to slccmpt...\n");
                     if (WAD_InstallToVWii(ctx, 0)) {
                         WUPI_Log("Installation complete!\n");
+                        successCount++;
+                        sleep(1);
                     } else {
                         WUPI_Log("Error: Installation failed.\n");
+                        failed = true;
                     }
                 }
                 if (ctx) WAD_Free(ctx);
+
+                if (failed) {
+                    failCount++;
+                    WUPI_putstr("Press A to continue with next title, B to abort.");
+                    if (!WaitPrompt()) break;
+                }
             }
         }
 
-        WUPI_Log("All selected titles processed.");
+        WUPI_resetScreen();
+        WUPI_Log("Batch Complete!\n");
+        WUPI_Log("Successful: %d\n", successCount);
+        WUPI_Log("Failed: %d\n", failCount);
         WUPI_waitButton();
     }
 }

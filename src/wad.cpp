@@ -167,9 +167,12 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
 int32_t NUS_GetLatestVersion(uint64_t titleId) {
     uint64_t fetchTitleId = titleId;
 
-    // Shenanigans: Use 00000007 prefix for vWii titles on NUS
-    if ((fetchTitleId >> 32) == 1) {
+    // Shenanigans: Use 00000007 prefix for vWii system titles and 0007xxxx for vWii channels on NUS
+    uint32_t highId = (fetchTitleId >> 32);
+    if (highId == 1) {
         fetchTitleId = (fetchTitleId & 0xFFFFFFFF) | (0x00000007ULL << 32);
+    } else if ((highId >> 16) == 1) {
+        fetchTitleId = (fetchTitleId & 0xFFFFFFFF) | (((uint64_t)(highId & 0xFFFF) | 0x00070000ULL) << 32);
     }
 
     std::string url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/tmd", fetchTitleId);
@@ -199,9 +202,12 @@ int32_t NUS_GetLatestVersion(uint64_t titleId) {
 WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     uint64_t fetchTitleId = titleId;
 
-    // Shenanigans: Use 00000007 prefix for vWii titles on NUS
-    if ((fetchTitleId >> 32) == 1) {
+    // Shenanigans: Use 00000007 prefix for vWii system titles and 0007xxxx for vWii channels on NUS
+    uint32_t highId = (fetchTitleId >> 32);
+    if (highId == 1) {
         fetchTitleId = (fetchTitleId & 0xFFFFFFFF) | (0x00000007ULL << 32);
+    } else if ((highId >> 16) == 1) {
+        fetchTitleId = (fetchTitleId & 0xFFFFFFFF) | (((uint64_t)(highId & 0xFFFF) | 0x00070000ULL) << 32);
     }
 
     std::string url;
