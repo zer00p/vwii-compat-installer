@@ -183,7 +183,6 @@ void InstallD2X(const std::string& versionFolder) {
     for (size_t selIdx = 0; selIdx < selected.size(); selIdx++) {
         int i = selected[selIdx];
         if (!State::AppRunning()) break;
-        WUPI_resetScreen();
         Patcher_Log("Installing cIOS slot " + std::to_string(configs[i].slot) + " (base " + std::to_string(configs[i].base) + ")...\n");
         
         tinyxml2::XMLElement* root = doc.RootElement();

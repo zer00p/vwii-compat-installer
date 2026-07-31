@@ -177,8 +177,7 @@ void WUPI_installWAD() {
     int failCount = 0;
 
     for (const auto& wadPath : selectedWads) {
-        WUPI_resetScreen();
-        WUPI_Log("Installing (%d/%d):\n", successCount + failCount + 1, (int)selectedWads.size());
+        WUPI_Log("Installing (%d/%d):", successCount + failCount + 1, (int)selectedWads.size());
 
         const char* filename = strrchr(wadPath.c_str(), '/');
         filename = filename ? filename + 1 : wadPath.c_str();
@@ -273,8 +272,7 @@ void WUPI_openShopChannelMenu() {
     int failCount = 0;
 
     for (int idx : selected) {
-        WUPI_resetScreen();
-        WUPI_Log("Downloading (%d/%d):\n", successCount + failCount + 1, (int)selected.size());
+        WUPI_Log("Downloading (%d/%d):", successCount + failCount + 1, (int)selected.size());
         WUPI_Log("%s\n", options[idx].c_str());
 
         if (DownloadAndExtractApp(appIds[idx])) {
@@ -349,8 +347,7 @@ void WUPI_usbLoaderGXMenu() {
     int failCount = 0;
 
     for (int idx : selected) {
-        WUPI_resetScreen();
-        WUPI_Log("Processing (%d/%d):\n", successCount + failCount + 1, (int)selected.size());
+        WUPI_Log("Processing (%d/%d):", successCount + failCount + 1, (int)selected.size());
         WUPI_Log("%s\n", options[idx].c_str());
 
         bool success = false;
