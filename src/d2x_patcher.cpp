@@ -232,27 +232,34 @@ void InstallD2X(const std::string& versionFolder) {
                         break;
                     }
                 }
-                if (content) {
-                    bool patched = false;
-                    for (tinyxml2::XMLElement* pEl = cEl->FirstChildElement("patch"); pEl != NULL; pEl = pEl->NextSiblingElement("patch")) {
-                        int offset = pEl->IntAttribute("offset", 0);
-                        const char* orig = pEl->Attribute("originalbytes");
-                        const char* newb = pEl->Attribute("newbytes");
-                        if (orig && newb) {
-                            if (ApplyBinaryPatch(content, offset, ParseHexBytes(orig), ParseHexBytes(newb)))
-                                patched = true;
-                        }
+                if (!content) {
+                    Patcher_Log("Failed to find content ID " + std::to_string(id) + " for patching.\n");
+                    failures[selIdx] = true;
+                    break;
+                }
+                
+                bool patched = false;
+                for (tinyxml2::XMLElement* pEl = cEl->FirstChildElement("patch"); pEl != NULL; pEl = pEl->NextSiblingElement("patch")) {
+                    int offset = pEl->IntAttribute("offset", 0);
+                    const char* orig = pEl->Attribute("originalbytes");
+                    const char* newb = pEl->Attribute("newbytes");
+                    if (orig && newb) {
+                        if (ApplyBinaryPatch(content, offset, ParseHexBytes(orig), ParseHexBytes(newb)))
+                            patched = true;
                     }
-                    if (patched) {
-                        TitleContentRecord* records = ios->tmd->contents;
-                        for (uint32_t k = 0; k < ios->numContents; k++) {
-                            if (FromBE32(records[k].contentId) == (uint32_t)id) {
-                                uint16_t type = FromBE16(records[k].type);
-                                if (type & 0x8000) {
-                                    records[k].type = ToBE16(type & ~0x8000);
-                                }
-                                break;
+                }
+                if (patched) {
+                    TitleContentRecord* records = ios->tmd->contents;
+                    for (uint32_t k = 0; k < ios->numContents; k++) {
+                        if (FromBE32(records[k].contentId) == (uint32_t)id) {
+                            uint16_t type = FromBE16(records[k].type);
+                            if (type & 0x8000) {
+                                records[k].type = ToBE16(type & ~0x8000);
                             }
+                            uint8_t hash[20];
+                            SHA1(content->data, content->size, hash);
+                            memcpy(records[k].hash, hash, 20);
+                            break;
                         }
                     }
                 }
