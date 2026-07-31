@@ -46,7 +46,7 @@ extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
         WUPI_Log("Failed to read OTP!\n");
         return false;
     }
-    
+
     if (index == 0) {
         memcpy(outKey, otp.wiiBank.commonKey, 16);
     } else if (index == 1) {
@@ -122,11 +122,11 @@ void WAD_Free(WADContext* ctx) {
 
 bool WAD_IsSafeTitle(WADContext* ctx) {
     uint32_t highId = (uint32_t)(ctx->tmdTitleId >> 32);
-    
+
     // 0x00000001 is System titles (IOS, System Menu, MIOS, BC)
     if (highId == 0x00000001) {
         bool isvWiiTitle = false;
-        
+
         // Check TMD vwii_title flag (offset 0x43 in TMD payload)
         uint32_t tmdPayloadOffset = GetPayloadOffset(ctx->tmdData);
         if (ctx->tmdData && ctx->tmdSize > tmdPayloadOffset + 0x43) {
@@ -134,7 +134,7 @@ bool WAD_IsSafeTitle(WADContext* ctx) {
                 isvWiiTitle = true;
             }
         }
-        
+
         // Check ticket common key index to see if it's a vWii title
         if (ctx->ticketData && ctx->ticketSize >= 4) {
             uint32_t tikPayloadOffset = GetPayloadOffset(ctx->ticketData);
@@ -145,7 +145,7 @@ bool WAD_IsSafeTitle(WADContext* ctx) {
                 }
             }
         }
-        
+
         // Installing original Wii system titles to vWii will brick it.
         if (!isvWiiTitle) {
             return false;
@@ -166,31 +166,31 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
 
 int32_t NUS_GetLatestVersion(uint64_t titleId) {
     uint64_t fetchTitleId = titleId;
-    
+
     // Shenanigans: Use 00000007 prefix for vWii titles on NUS
     if ((fetchTitleId >> 32) == 1) {
         fetchTitleId = (fetchTitleId & 0xFFFFFFFF) | (0x00000007ULL << 32);
     }
 
     std::string url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/tmd", fetchTitleId);
-    
+
     uint8_t* tmdData = NULL;
     size_t tmdSize = 0;
     if (!DownloadToMemory(url, &tmdData, &tmdSize)) {
         return -1;
     }
-    
+
     if (tmdSize < 4) {
         free(tmdData);
         return -1;
     }
-    
+
     uint32_t tmdPayloadOffset = GetPayloadOffset(tmdData);
     if (tmdSize < tmdPayloadOffset + 0x9E) {
         free(tmdData);
         return -1;
     }
-    
+
     uint16_t version = Read16BE(tmdData + tmdPayloadOffset + 0x9C);
     free(tmdData);
     return version;
@@ -198,7 +198,7 @@ int32_t NUS_GetLatestVersion(uint64_t titleId) {
 
 WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     uint64_t fetchTitleId = titleId;
-    
+
     // Shenanigans: Use 00000007 prefix for vWii titles on NUS
     if ((fetchTitleId >> 32) == 1) {
         fetchTitleId = (fetchTitleId & 0xFFFFFFFF) | (0x00000007ULL << 32);
@@ -210,7 +210,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     } else {
         url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/tmd", fetchTitleId);
     }
-    
+
     uint8_t* tmdData = NULL;
     size_t tmdSize = 0;
     WUPI_Log("Fetching TMD from NUS...\n");
@@ -218,13 +218,13 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         WUPI_Log("Failed to download TMD.\n");
         return NULL;
     }
-    
+
     if (tmdSize < 4) {
         WUPI_Log("TMD too small.\n");
         free(tmdData);
         return NULL;
     }
-    
+
     url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/cetk", fetchTitleId);
     uint8_t* tikData = NULL;
     size_t tikSize = 0;
@@ -234,29 +234,29 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         free(tmdData);
         return NULL;
     }
-    
+
     if (tikSize < 4) {
         WUPI_Log("Ticket too small.\n");
         free(tmdData);
         free(tikData);
         return NULL;
     }
-    
+
     // Do NOT patch the Title ID in the TMD or Ticket back to 00000001!
-    // Doing so breaks the signature. The vWii System Menu is signed by Nintendo with 
+    // Doing so breaks the signature. The vWii System Menu is signed by Nintendo with
     // the 00000007 prefix on NUS. We install it into the 00000001 directory via CINS_Install,
     // but we leave the actual file contents exactly as Nintendo signed them.
-    
+
     uint32_t tmdPayloadOffset = GetPayloadOffset(tmdData);
     uint32_t tikPayloadOffset = GetPayloadOffset(tikData);
-    
+
     // Validate TMD has at least the numContents field
     if (tmdSize < tmdPayloadOffset + 0xA0) {
         WUPI_Log("TMD truncated.\n");
         free(tmdData); free(tikData);
         return NULL;
     }
-    
+
     uint16_t numContents = Read16BE(tmdData + tmdPayloadOffset + 0x9E);
 
     // Validate and strip certificate chain from TMD and Ticket
@@ -267,7 +267,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         return NULL;
     }
     tmdSize = requiredTmdSize;
-    
+
     size_t requiredTikSize = tikPayloadOffset + 0x164;
     if (tikSize < requiredTikSize) {
         WUPI_Log("Ticket truncated.\n");
@@ -275,13 +275,13 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         return NULL;
     }
     tikSize = requiredTikSize;
-    
+
     // Decrypt Title Key
     uint8_t ckey_idx = 0;
     if (tikPayloadOffset > 0 && tikSize >= tikPayloadOffset + 0xB2) {
         ckey_idx = tikData[tikPayloadOffset + 0xB1];
     }
-    
+
     uint8_t dynamic_common_key[16];
     if (GetCommonKeyFromOTP(ckey_idx, dynamic_common_key)) {
         set_common_key(dynamic_common_key);
@@ -290,68 +290,68 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         free(tmdData); free(tikData);
         return NULL;
     }
-    
+
     uint8_t title_key[16];
     decrypt_title_key(tikData, title_key);
-    
+
     CINS_Content* c_arr = (CINS_Content*)calloc(numContents, sizeof(CINS_Content));
     if (!c_arr) {
         free(tmdData); free(tikData);
         return NULL;
     }
-    
+
     for (int i = 0; i < numContents; i++) {
-        WUPI_Log_Overwrite("Fetching Content %d/%d...\n", i + 1, numContents);
+        WUPI_Log_Overwrite("Fetching Content %d/%d from NUS...\n", i + 1, numContents);
         uint32_t cid = Read32BE(tmdData + tmdPayloadOffset + 0xA4 + 0x24*i);
         url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/{:08x}", fetchTitleId, cid);
-        
+
         uint8_t* encData = NULL;
         size_t encSize = 0;
         if (!DownloadToMemory(url, &encData, &encSize)) {
             WUPI_Log("Failed to download content %d.\n", i);
             goto error;
         }
-        
+
         uint64_t expectedLen = Read64BE(tmdData + tmdPayloadOffset + 0xac + 0x24*i);
-        
+
         if (expectedLen > encSize) {
             WUPI_Log("Content %d: expected size exceeds download.\n", i);
             free(encData);
             goto error;
         }
-        
+
         uint8_t* decData = (uint8_t*)memalign(0x40, encSize);
         if (!decData) {
             free(encData);
             goto error;
         }
-        
+
         uint8_t iv[16] = {0};
         memcpy(iv, tmdData + tmdPayloadOffset + 0xa8 + 0x24*i, 2);
-        
+
         aes_cbc_dec(title_key, iv, encData, encSize, decData);
         free(encData);
-        
+
         uint8_t actual_hash[20];
         sha(decData, expectedLen, actual_hash);
-        
+
         uint8_t expected_hash[20];
         memcpy(expected_hash, tmdData + tmdPayloadOffset + 0xb4 + 0x24*i, 20);
-        
+
         if (memcmp(expected_hash, actual_hash, 20) != 0) {
             WUPI_Log("Hash mismatch for content %d\n", i);
             free(decData);
             goto error;
         }
-        
+
         c_arr[i].data = decData;
         c_arr[i].length = expectedLen;
     }
-    
+
     {
         WADContext* ctx = (WADContext*)calloc(1, sizeof(WADContext));
         if (!ctx) goto error;
-        
+
         ctx->ticketData = tikData;
         ctx->ticketSize = tikSize;
         ctx->tmdData = tmdData;
@@ -360,10 +360,10 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         ctx->titleType = Read32BE(tmdData + tmdPayloadOffset + 0x48);
         ctx->numContents = numContents;
         ctx->contentsArray = c_arr;
-        
+
         return ctx;
     }
-    
+
 error:
     if (c_arr) {
         for (int i = 0; i < numContents; i++) {

@@ -137,3 +137,15 @@ bool Input::get(ButtonState state, Button button) const {
     }
     return false;
 }
+
+bool Input::getHoldRepeat(Button button, int& timer) const {
+    if (this->get(TRIGGER, button)) {
+        timer = 0;
+        return true;
+    }
+    if (this->get(HOLD, button)) {
+        return (++timer > 20 && timer % 4 == 0);
+    }
+    timer = 0;
+    return false;
+}

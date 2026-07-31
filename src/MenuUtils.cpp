@@ -11,12 +11,17 @@ static void DrawMenu(const std::vector<std::string>& header, const std::vector<s
         ScreenUtils_PutFont(0, offset++, header[i].c_str());
     }
 
-    for (size_t i = 0; i < options.size(); i++) {
-        std::string line = (i == (size_t)selected ? "-> " : "   ") + options[i];
+    int count = (int)options.size();
+    int max_display = std::max(1, 17 - 2 - (int)header.size());
+    int start_idx = std::max(0, std::min(selected - max_display / 2, count - max_display));
+
+    for (int i = 0; i < max_display && start_idx + i < count; i++) {
+        int idx = start_idx + i;
+        std::string line = (idx == selected ? "-> " : "   ") + options[idx];
         ScreenUtils_PutFont(0, offset + 2 + i, line.c_str());
     }
 
-    ScreenUtils_PutFont(0, offset + 3 + options.size(), "A: Select | B: Cancel | UP/DOWN: Move");
+    ScreenUtils_PutFont(0, 17, "A: Select | B: Cancel | D-Pad: Move/Page");
     ScreenUtils_FlipBuffers();
 }
 
@@ -31,16 +36,28 @@ int ShowMenu(const std::vector<std::string>& header, const std::vector<std::stri
     Draw();
     
     Input input;
+    int hold_timer_up = 0, hold_timer_down = 0;
+    int hold_timer_left = 0, hold_timer_right = 0;
+
     while (State::AppRunning()) {
         input.read();
         
-        if (input.get(TRIGGER, PAD_BUTTON_UP) && selected > 0) {
+        bool changed = false;
+        if (input.getHoldRepeat(PAD_BUTTON_UP, hold_timer_up) && selected > 0) {
             selected--;
-            Draw();
+            changed = true;
         }
-        else if (input.get(TRIGGER, PAD_BUTTON_DOWN) && selected < (int)options.size() - 1) {
+        else if (input.getHoldRepeat(PAD_BUTTON_DOWN, hold_timer_down) && selected < (int)options.size() - 1) {
             selected++;
-            Draw();
+            changed = true;
+        }
+        else if (input.getHoldRepeat(PAD_BUTTON_LEFT, hold_timer_left) && selected > 0) {
+            selected = std::max(0, selected - 10);
+            changed = true;
+        }
+        else if (input.getHoldRepeat(PAD_BUTTON_RIGHT, hold_timer_right) && selected < (int)options.size() - 1) {
+            selected = std::min((int)options.size() - 1, selected + 10);
+            changed = true;
         }
         else if (input.get(TRIGGER, PAD_BUTTON_B)) {
             return -1;
@@ -49,6 +66,7 @@ int ShowMenu(const std::vector<std::string>& header, const std::vector<std::stri
             return selected;
         }
         
+        if (changed) Draw();
         usleep(16000);
     }
     return -1;
@@ -61,14 +79,19 @@ static void DrawMultiSelectMenu(const std::vector<std::string>& header, const st
         ScreenUtils_PutFont(0, offset++, header[i].c_str());
     }
 
-    for (size_t i = 0; i < options.size(); i++) {
-        std::string prefix = (i == (size_t)cursor ? "-> " : "   ");
-        prefix += (selectedOptions[i] ? "[x] " : "[ ] ");
-        std::string line = prefix + options[i];
+    int count = (int)options.size();
+    int max_display = std::max(1, 17 - 2 - (int)header.size());
+    int start_idx = std::max(0, std::min(cursor - max_display / 2, count - max_display));
+
+    for (int i = 0; i < max_display && start_idx + i < count; i++) {
+        int idx = start_idx + i;
+        std::string prefix = (idx == cursor ? "-> " : "   ");
+        prefix += (selectedOptions[idx] ? "[x] " : "[ ] ");
+        std::string line = prefix + options[idx];
         ScreenUtils_PutFont(0, offset + 2 + i, line.c_str());
     }
 
-    ScreenUtils_PutFont(0, offset + 3 + options.size(), "A: Toggle | X: Toggle All | +: Confirm | B: Cancel | UP/DOWN: Move");
+    ScreenUtils_PutFont(0, 17, "A: Toggle | X: All | +: Confirm | B: Cancel | D-Pad: Move/Page");
     ScreenUtils_FlipBuffers();
 }
 
@@ -86,16 +109,27 @@ std::vector<int> ShowMultiSelectMenu(const std::vector<std::string>& header, con
     Draw();
     
     Input input;
+    int hold_timer_up = 0, hold_timer_down = 0;
+    int hold_timer_left = 0, hold_timer_right = 0;
+
     while (State::AppRunning()) {
         input.read();
         
         bool changed = false;
-        if (input.get(TRIGGER, PAD_BUTTON_UP) && cursor > 0) {
+        if (input.getHoldRepeat(PAD_BUTTON_UP, hold_timer_up) && cursor > 0) {
             cursor--;
             changed = true;
         }
-        else if (input.get(TRIGGER, PAD_BUTTON_DOWN) && cursor < (int)options.size() - 1) {
+        else if (input.getHoldRepeat(PAD_BUTTON_DOWN, hold_timer_down) && cursor < (int)options.size() - 1) {
             cursor++;
+            changed = true;
+        }
+        else if (input.getHoldRepeat(PAD_BUTTON_LEFT, hold_timer_left) && cursor > 0) {
+            cursor = std::max(0, cursor - 10);
+            changed = true;
+        }
+        else if (input.getHoldRepeat(PAD_BUTTON_RIGHT, hold_timer_right) && cursor < (int)options.size() - 1) {
+            cursor = std::min((int)options.size() - 1, cursor + 10);
             changed = true;
         }
         else if (input.get(TRIGGER, PAD_BUTTON_B)) {

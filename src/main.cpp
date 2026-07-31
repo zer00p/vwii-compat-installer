@@ -221,7 +221,7 @@ void WUPI_installWAD() {
     }
 
     WUPI_resetScreen();
-    WUPI_Log("Batch Install Complete!\n");
+    WUPI_Log("Batch Install Complete!");
     WUPI_Log("Successful: %d\n", successCount);
     WUPI_Log("Failed: %d\n", failCount);
     WUPI_waitButton();
@@ -448,32 +448,106 @@ int32_t GetVWiiRegion() {
     return -1;
 }
 
+struct NusTitle {
+    uint64_t id;
+    const char* name;
+    bool regionSpecificId;
+};
+
+static const NusTitle g_nusTitles[] = {
+    {0x0000000100000002ULL, "System Menu (vWii)", false},
+    {0x0000000100000009ULL, "IOS9", false},
+    {0x000000010000000cULL, "IOS12", false},
+    {0x000000010000000dULL, "IOS13", false},
+    {0x000000010000000eULL, "IOS14", false},
+    {0x000000010000000fULL, "IOS15", false},
+    {0x0000000100000011ULL, "IOS17", false},
+    {0x0000000100000015ULL, "IOS21", false},
+    {0x0000000100000016ULL, "IOS22", false},
+    {0x000000010000001cULL, "IOS28", false},
+    {0x000000010000001fULL, "IOS31", false},
+    {0x0000000100000021ULL, "IOS33", false},
+    {0x0000000100000022ULL, "IOS34", false},
+    {0x0000000100000023ULL, "IOS35", false},
+    {0x0000000100000024ULL, "IOS36", false},
+    {0x0000000100000025ULL, "IOS37", false},
+    {0x0000000100000026ULL, "IOS38", false},
+    {0x0000000100000029ULL, "IOS41", false},
+    {0x000000010000002bULL, "IOS43", false},
+    {0x000000010000002dULL, "IOS45", false},
+    {0x000000010000002eULL, "IOS46", false},
+    {0x0000000100000030ULL, "IOS48", false},
+    {0x0000000100000035ULL, "IOS53", false},
+    {0x0000000100000037ULL, "IOS55", false},
+    {0x0000000100000038ULL, "IOS56", false},
+    {0x0000000100000039ULL, "IOS57", false},
+    {0x000000010000003aULL, "IOS58", false},
+    {0x000000010000003bULL, "IOS59", false},
+    {0x000000010000003eULL, "IOS62", false},
+    {0x0000000100000050ULL, "IOS80", false},
+    {0x0000000100000200ULL, "BC-Wii", false},
+    {0x0000000100000201ULL, "MIOS", false},
+    {0x0001000248414241ULL, "Shopping Channel", false},
+    {0x0001000248414341ULL, "Mii Channel", false},
+    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true},
+    {0x0001000248435641ULL, "Wii U Menu Channel", false},
+    {0x0001000848414c00ULL, "Region Select", true},
+    {0x0001000848435a00ULL, "vWii System Channel", true},
+};
+
 void WUPI_NusMenu() {
     while (State::AppRunning()) {
         WUPI_resetScreen();
-        std::vector<std::string> options = {
-            "System Menu (vWii)"
-        };
+        std::vector<std::string> options;
+        for (const auto& t : g_nusTitles) {
+            options.push_back(t.name);
+        }
         std::vector<std::string> header = {
             "Install System Titles from NUS:"
         };
 
-        int selected = ShowMenu(header, options);
-        if (selected == 0) {
-            WUPI_resetScreen();
-            int32_t regionCode = GetVWiiRegion();
-            if (regionCode == -1) {
-                WUPI_Log("Error: Could not determine vWii region from setting.txt\n");
-            } else {
-                int32_t latestVersion = NUS_GetLatestVersion(0x0000000100000002ULL);
+        std::vector<int> selected_items = ShowMultiSelectMenu(header, options);
+        if (selected_items.empty()) {
+            break;
+        }
+
+        WUPI_resetScreen();
+        int32_t regionCode = GetVWiiRegion();
+        if (regionCode == -1) {
+            WUPI_Log("Error: Could not determine vWii region from setting.txt\n");
+            WUPI_waitButton();
+            continue;
+        }
+
+        for (int selected : selected_items) {
+            if (selected >= 0 && selected < (int)(sizeof(g_nusTitles) / sizeof(g_nusTitles[0]))) {
+                uint64_t titleId = g_nusTitles[selected].id;
+                WUPI_Log("--- Processing %s ---", g_nusTitles[selected].name);
+
+                if (g_nusTitles[selected].regionSpecificId) {
+                    uint8_t regionChar = 0;
+                    switch (regionCode) {
+                        case 0: regionChar = 'J'; break;
+                        case 1: regionChar = 'E'; break;
+                        case 2: regionChar = 'P'; break;
+                        case 3: regionChar = 'K'; break;
+                    }
+                    if (regionChar != 0) {
+                        titleId |= regionChar;
+                    }
+                }
+
+                int32_t latestVersion = NUS_GetLatestVersion(titleId);
                 if (latestVersion == -1) {
                     WUPI_Log("Error: Failed to fetch latest version from NUS.\n");
-                    WUPI_waitButton();
                     continue;
                 }
-                int32_t version = (latestVersion & ~3) | regionCode;
-                WUPI_Log("Detected vWii version code: %d\n", version);
-                WADContext* ctx = NUS_DownloadTitle(0x0000000100000002ULL, version);
+
+                int32_t version = latestVersion;
+                version = (latestVersion & ~3) | regionCode;
+                WUPI_Log("Version: %d\n", version);
+
+                WADContext* ctx = NUS_DownloadTitle(titleId, version);
                 if (!ctx) {
                     WUPI_Log("Error: Failed to download or prepare title.\n");
                 } else if (!WAD_IsSafeTitle(ctx)) {
@@ -488,10 +562,10 @@ void WUPI_NusMenu() {
                 }
                 if (ctx) WAD_Free(ctx);
             }
-            WUPI_waitButton();
-        } else if (selected == -1) {
-            break;
         }
+
+        WUPI_Log("All selected titles processed.");
+        WUPI_waitButton();
     }
 }
 

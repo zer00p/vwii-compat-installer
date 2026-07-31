@@ -30,6 +30,7 @@ class Input {
 public:
     void read() __attribute__((hot));
     bool get(ButtonState state, Button button) const __attribute__((hot));
+    bool getHoldRepeat(Button button, int& timer) const __attribute__((hot));
 
 private:
     VPADStatus vpad_status;

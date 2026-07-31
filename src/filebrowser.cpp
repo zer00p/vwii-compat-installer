@@ -121,18 +121,6 @@ static void DrawBrowserInner(int selected) {
     ScreenUtils_PutFont(0, 17, "A: Select | X: Select All | +: Confirm | B: Back | D-Pad: Move");
 }
 
-static bool ProcessHoldInput(const Input& input, Button button, int& timer) {
-    if (input.get(TRIGGER, button)) {
-        timer = 0;
-        return true;
-    }
-    if (input.get(HOLD, button)) {
-        return (++timer > 20 && timer % 4 == 0);
-    }
-    timer = 0;
-    return false;
-}
-
 static void NavigateUp(int& selected) {
     size_t lastSlash = s_CurrentPath.find_last_of('/');
     if (lastSlash != std::string::npos && lastSlash > 0) {
@@ -170,19 +158,19 @@ std::vector<std::string> BrowseWADs() {
         bool changed = false;
 
         // Cursor movement (with hold-repeat)
-        if (ProcessHoldInput(input, PAD_BUTTON_UP, hold_timer_up) && selected > 0) {
+        if (input.getHoldRepeat(PAD_BUTTON_UP, hold_timer_up) && selected > 0) {
             selected--;
             changed = true;
         }
-        if (ProcessHoldInput(input, PAD_BUTTON_DOWN, hold_timer_down) && selected < count - 1) {
+        if (input.getHoldRepeat(PAD_BUTTON_DOWN, hold_timer_down) && selected < count - 1) {
             selected++;
             changed = true;
         }
-        if (ProcessHoldInput(input, PAD_BUTTON_LEFT, hold_timer_left) && selected > 0) {
+        if (input.getHoldRepeat(PAD_BUTTON_LEFT, hold_timer_left) && selected > 0) {
             selected = std::max(0, selected - 10);
             changed = true;
         }
-        if (ProcessHoldInput(input, PAD_BUTTON_RIGHT, hold_timer_right) && selected < count - 1) {
+        if (input.getHoldRepeat(PAD_BUTTON_RIGHT, hold_timer_right) && selected < count - 1) {
             selected = std::min(count - 1, selected + 10);
             changed = true;
         }

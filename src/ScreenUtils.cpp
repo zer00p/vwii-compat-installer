@@ -4,7 +4,7 @@
 #include <cstring>
 
 /* Shadow buffer: records what was drawn so it can be replayed on resume. */
-#define SHADOW_MAX_ROWS 28
+#define SHADOW_MAX_ROWS 18
 #define SHADOW_MAX_COLS 128
 
 static struct {
@@ -69,4 +69,14 @@ void ScreenUtils_Redraw() {
         OSScreenFlipBuffersEx(SCREEN_TV);
         OSScreenFlipBuffersEx(SCREEN_DRC);
     }
+}
+
+void ScreenUtils_ScrollUp() {
+    if (State::isExiting()) return;
+    for (int i = 1; i < SHADOW_MAX_ROWS; i++) {
+        s_Shadow.lines[i - 1].x = s_Shadow.lines[i].x;
+        strncpy(s_Shadow.lines[i - 1].text, s_Shadow.lines[i].text, SHADOW_MAX_COLS);
+    }
+    s_Shadow.lines[SHADOW_MAX_ROWS - 1].text[0] = '\0';
+    ScreenUtils_Redraw();
 }

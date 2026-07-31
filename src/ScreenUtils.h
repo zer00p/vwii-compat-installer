@@ -8,3 +8,4 @@ void ScreenUtils_FlipBuffers();
 void ScreenUtils_Enable();
 void ScreenUtils_ClearBothBuffers();
 void ScreenUtils_Redraw();
+void ScreenUtils_ScrollUp();
