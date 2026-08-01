@@ -175,6 +175,49 @@ void InstallIOS80() {
 }
 
 
+static bool RestoreIOS80FromBackup() {
+    auto ios = ReadBaseIOS(80);
+    if (!ios) {
+        Patcher_Log("Error: Failed to read base IOS80.");
+        return false;
+    }
+
+    uint8_t* origTmdBuf = nullptr;
+    uint32_t origTmdSize = 0;
+    if (!ReadFileToBuffer(GetTmdBackupPath(80), &origTmdBuf, &origTmdSize)) {
+        Patcher_Log("Error: Failed to read tmd.bak.");
+        return false;
+    }
+
+    uint8_t* origTikBuf = nullptr;
+    uint32_t origTikSize = 0;
+    if (!ReadFileToBuffer(GetTikBackupPath(80), &origTikBuf, &origTikSize)) {
+        Patcher_Log("Error: Failed to read tik.bak.");
+        free(origTmdBuf);
+        return false;
+    }
+
+    Patcher_Log("Reverting patches on IOS80 contents...");
+    for (uint32_t i = 0; i < ios->numContents; i++) {
+        if (!ios->contents[i].data || ios->contents[i].size == 0) continue;
+        HandleVersionCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
+        HandleHashCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
+        HandleIdentifyCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
+        HandleFsPermsPatch(ios->contents[i].data, ios->contents[i].size, true);
+        HandleKillAntiSysTitleInstallPatch(ios->contents[i].data, ios->contents[i].size, true);
+        HandleDriveInquiryPatch(ios->contents[i].data, ios->contents[i].size, true);
+    }
+
+    Patcher_Log("Loading pristine shared contents...");
+    LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);
+
+    bool res = VerifyAndInstallRestoredIOS(80, ios.get(), origTmdBuf, origTmdSize, origTikBuf, origTikSize);
+
+    free(origTmdBuf);
+    free(origTikBuf);
+    return res;
+}
+
 void UndoIOS80Patches() {
     WUPI_resetScreen();
 
@@ -229,65 +272,19 @@ void UndoIOS80Patches() {
         return;
     }
 
-    int action = 0;
-    if (hasBackup && choice == 0) {
-        action = 1; // Local
-    } else {
-        action = 2; // NUS
-    }
+    int action = (hasBackup && choice == 0) ? 1 : 2;
 
     WUPI_resetScreen();
     
     if (action == 2) {
         Patcher_Log("Connecting to NUS...");
         RestoreIOSFromNUS(80);
-        
     } else if (action == 1) {
-        Patcher_Log("Loading backup TMD and Ticket...");
-        uint8_t* origTmdBuf = nullptr;
-        uint32_t origTmdSize = 0;
-        if (!ReadFileToBuffer(GetTmdBackupPath(80), &origTmdBuf, &origTmdSize)) {
-            Patcher_Log("Error: Failed to read tmd.bak.");
-            Patcher_Log("");
-            Patcher_Log("Press A to return.");
-            WaitPrompt();
-            return;
-        }
-
-        uint8_t* origTikBuf = nullptr;
-        uint32_t origTikSize = 0;
-        if (!ReadFileToBuffer(GetTikBackupPath(80), &origTikBuf, &origTikSize)) {
-            Patcher_Log("Error: Failed to read tik.bak.");
-            free(origTmdBuf);
-            Patcher_Log("");
-            Patcher_Log("Press A to return.");
-            WaitPrompt();
-            return;
-        }
-
-        Patcher_Log("Reverting patches on IOS80 contents...");
-        for (uint32_t i = 0; i < ios->numContents; i++) {
-            if (!ios->contents[i].data || ios->contents[i].size == 0) continue;
-            HandleVersionCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
-            HandleHashCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
-            HandleIdentifyCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
-            HandleFsPermsPatch(ios->contents[i].data, ios->contents[i].size, true);
-            HandleKillAntiSysTitleInstallPatch(ios->contents[i].data, ios->contents[i].size, true);
-            HandleDriveInquiryPatch(ios->contents[i].data, ios->contents[i].size, true);
-        }
-
-        Patcher_Log("Loading pristine shared contents...");
-        LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);
-
-        VerifyAndInstallRestoredIOS(80, ios.get(), origTmdBuf, origTmdSize, origTikBuf, origTikSize);
-
-        free(origTmdBuf);
-        free(origTikBuf);
-
+        RestoreIOS80FromBackup();
     }
     
     Patcher_Log("");
-        Patcher_Log("Press A to return.");
+    Patcher_Log("Press A to return.");
     WaitPrompt();
 }
 
@@ -295,9 +292,26 @@ bool InstallIOS80Batch() {
     return PatchAndInstallIOS80Internal();
 }
 
-
 bool UndoIOS80PatchesBatch() {
+    auto ios = ReadBaseIOS(80);
+    if (ios && IsOriginalNintendoSignature(ios->tmd->signature, sizeof(ios->tmd->signature))) {
+        Patcher_Log("IOS80 is already stock/original.");
+        return true;
+    }
 
+    FSAFileHandle testFd;
+    bool hasBackup = (FSAOpenFileEx(fsaClient, GetTmdBackupPath(80).c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
+    if (hasBackup) {
+        FSACloseFile(fsaClient, testFd);
+        Patcher_Log("Restoring IOS80 from local backup...");
+        if (RestoreIOS80FromBackup()) {
+            return true;
+        }
+        Patcher_Log("Local restore failed. Falling back to NUS download...");
+    }
+
+    Patcher_Log("Downloading original IOS80 from NUS...");
     return RestoreIOSFromNUS(80);
 }
+
 

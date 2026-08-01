@@ -340,6 +340,22 @@ error:
     return ret > 0 ? 0 : ret;
 }
 
+bool CINS_TitleExists(uint64_t titleId) {
+    uint32_t idHi = (uint32_t)(titleId >> 32);
+    uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
+
+    char titlePath[CINS_PATH_LEN];
+    char ticketPath[CINS_PATH_LEN];
+    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
+    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
+
+    FSStat stat;
+    bool titleExists = (FSAGetStat(fsaClient, titlePath, &stat) == FS_ERROR_OK);
+    bool ticketExists = (FSAGetStat(fsaClient, ticketPath, &stat) == FS_ERROR_OK);
+
+    return (titleExists || ticketExists);
+}
+
 bool CINS_UninstallTitle(uint64_t titleId) {
     uint32_t idHi = (uint32_t)(titleId >> 32);
     uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
@@ -370,3 +386,14 @@ bool CINS_UninstallTitle(uint64_t titleId) {
     }
     return ok;
 }
+
+UninstallResult CINS_UninstallTitleResult(uint64_t titleId) {
+    if (!CINS_TitleExists(titleId)) {
+        return UninstallResult::NOT_PRESENT;
+    }
+    if (CINS_UninstallTitle(titleId)) {
+        return UninstallResult::SUCCESS;
+    }
+    return UninstallResult::FAILED;
+}
+

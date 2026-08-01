@@ -12,3 +12,13 @@ void EnsureFSADirectory(FSAClientHandle fsaClient, const char* path);
 // Recursively removes a directory tree or file using FSA
 bool FSARemoveTree(FSAClientHandle fsaClient, const char* path);
 
+enum class UninstallResult {
+    SUCCESS,
+    NOT_PRESENT,
+    FAILED
+};
+
+// Removes a file or directory tree, distinguishing between not present, success, and failure
+UninstallResult FSARemovePathResult(FSAClientHandle fsaClient, const char* path, bool isDirectory = true);
+
+

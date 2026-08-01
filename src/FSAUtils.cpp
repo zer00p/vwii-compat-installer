@@ -51,6 +51,11 @@ bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, 
 }
 
 bool FSARemoveTree(FSAClientHandle fsaClient, const char* path) {
+    FSStat stat;
+    if (FSAGetStat(fsaClient, path, &stat) != FS_ERROR_OK) {
+        return true;
+    }
+
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsaClient, path, &dir) == FS_ERROR_OK) {
         FSADirectoryEntry* entry = (FSADirectoryEntry*)memalign(0x40, sizeof(FSADirectoryEntry));
@@ -72,4 +77,19 @@ bool FSARemoveTree(FSAClientHandle fsaClient, const char* path) {
     }
     return (FSARemove(fsaClient, path) == FS_ERROR_OK);
 }
+
+UninstallResult FSARemovePathResult(FSAClientHandle fsaClient, const char* path, bool isDirectory) {
+    FSStat stat;
+    if (FSAGetStat(fsaClient, path, &stat) != FS_ERROR_OK) {
+        return UninstallResult::NOT_PRESENT;
+    }
+    bool ok = false;
+    if (isDirectory) {
+        ok = FSARemoveTree(fsaClient, path);
+    } else {
+        ok = (FSARemove(fsaClient, path) == FS_ERROR_OK);
+    }
+    return ok ? UninstallResult::SUCCESS : UninstallResult::FAILED;
+}
+
 

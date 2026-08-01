@@ -805,6 +805,18 @@ void WUPI_expressSetupInstall() {
     WUPI_waitButton();
 }
 
+static const char* FormatUninstallResult(UninstallResult res, const char* successLabel = "Uninstalled") {
+    switch (res) {
+        case UninstallResult::SUCCESS:
+            return successLabel;
+        case UninstallResult::NOT_PRESENT:
+            return "Not present";
+        case UninstallResult::FAILED:
+            return "Failed";
+    }
+    return "Unknown";
+}
+
 void WUPI_expressSetupUninstall() {
     WUPI_resetScreen();
     std::vector<std::string> options = {
@@ -852,13 +864,19 @@ void WUPI_expressSetupUninstall() {
 
     WUPI_resetScreen();
 
-    bool hbcDone = false, hbcSuccess = false;
+    bool hbcDone = false;
+    UninstallResult hbcResult = UninstallResult::NOT_PRESENT;
     bool d2xDone = false;
     std::vector<std::pair<int, bool>> d2xResults;
     bool ios80Done = false, ios80Success = false;
     bool driveDone = false, driveSuccess = false;
-    bool ulgxDone = false, ulgxWadSuccess = false, ulgxAppSuccess = false, ulgxWuhbSuccess = false;
-    bool oscDone = false, oscLibreshopSuccess = false, oscHbbSuccess = false;
+    bool ulgxDone = false;
+    UninstallResult ulgxWadResult = UninstallResult::NOT_PRESENT;
+    UninstallResult ulgxAppResult = UninstallResult::NOT_PRESENT;
+    UninstallResult ulgxWuhbResult = UninstallResult::NOT_PRESENT;
+    bool oscDone = false;
+    UninstallResult oscLibreshopResult = UninstallResult::NOT_PRESENT;
+    UninstallResult oscHbbResult = UninstallResult::NOT_PRESENT;
 
     for (int idx : selected) {
         if (!State::AppRunning()) break;
@@ -867,8 +885,15 @@ void WUPI_expressSetupUninstall() {
         if (idx == 0) {
             hbcDone = true;
             WUPI_Log("--- Uninstalling Homebrew Channel ---");
-            hbcSuccess = CINS_UninstallTitle(CINS_TITLEID);
-            if (!hbcSuccess) stepFailed = true;
+            hbcResult = CINS_UninstallTitleResult(CINS_TITLEID);
+            if (hbcResult == UninstallResult::NOT_PRESENT) {
+                WUPI_Log("Homebrew Channel is not installed.");
+            } else if (hbcResult == UninstallResult::SUCCESS) {
+                WUPI_Log("Homebrew Channel uninstalled successfully.");
+            } else {
+                WUPI_Log("Failed to uninstall Homebrew Channel.");
+                stepFailed = true;
+            }
         } else if (idx == 1) {
             d2xDone = true;
             WUPI_Log("--- Uninstalling d2x cIOS ---");
@@ -890,26 +915,64 @@ void WUPI_expressSetupUninstall() {
             ulgxDone = true;
             WUPI_Log("--- Uninstalling USB Loader GX ---");
             WUPI_Log("Uninstalling vWii Forwarder Channel...");
-            ulgxWadSuccess = CINS_UninstallTitle(0x00010001454E554FULL);
+            ulgxWadResult = CINS_UninstallTitleResult(0x00010001554E454FULL);
+            if (ulgxWadResult == UninstallResult::NOT_PRESENT) {
+                WUPI_Log("  - vWii Forwarder Channel: Not present");
+            } else if (ulgxWadResult == UninstallResult::SUCCESS) {
+                WUPI_Log("  - vWii Forwarder Channel: Uninstalled");
+            } else {
+                WUPI_Log("  - vWii Forwarder Channel: Failed");
+            }
 
             WUPI_Log("Removing USB Loader GX SD App...");
-            ulgxAppSuccess = FSARemoveTree(fsaClient, "/vol/external01/apps/usbloader_gx");
+            ulgxAppResult = FSARemovePathResult(fsaClient, "/vol/external01/apps/usbloader_gx", true);
+            if (ulgxAppResult == UninstallResult::NOT_PRESENT) {
+                WUPI_Log("  - SD App (usbloader_gx): Not present");
+            } else if (ulgxAppResult == UninstallResult::SUCCESS) {
+                WUPI_Log("  - SD App (usbloader_gx): Removed");
+            } else {
+                WUPI_Log("  - SD App (usbloader_gx): Failed");
+            }
 
             WUPI_Log("Removing Aroma Forwarder...");
-            ulgxWuhbSuccess = (FSARemove(fsaClient, "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb") == FS_ERROR_OK);
+            ulgxWuhbResult = FSARemovePathResult(fsaClient, "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb", false);
+            if (ulgxWuhbResult == UninstallResult::NOT_PRESENT) {
+                WUPI_Log("  - Aroma Forwarder (WUHB): Not present");
+            } else if (ulgxWuhbResult == UninstallResult::SUCCESS) {
+                WUPI_Log("  - Aroma Forwarder (WUHB): Removed");
+            } else {
+                WUPI_Log("  - Aroma Forwarder (WUHB): Failed");
+            }
 
-            if (!ulgxWadSuccess || !ulgxAppSuccess || !ulgxWuhbSuccess) {
+            if (ulgxWadResult == UninstallResult::FAILED ||
+                ulgxAppResult == UninstallResult::FAILED ||
+                ulgxWuhbResult == UninstallResult::FAILED) {
                 stepFailed = true;
             }
         } else if (idx == 5) {
             oscDone = true;
             WUPI_Log("--- Uninstalling Open Shop Channel Apps ---");
             WUPI_Log("Removing LibreShop...");
-            oscLibreshopSuccess = FSARemoveTree(fsaClient, "/vol/external01/apps/libreshop");
-            WUPI_Log("Removing Homebrew Browser...");
-            oscHbbSuccess = FSARemoveTree(fsaClient, "/vol/external01/apps/homebrew_browser");
+            oscLibreshopResult = FSARemovePathResult(fsaClient, "/vol/external01/apps/libreshop", true);
+            if (oscLibreshopResult == UninstallResult::NOT_PRESENT) {
+                WUPI_Log("  - LibreShop: Not present");
+            } else if (oscLibreshopResult == UninstallResult::SUCCESS) {
+                WUPI_Log("  - LibreShop: Removed");
+            } else {
+                WUPI_Log("  - LibreShop: Failed");
+            }
 
-            if (!oscLibreshopSuccess || !oscHbbSuccess) {
+            WUPI_Log("Removing Homebrew Browser...");
+            oscHbbResult = FSARemovePathResult(fsaClient, "/vol/external01/apps/homebrew_browser", true);
+            if (oscHbbResult == UninstallResult::NOT_PRESENT) {
+                WUPI_Log("  - Homebrew Browser: Not present");
+            } else if (oscHbbResult == UninstallResult::SUCCESS) {
+                WUPI_Log("  - Homebrew Browser: Removed");
+            } else {
+                WUPI_Log("  - Homebrew Browser: Failed");
+            }
+
+            if (oscLibreshopResult == UninstallResult::FAILED || oscHbbResult == UninstallResult::FAILED) {
                 stepFailed = true;
             }
         }
@@ -927,7 +990,7 @@ void WUPI_expressSetupUninstall() {
     WUPI_Log("=========================================\n");
 
     if (hbcDone) {
-        WUPI_Log("Homebrew Channel: %s", hbcSuccess ? "Uninstalled" : "Failed");
+        WUPI_Log("Homebrew Channel: %s", FormatUninstallResult(hbcResult, "Uninstalled"));
     }
     if (d2xDone) {
         WUPI_Log("d2x cIOS:");
@@ -943,14 +1006,14 @@ void WUPI_expressSetupUninstall() {
     }
     if (ulgxDone) {
         WUPI_Log("USB Loader GX:");
-        WUPI_Log("  - vWii Forwarder (UNEO): %s", ulgxWadSuccess ? "Uninstalled" : "Failed / Not present");
-        WUPI_Log("  - SD App (usbloader_gx): %s", ulgxAppSuccess ? "Removed" : "Failed / Not present");
-        WUPI_Log("  - Aroma Forwarder (WUHB): %s", ulgxWuhbSuccess ? "Removed" : "Failed / Not present");
+        WUPI_Log("  - vWii Forwarder (UNEO): %s", FormatUninstallResult(ulgxWadResult, "Uninstalled"));
+        WUPI_Log("  - SD App (usbloader_gx): %s", FormatUninstallResult(ulgxAppResult, "Removed"));
+        WUPI_Log("  - Aroma Forwarder (WUHB): %s", FormatUninstallResult(ulgxWuhbResult, "Removed"));
     }
     if (oscDone) {
         WUPI_Log("Open Shop Channel Apps:");
-        WUPI_Log("  - LibreShop: %s", oscLibreshopSuccess ? "Removed" : "Failed / Not present");
-        WUPI_Log("  - Homebrew Browser: %s", oscHbbSuccess ? "Removed" : "Failed / Not present");
+        WUPI_Log("  - LibreShop: %s", FormatUninstallResult(oscLibreshopResult, "Removed"));
+        WUPI_Log("  - Homebrew Browser: %s", FormatUninstallResult(oscHbbResult, "Removed"));
     }
 
     WUPI_waitButton();

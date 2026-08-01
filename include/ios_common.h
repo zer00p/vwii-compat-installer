@@ -40,6 +40,7 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
 bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size);
 std::string GetTmdBackupPath(uint32_t ios_ver);
 std::string GetTikBackupPath(uint32_t ios_ver);
+void RemoveBackupFiles(uint32_t ios_ver);
 std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos);
 bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios);
 

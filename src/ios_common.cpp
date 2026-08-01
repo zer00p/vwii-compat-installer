@@ -162,6 +162,7 @@ bool RestoreIOSFromNUS(uint32_t ios_ver) {
     bool ok = WAD_InstallToVWii(ctx, 0);
     if (ok) {
         Patcher_Log("Successfully restored original IOS" + std::to_string(ios_ver) + " from NUS!");
+        RemoveBackupFiles(ios_ver);
     } else {
         Patcher_Log("Error: Failed to write original IOS" + std::to_string(ios_ver));
     }
@@ -265,6 +266,7 @@ bool VerifyAndInstallRestoredIOS(uint32_t ios_ver, MemIOS* ios, const uint8_t* o
 
     if (res == 0) {
         Patcher_Log("Successfully restored IOS" + std::to_string(ios_ver) + " from backup!");
+        RemoveBackupFiles(ios_ver);
         return true;
     } else {
         Patcher_Log("Error: Failed to restore backup. Code: " + std::to_string(res));
@@ -282,6 +284,13 @@ std::string GetTikBackupPath(uint32_t ios_ver) {
     char buf[128];
     snprintf(buf, sizeof(buf), "/vol/slccmpt01/title/00000001/%08x/data/tik.bak", ios_ver);
     return std::string(buf);
+}
+
+void RemoveBackupFiles(uint32_t ios_ver) {
+    std::string tmdBackup = GetTmdBackupPath(ios_ver);
+    std::string tikBackup = GetTikBackupPath(ios_ver);
+    FSARemove(fsaClient, tmdBackup.c_str());
+    FSARemove(fsaClient, tikBackup.c_str());
 }
 
 bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size) {
