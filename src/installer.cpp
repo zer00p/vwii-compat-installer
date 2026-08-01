@@ -338,3 +338,34 @@ error:
 
     return ret > 0 ? 0 : ret;
 }
+
+bool CINS_UninstallTitle(uint64_t titleId) {
+    uint32_t idHi = (uint32_t)(titleId >> 32);
+    uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
+
+    char titlePath[CINS_PATH_LEN];
+    char ticketPath[CINS_PATH_LEN];
+    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
+    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
+
+    FSStat stat;
+    bool titleExists = (FSAGetStat(fsaClient, titlePath, &stat) == FS_ERROR_OK);
+    bool ticketExists = (FSAGetStat(fsaClient, ticketPath, &stat) == FS_ERROR_OK);
+
+    if (!titleExists && !ticketExists) {
+        return true;
+    }
+
+    bool ok = true;
+    if (titleExists) {
+        if (!FSARemoveTree(fsaClient, titlePath)) {
+            ok = false;
+        }
+    }
+    if (ticketExists) {
+        if (FSARemove(fsaClient, ticketPath) != FS_ERROR_OK) {
+            ok = false;
+        }
+    }
+    return ok;
+}

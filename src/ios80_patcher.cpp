@@ -99,58 +99,7 @@ static int HandleKillAntiSysTitleInstallPatch(uint8_t *buf, uint32_t size, bool 
     return count;
 }
 
-void InstallIOS80() {
-    WUPI_resetScreen();
-    std::vector<std::string> header = {
-        "Patch IOS80 (vWii System Menu IOS)",
-        "------------------------------------",
-        "This patches IOS80 with the Trucha bug & ES/FS patches",
-        "to allow launching custom channels/homebrew directly from",
-        "the vWii SD Card Menu.",
-        "",
-        "Are you sure you want to proceed?"
-    };
-    std::vector<std::string> options = {
-        "Yes, patch and install IOS80",
-        "No, cancel"
-    };
-
-    int choice = ShowMenu(header, options);
-    if (choice != 0) {
-        WUPI_resetScreen();
-        Patcher_Log("IOS80 patching cancelled.");
-        sleep(2);
-        return;
-    }
-
-    WUPI_resetScreen();
-    Patcher_Log("Reading base IOS80 from slccmpt...");
-    auto ios = ReadBaseIOS(80);
-    if (!ios) {
-        WUPI_resetScreen();
-        Patcher_Log("Error: Failed to read base IOS80.");
-        Patcher_Log("");
-        Patcher_Log("Press A to return.");
-        WaitPrompt();
-        return;
-    }
-
-    bool isOriginal = IsOriginalNintendoSignature(ios->tmd->signature, sizeof(ios->tmd->signature));
-    
-    if (isOriginal) {
-        FSAFileHandle testFd;
-        if (FSAOpenFileEx(fsaClient, IOS80_TMD_BACKUP_PATH.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-            FSACloseFile(fsaClient, testFd);
-        } else {
-            WriteBufferToFile(IOS80_TMD_BACKUP_PATH, (uint8_t*)ios->tmd, ios->tmdSize);
-            WriteBufferToFile(IOS80_TIK_BACKUP_PATH, (uint8_t*)ios->ticket, ios->ticketSize);
-        }
-    } else {
-        Patcher_Log("Note: Installed IOS80 is already patched.");
-        Patcher_Log("Skipping TMD/Ticket backup.");
-    }
-
-    Patcher_Log("Applying patches to IOS80 contents...");
+static uint32_t ApplyAllIOS80Patches(MemIOS* ios) {
     uint32_t totalPatches = 0;
     for (uint32_t i = 0; i < ios->numContents; i++) {
         if (!ios->contents[i].data || ios->contents[i].size == 0) continue;
@@ -177,22 +126,79 @@ void InstallIOS80() {
             }
         }
     }
+    return totalPatches;
+}
+
+static bool PatchAndInstallIOS80Internal() {
+    Patcher_Log("Reading base IOS80 from slccmpt...");
+    auto ios = ReadBaseIOS(80);
+    if (!ios) {
+        Patcher_Log("Error: Failed to read base IOS80.");
+        return false;
+    }
+
+    bool isOriginal = IsOriginalNintendoSignature(ios->tmd->signature, sizeof(ios->tmd->signature));
+    
+    if (isOriginal) {
+        FSAFileHandle testFd;
+        if (FSAOpenFileEx(fsaClient, IOS80_TMD_BACKUP_PATH.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+            FSACloseFile(fsaClient, testFd);
+        } else {
+            WriteBufferToFile(IOS80_TMD_BACKUP_PATH, (uint8_t*)ios->tmd, ios->tmdSize);
+            WriteBufferToFile(IOS80_TIK_BACKUP_PATH, (uint8_t*)ios->ticket, ios->ticketSize);
+        }
+    } else {
+        Patcher_Log("Note: Installed IOS80 is already patched.");
+        Patcher_Log("Skipping TMD/Ticket backup.");
+    }
+
+    Patcher_Log("Applying patches to IOS80 contents...");
+    uint32_t totalPatches = ApplyAllIOS80Patches(ios.get());
 
     Patcher_Log("Applied " + std::to_string(totalPatches) + " patches across contents.");
     Patcher_Log("Forging ticket/TMD and writing patched IOS80...");
 
-    if (WritePatchedIOS(80, *ios)) {
-        Patcher_Log("");
+    bool ok = WritePatchedIOS(80, *ios);
+    if (ok) {
         Patcher_Log("Successfully patched and installed IOS80!");
     } else {
-        Patcher_Log("");
         Patcher_Log("Error: Failed to write patched IOS80.");
     }
+    return ok;
+}
+
+void InstallIOS80() {
+    WUPI_resetScreen();
+    std::vector<std::string> header = {
+        "Patch IOS80 (vWii System Menu IOS)",
+        "------------------------------------",
+        "This patches IOS80 with the Trucha bug & ES/FS patches",
+        "to allow launching custom channels/homebrew directly from",
+        "the vWii SD Card Menu.",
+        "",
+        "Are you sure you want to proceed?"
+    };
+    std::vector<std::string> options = {
+        "Yes, patch and install IOS80",
+        "No, cancel"
+    };
+
+    int choice = ShowMenu(header, options);
+    if (choice != 0) {
+        WUPI_resetScreen();
+        Patcher_Log("IOS80 patching cancelled.");
+        sleep(2);
+        return;
+    }
+
+    WUPI_resetScreen();
+    PatchAndInstallIOS80Internal();
     
     Patcher_Log("");
-        Patcher_Log("Press A to return.");
+    Patcher_Log("Press A to return.");
     WaitPrompt();
 }
+
 
 void UndoIOS80Patches() {
     WUPI_resetScreen();
@@ -448,3 +454,43 @@ void UndoIOS80Patches() {
         Patcher_Log("Press A to return.");
     WaitPrompt();
 }
+
+bool InstallIOS80Batch() {
+    return PatchAndInstallIOS80Internal();
+}
+
+
+bool UndoIOS80PatchesBatch() {
+
+    uint64_t titleId = 0x0000000100000050ULL; // IOS80
+    Patcher_Log("Reverting IOS80 to stock...\n");
+    int32_t latestVersion = NUS_GetLatestVersion(titleId);
+    if (latestVersion == -1) {
+        Patcher_Log("Error: Failed to fetch latest version from NUS.\n");
+        return false;
+    }
+
+    Patcher_Log("Downloading clean IOS80 (v" + std::to_string(latestVersion) + ")...\n");
+    WADContext* ctx = NUS_DownloadTitle(titleId, latestVersion);
+    if (!ctx) {
+        Patcher_Log("Error: Failed to download IOS80.\n");
+        return false;
+    }
+    
+    if (!WAD_IsSafeTitle(ctx)) {
+        Patcher_Log("Error: Downloaded title is unsafe. Aborting.\n");
+        WAD_Free(ctx);
+        return false;
+    }
+
+    Patcher_Log("Writing original IOS80 to slccmpt...\n");
+    bool ok = WAD_InstallToVWii(ctx, 0);
+    if (ok) {
+        Patcher_Log("Successfully restored original IOS80!\n");
+    } else {
+        Patcher_Log("Error: Failed to write original IOS80.\n");
+    }
+    if (ctx) WAD_Free(ctx);
+    return ok;
+}
+

@@ -21,12 +21,32 @@ void WUPI_printTop() {
 }
 
 void WUPI_putstr(const char *str) {
-    if (wupiLine >= WUPI_MAX_LINES) {
-        ScreenUtils_ScrollUp();
-        wupiLine = WUPI_MAX_LINES - 1;
+    if (!str) return;
+
+    const char *p = str;
+    while (*p) {
+        while (*p == '\n' || *p == '\r') {
+            p++;
+        }
+        if (!*p) break;
+
+        char buf[256];
+        size_t idx = 0;
+        while (*p && *p != '\n' && *p != '\r' && idx < sizeof(buf) - 1) {
+            buf[idx++] = *p++;
+        }
+        buf[idx] = '\0';
+
+        if (idx > 0) {
+            if (wupiLine >= WUPI_MAX_LINES) {
+                ScreenUtils_ScrollUp();
+                wupiLine = WUPI_MAX_LINES - 1;
+            }
+            wupiPrintln(wupiLine++, buf);
+        }
     }
-    wupiPrintln(wupiLine++, str);
 }
+
 
 void WUPI_putstr_overwrite(const char *str) {
     if (wupiLine > 0) {

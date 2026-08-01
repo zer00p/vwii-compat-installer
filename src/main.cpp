@@ -40,6 +40,7 @@
 #include "InputUtils.h"
 #include "ScreenUtils.h"
 #include "StateUtils.h"
+#include "FSAUtils.h"
 #include "filebrowser.h"
 #include "wad.h"
 #include "d2x_menu.h"
@@ -112,10 +113,7 @@ int32_t WUPI_setupInstall() {
     return -1;
 }
 
-void WUPI_install() {
-    /* We should only end up here if the A button was pressed. */
-    WUPI_resetScreen();
-
+bool WUPI_installHBCInternal() {
     WUPI_putstr("Installing the Homebrew Channel...\n");
 
     void *title_cetk_bin_aligned = aligned_alloc(0x40, FS_ALIGN(title_cetk_bin_size));
@@ -139,10 +137,20 @@ void WUPI_install() {
     free(title_tmd_bin_aligned);
     free(title_00000000_bin_aligned);
     free(title_00000001_bin_aligned);
-    if (ret < 0)
+    if (ret < 0) {
         WUPI_Log("Install failed. Error Code: %06X\n", -ret);
+        return false;
+    }
+    return true;
+}
+
+void WUPI_install() {
+    /* We should only end up here if the A button was pressed. */
+    WUPI_resetScreen();
+    WUPI_installHBCInternal();
     WUPI_waitButton();
 }
+
 
 static void DrawBatchError(int current, int total, const char* filename) {
     ScreenUtils_ClearBuffer(0);
@@ -601,6 +609,336 @@ void WUPI_NusMenu() {
     }
 }
 
+static std::string GetAutoD2XVersionPath() {
+    std::string baseDir = "/vol/external01/apps/d2x-cios-installer-vwii";
+    FSADirectoryHandle dir;
+    if (FSAOpenDir(fsaClient, baseDir.c_str(), &dir) != FS_ERROR_OK) {
+        WUPI_Log("d2x installer not found on SD. Downloading from OSC...\n");
+        if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
+            if (FSAOpenDir(fsaClient, baseDir.c_str(), &dir) != FS_ERROR_OK) {
+                return "";
+            }
+        } else {
+            return "";
+        }
+    }
+
+    FSADirectoryEntry entry;
+    std::string versionPath = "";
+    while (FSAReadDir(fsaClient, dir, &entry) == FS_ERROR_OK) {
+        if (entry.info.flags & FS_STAT_DIRECTORY) {
+            if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0) continue;
+            versionPath = baseDir + "/" + entry.name;
+            break;
+        }
+    }
+    FSACloseDir(fsaClient, dir);
+    return versionPath;
+}
+
+void WUPI_expressSetupInstall() {
+    WUPI_resetScreen();
+    std::vector<std::string> options = {
+        "Homebrew Channel",
+        "d2x cIOS",
+        "IOS80 Patches",
+        "USB Loader GX",
+        "Open Shop Channel"
+    };
+    std::vector<std::string> header = {
+        "Express Setup:",
+        "Select components to install:"
+    };
+
+    std::vector<int> selected = ShowMultiSelectMenu(header, options, true);
+    if (selected.empty()) {
+        return;
+    }
+
+    // Confirmation Screen
+    std::vector<std::string> confirmHeader = {
+        "Confirm Express Setup:",
+        "The following components will be installed:"
+    };
+    for (int idx : selected) {
+        if (idx == 0) confirmHeader.push_back(" - Homebrew Channel");
+        else if (idx == 1) confirmHeader.push_back(" - d2x cIOS (Slots 248, 249, 250, 251)");
+        else if (idx == 2) confirmHeader.push_back(" - IOS80 Patches (Trucha, ES, FS)");
+        else if (idx == 3) confirmHeader.push_back(" - USB Loader GX (App & Forwarders)");
+        else if (idx == 4) confirmHeader.push_back(" - Open Shop Channel Apps");
+    }
+    confirmHeader.push_back("");
+    confirmHeader.push_back("Are you sure you want to proceed?");
+
+    std::vector<std::string> confirmOptions = {
+        "Yes, start installation",
+        "No, cancel"
+    };
+
+    if (ShowMenu(confirmHeader, confirmOptions) != 0) {
+        return;
+    }
+
+    WUPI_resetScreen();
+
+    bool hbcDone = false, hbcSuccess = false;
+    bool d2xDone = false;
+    std::vector<std::pair<int, bool>> d2xResults;
+    bool ios80Done = false, ios80Success = false;
+    bool ulgxDone = false, ulgxAppSuccess = false, ulgxWadSuccess = false, ulgxWuhbSuccess = false;
+    bool oscDone = false, oscLibreshopSuccess = false, oscHbbSuccess = false;
+
+    for (int idx : selected) {
+        if (!State::AppRunning()) break;
+        bool stepFailed = false;
+
+        if (idx == 0) {
+            hbcDone = true;
+            WUPI_Log("--- Installing Homebrew Channel ---");
+            hbcSuccess = WUPI_installHBCInternal();
+            if (!hbcSuccess) stepFailed = true;
+        } else if (idx == 1) {
+            d2xDone = true;
+            WUPI_Log("--- Installing d2x cIOS ---");
+            std::string d2xVersionPath = GetAutoD2XVersionPath();
+            if (d2xVersionPath.empty()) {
+                WUPI_Log("No d2x version folder found.\n");
+                stepFailed = true;
+            } else {
+                InstallD2XBatch(d2xVersionPath, d2xResults);
+                for (const auto& res : d2xResults) {
+                    if (!res.second) stepFailed = true;
+                }
+            }
+        } else if (idx == 2) {
+            ios80Done = true;
+            WUPI_Log("--- Patching IOS80 ---");
+            ios80Success = InstallIOS80Batch();
+            if (!ios80Success) stepFailed = true;
+        } else if (idx == 3) {
+            ulgxDone = true;
+            WUPI_Log("--- Installing USB Loader GX ---");
+            WUPI_Log("Downloading USB Loader GX App...");
+            ulgxAppSuccess = DownloadAndExtractApp("usbloader_gx");
+
+            WUPI_Log("Downloading & Installing vWii Forwarder Channel...");
+            std::string wadUrl = "https://github.com/wiidev/usbloadergx/raw/refs/heads/updates/USBLoaderGX_forwarder%5BUNEO%5D.wad";
+            std::string wadPath = "/vol/external01/wad/USBLoaderGX_forwarder_UNEO.wad";
+            if (DownloadFile(wadUrl, wadPath)) {
+                WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
+                if (ctx && WAD_IsSafeTitle(ctx)) {
+                    if (WAD_InstallToVWii(ctx, 0)) {
+                        ulgxWadSuccess = true;
+                    }
+                }
+                if (ctx) WAD_Free(ctx);
+            }
+
+            WUPI_Log("Downloading Aroma Forwarder (Boot2vWii)...");
+            std::string wuhbUrl = "https://github.com/WiiDatabase/Boot2vWii/releases/latest/download/USB-Loader-GX-UNEO.wuhb";
+            std::string wuhbPath = "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb";
+            ulgxWuhbSuccess = DownloadFile(wuhbUrl, wuhbPath);
+
+            if (!ulgxAppSuccess || !ulgxWadSuccess || !ulgxWuhbSuccess) {
+                stepFailed = true;
+            }
+        } else if (idx == 4) {
+            oscDone = true;
+            WUPI_Log("--- Installing Open Shop Channel Apps ---");
+            WUPI_Log("Downloading LibreShop...");
+            oscLibreshopSuccess = DownloadAndExtractApp("libreshop");
+            WUPI_Log("Downloading Homebrew Browser...");
+            oscHbbSuccess = DownloadAndExtractApp("homebrew_browser");
+
+            if (!oscLibreshopSuccess || !oscHbbSuccess) {
+                stepFailed = true;
+            }
+        }
+
+        if (stepFailed) {
+            WUPI_putstr("Error encountered during step.");
+            WUPI_putstr("Press A to continue with next component, B to abort.");
+            if (!WaitPrompt()) break;
+        }
+    }
+
+    WUPI_resetScreen();
+    WUPI_Log("=========================================");
+    WUPI_Log("          EXPRESS SETUP SUMMARY          ");
+    WUPI_Log("=========================================\n");
+
+    if (hbcDone) {
+        WUPI_Log("Homebrew Channel: %s", hbcSuccess ? "Installed" : "Failed");
+    }
+    if (d2xDone) {
+        WUPI_Log("d2x cIOS:");
+        if (d2xResults.empty()) {
+            WUPI_Log("  - Installation skipped (No version folder)");
+        } else {
+            for (const auto& res : d2xResults) {
+                WUPI_Log("  - Slot %d: %s", res.first, res.second ? "Installed" : "Failed");
+            }
+        }
+    }
+    if (ios80Done) {
+        WUPI_Log("IOS80 Patches: %s", ios80Success ? "Applied" : "Failed");
+    }
+    if (ulgxDone) {
+        WUPI_Log("USB Loader GX:");
+        WUPI_Log("  - App (sd:/apps/usbloader_gx): %s", ulgxAppSuccess ? "Downloaded" : "Failed");
+        WUPI_Log("  - vWii Forwarder (UNEO): %s", ulgxWadSuccess ? "Installed" : "Failed");
+        WUPI_Log("  - Aroma Forwarder (WUHB): %s", ulgxWuhbSuccess ? "Downloaded" : "Failed");
+    }
+    if (oscDone) {
+        WUPI_Log("Open Shop Channel Apps:");
+        WUPI_Log("  - LibreShop: %s", oscLibreshopSuccess ? "Downloaded" : "Failed");
+        WUPI_Log("  - Homebrew Browser: %s", oscHbbSuccess ? "Downloaded" : "Failed");
+    }
+
+    WUPI_waitButton();
+}
+
+void WUPI_expressSetupUninstall() {
+    WUPI_resetScreen();
+    std::vector<std::string> options = {
+        "Homebrew Channel",
+        "d2x cIOS",
+        "IOS80 Patches",
+        "USB Loader GX",
+        "Open Shop Channel"
+    };
+    std::vector<std::string> header = {
+        "Express Uninstall:",
+        "Select components to uninstall:"
+    };
+
+    std::vector<int> selected = ShowMultiSelectMenu(header, options, true);
+    if (selected.empty()) {
+        return;
+    }
+
+    // Confirmation Screen
+    std::vector<std::string> confirmHeader = {
+        "Confirm Express Uninstall:",
+        "The following components will be uninstalled:"
+    };
+    for (int idx : selected) {
+        if (idx == 0) confirmHeader.push_back(" - Homebrew Channel");
+        else if (idx == 1) confirmHeader.push_back(" - d2x cIOS (Slots 248, 249, 250, 251)");
+        else if (idx == 2) confirmHeader.push_back(" - IOS80 Patches (Revert to stock)");
+        else if (idx == 3) confirmHeader.push_back(" - USB Loader GX (App & Forwarders)");
+        else if (idx == 4) confirmHeader.push_back(" - Open Shop Channel Apps");
+    }
+    confirmHeader.push_back("");
+    confirmHeader.push_back("Are you sure you want to proceed?");
+
+    std::vector<std::string> confirmOptions = {
+        "Yes, start uninstallation",
+        "No, cancel"
+    };
+
+    if (ShowMenu(confirmHeader, confirmOptions) != 0) {
+        return;
+    }
+
+    WUPI_resetScreen();
+
+    bool hbcDone = false, hbcSuccess = false;
+    bool d2xDone = false;
+    std::vector<std::pair<int, bool>> d2xResults;
+    bool ios80Done = false, ios80Success = false;
+    bool ulgxDone = false, ulgxWadSuccess = false, ulgxAppSuccess = false, ulgxWuhbSuccess = false;
+    bool oscDone = false, oscLibreshopSuccess = false, oscHbbSuccess = false;
+
+    for (int idx : selected) {
+        if (!State::AppRunning()) break;
+        bool stepFailed = false;
+
+        if (idx == 0) {
+            hbcDone = true;
+            WUPI_Log("--- Uninstalling Homebrew Channel ---");
+            hbcSuccess = CINS_UninstallTitle(CINS_TITLEID);
+            if (!hbcSuccess) stepFailed = true;
+        } else if (idx == 1) {
+            d2xDone = true;
+            WUPI_Log("--- Uninstalling d2x cIOS ---");
+            UninstallD2XBatch(d2xResults);
+            for (const auto& res : d2xResults) {
+                if (!res.second) stepFailed = true;
+            }
+        } else if (idx == 2) {
+            ios80Done = true;
+            WUPI_Log("--- Reverting IOS80 Patches ---");
+            ios80Success = UndoIOS80PatchesBatch();
+            if (!ios80Success) stepFailed = true;
+        } else if (idx == 3) {
+            ulgxDone = true;
+            WUPI_Log("--- Uninstalling USB Loader GX ---");
+            WUPI_Log("Uninstalling vWii Forwarder Channel...");
+            ulgxWadSuccess = CINS_UninstallTitle(0x00010001454E554FULL);
+
+            WUPI_Log("Removing USB Loader GX SD App...");
+            ulgxAppSuccess = FSARemoveTree(fsaClient, "/vol/external01/apps/usbloader_gx");
+
+            WUPI_Log("Removing Aroma Forwarder...");
+            ulgxWuhbSuccess = (FSARemove(fsaClient, "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb") == FS_ERROR_OK);
+
+            if (!ulgxWadSuccess || !ulgxAppSuccess || !ulgxWuhbSuccess) {
+                stepFailed = true;
+            }
+        } else if (idx == 4) {
+            oscDone = true;
+            WUPI_Log("--- Uninstalling Open Shop Channel Apps ---");
+            WUPI_Log("Removing LibreShop...");
+            oscLibreshopSuccess = FSARemoveTree(fsaClient, "/vol/external01/apps/libreshop");
+            WUPI_Log("Removing Homebrew Browser...");
+            oscHbbSuccess = FSARemoveTree(fsaClient, "/vol/external01/apps/homebrew_browser");
+
+            if (!oscLibreshopSuccess || !oscHbbSuccess) {
+                stepFailed = true;
+            }
+        }
+
+        if (stepFailed) {
+            WUPI_putstr("Error encountered during step.");
+            WUPI_putstr("Press A to continue with next component, B to abort.");
+            if (!WaitPrompt()) break;
+        }
+    }
+
+    WUPI_resetScreen();
+    WUPI_Log("=========================================");
+    WUPI_Log("        EXPRESS UNINSTALL SUMMARY        ");
+    WUPI_Log("=========================================\n");
+
+    if (hbcDone) {
+        WUPI_Log("Homebrew Channel: %s", hbcSuccess ? "Uninstalled" : "Failed");
+    }
+    if (d2xDone) {
+        WUPI_Log("d2x cIOS:");
+        for (const auto& res : d2xResults) {
+            WUPI_Log("  - Slot %d: %s", res.first, res.second ? "Uninstalled" : "Failed");
+        }
+    }
+    if (ios80Done) {
+        WUPI_Log("IOS80 Patches: %s", ios80Success ? "Reverted to stock" : "Failed");
+    }
+    if (ulgxDone) {
+        WUPI_Log("USB Loader GX:");
+        WUPI_Log("  - vWii Forwarder (UNEO): %s", ulgxWadSuccess ? "Uninstalled" : "Failed / Not present");
+        WUPI_Log("  - SD App (usbloader_gx): %s", ulgxAppSuccess ? "Removed" : "Failed / Not present");
+        WUPI_Log("  - Aroma Forwarder (WUHB): %s", ulgxWuhbSuccess ? "Removed" : "Failed / Not present");
+    }
+    if (oscDone) {
+        WUPI_Log("Open Shop Channel Apps:");
+        WUPI_Log("  - LibreShop: %s", oscLibreshopSuccess ? "Removed" : "Failed / Not present");
+        WUPI_Log("  - Homebrew Browser: %s", oscHbbSuccess ? "Removed" : "Failed / Not present");
+    }
+
+    WUPI_waitButton();
+}
+
+
 int main() {
     int32_t tv_screen_size, drc_screen_size;
 
@@ -635,11 +973,13 @@ int main() {
         mounted = true;
         std::vector<std::string> options = {
             "Install the Homebrew Channel to the Wii Menu",
+            "Express Setup",
             "Install a WAD from the SD Card",
             "cIOS Menu",
             "Open Shop Channel",
             "USB Loader GX",
-            "Download System Titles (NUS)"
+            "Download System Titles (NUS)",
+            "Express Uninstall"
         };
         std::vector<std::string> header = {
             "Compat Title Installer v1.6",
@@ -652,15 +992,19 @@ int main() {
             if (selected == 0) {
                 WUPI_install();
             } else if (selected == 1) {
-                WUPI_installWAD();
+                WUPI_expressSetupInstall();
             } else if (selected == 2) {
-                WUPI_cIOSMenu();
+                WUPI_installWAD();
             } else if (selected == 3) {
-                WUPI_openShopChannelMenu();
+                WUPI_cIOSMenu();
             } else if (selected == 4) {
-                WUPI_usbLoaderGXMenu();
+                WUPI_openShopChannelMenu();
             } else if (selected == 5) {
+                WUPI_usbLoaderGXMenu();
+            } else if (selected == 6) {
                 WUPI_NusMenu();
+            } else if (selected == 7) {
+                WUPI_expressSetupUninstall();
             } else if (selected == -1) {
                 break;
             }

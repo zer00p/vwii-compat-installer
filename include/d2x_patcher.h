@@ -12,6 +12,8 @@
 #pragma once
 
 #include <string>
+#include <vector>
+#include <utility>
 
 // Will install d2x cIOS using the selected version folder on the SD card.
 // Prompts the user to confirm the installation of the standard configurations.
@@ -19,4 +21,8 @@ void InstallD2X(const std::string& versionFolder);
 
 // Uninstalls selected d2x cIOS configurations. Returns true if uninstallation work was performed.
 bool UninstallD2X();
+
+// Batch functions (installs/uninstalls all 4 slots automatically)
+void InstallD2XBatch(const std::string& versionFolder, std::vector<std::pair<int, bool>>& slotResults);
+void UninstallD2XBatch(std::vector<std::pair<int, bool>>& slotResults);
 

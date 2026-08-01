@@ -345,33 +345,9 @@ bool UninstallD2X() {
 
         Patcher_Log("Uninstalling cIOS slot " + std::to_string(configs[i].slot) + "...\n");
 
-        std::string slotHex = ToHexString(configs[i].slot, 8);
-        std::string titlePath = "/vol/slccmpt01/title/00000001/" + slotHex;
-        std::string ticketPath = "/vol/slccmpt01/ticket/00000001/" + slotHex + ".tik";
+        uint64_t titleId = 0x0000000100000000ULL | configs[i].slot;
 
-        FSStat stat;
-        bool titleExists = (FSAGetStat(fsaClient, titlePath.c_str(), &stat) == FS_ERROR_OK);
-        bool ticketExists = (FSAGetStat(fsaClient, ticketPath.c_str(), &stat) == FS_ERROR_OK);
-
-        if (!titleExists && !ticketExists) {
-            Patcher_Log("Slot " + std::to_string(configs[i].slot) + " is not installed.\n");
-            sleep(1);
-            continue;
-        }
-
-        bool ok = true;
-        if (titleExists) {
-            if (!FSARemoveTree(fsaClient, titlePath.c_str())) {
-                ok = false;
-            }
-        }
-        if (ticketExists) {
-            if (FSARemove(fsaClient, ticketPath.c_str()) != FS_ERROR_OK) {
-                ok = false;
-            }
-        }
-
-        if (ok) {
+        if (CINS_UninstallTitle(titleId)) {
             Patcher_Log("Successfully uninstalled slot " + std::to_string(configs[i].slot) + ".\n");
         } else {
             Patcher_Log("Failed to fully uninstall slot " + std::to_string(configs[i].slot) + ".\n");
@@ -400,5 +376,148 @@ bool UninstallD2X() {
     }
 
     return true;
+}
+
+void InstallD2XBatch(const std::string& versionFolder, std::vector<std::pair<int, bool>>& slotResults) {
+    slotResults.clear();
+    std::string parentDir = versionFolder;
+    size_t lastSlash = parentDir.find_last_of('/');
+    if (lastSlash != std::string::npos) {
+        parentDir = parentDir.substr(0, lastSlash);
+    }
+    
+    std::string xmlPath = parentDir + "/ciosmaps.xml";
+    
+    uint8_t* xmlData = NULL;
+    uint32_t xmlSize = 0;
+    if (!ReadFileToBuffer(xmlPath, &xmlData, &xmlSize)) {
+        Patcher_Log("Failed to read ciosmaps.xml\n");
+        for (const auto& config : s_d2xConfigs) {
+            slotResults.push_back({config.slot, false});
+        }
+        return;
+    }
+    
+    tinyxml2::XMLDocument doc;
+    tinyxml2::XMLError parseResult = doc.Parse((const char*)xmlData, xmlSize);
+    free(xmlData);
+    if (parseResult != tinyxml2::XML_SUCCESS) {
+        Patcher_Log("Failed to parse ciosmaps.xml\n");
+        for (const auto& config : s_d2xConfigs) {
+            slotResults.push_back({config.slot, false});
+        }
+        return;
+    }
+
+    for (const auto& config : s_d2xConfigs) {
+        if (!State::AppRunning()) break;
+        Patcher_Log("Installing cIOS slot " + std::to_string(config.slot) + " (base " + std::to_string(config.base) + ")...\n");
+        
+        tinyxml2::XMLElement* root = doc.RootElement();
+        tinyxml2::XMLElement* group = root ? root->FirstChildElement("ciosgroup") : NULL;
+        tinyxml2::XMLElement* baseEl = NULL;
+        if (group) {
+            for (tinyxml2::XMLElement* el = group->FirstChildElement("base"); el != NULL; el = el->NextSiblingElement("base")) {
+                if (el->IntAttribute("ios") == config.base) {
+                    baseEl = el;
+                    break;
+                }
+            }
+        }
+        
+        if (!baseEl) {
+            Patcher_Log("Could not find configuration in XML.\n");
+            slotResults.push_back({config.slot, false});
+            sleep(1);
+            continue;
+        }
+        
+        auto ios = ReadBaseIOS(config.base);
+        if (!ios) {
+            slotResults.push_back({config.slot, false});
+            sleep(1);
+            continue;
+        }
+        
+        bool slotFailed = false;
+        for (tinyxml2::XMLElement* cEl = baseEl->FirstChildElement("content"); cEl != NULL; cEl = cEl->NextSiblingElement("content")) {
+            int tmdModuleId = cEl->IntAttribute("tmdmoduleid", -1);
+            int id = cEl->IntAttribute("id", -1);
+            const char* moduleAttr = cEl->Attribute("module");
+            
+            if (moduleAttr) {
+                AppendModule(*ios, versionFolder, moduleAttr, tmdModuleId);
+            } else {
+                if (id == -1) {
+                    Patcher_Log("Missing id attribute for content patch in CIOSMAPS.xml\n");
+                    slotFailed = true;
+                    break;
+                }
+                MemContent* content = NULL;
+                for (uint32_t j = 0; j < ios->numContents; j++) {
+                    if (ios->contents[j].cid == (uint32_t)id) {
+                        content = &ios->contents[j];
+                        break;
+                    }
+                }
+                if (!content) {
+                    Patcher_Log("Failed to find content ID " + std::to_string(id) + " for patching.\n");
+                    slotFailed = true;
+                    break;
+                }
+                
+                bool patched = false;
+                for (tinyxml2::XMLElement* pEl = cEl->FirstChildElement("patch"); pEl != NULL; pEl = pEl->NextSiblingElement("patch")) {
+                    int offset = pEl->IntAttribute("offset", 0);
+                    const char* orig = pEl->Attribute("originalbytes");
+                    const char* newb = pEl->Attribute("newbytes");
+                    if (orig && newb) {
+                        if (ApplyBinaryPatch(content, offset, ParseHexBytes(orig), ParseHexBytes(newb)))
+                            patched = true;
+                    }
+                }
+                if (patched) {
+                    TitleContentRecord* records = ios->tmd->contents;
+                    for (uint32_t k = 0; k < ios->numContents; k++) {
+                        if (FromBE32(records[k].contentId) == (uint32_t)id) {
+                            uint16_t type = FromBE16(records[k].type);
+                            if (type & 0x8000) {
+                                records[k].type = ToBE16(type & ~0x8000);
+                            }
+                            uint8_t hash[20];
+                            SHA1(content->data, content->size, hash);
+                            memcpy(records[k].hash, hash, 20);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!slotFailed) {
+            bool ok = WritePatchedIOS(config.slot, *ios);
+            slotResults.push_back({config.slot, ok});
+            if (ok) {
+                Patcher_Log("Successfully installed slot " + std::to_string(config.slot) + ".\n");
+            } else {
+                Patcher_Log("Failed to write slot " + std::to_string(config.slot) + ".\n");
+            }
+        } else {
+            slotResults.push_back({config.slot, false});
+        }
+        sleep(1);
+    }
+}
+
+void UninstallD2XBatch(std::vector<std::pair<int, bool>>& slotResults) {
+    slotResults.clear();
+    for (const auto& config : s_d2xConfigs) {
+        if (!State::AppRunning()) break;
+        Patcher_Log("Uninstalling cIOS slot " + std::to_string(config.slot) + "...\n");
+        uint64_t titleId = 0x0000000100000000ULL | config.slot;
+        bool ok = CINS_UninstallTitle(titleId);
+        slotResults.push_back({config.slot, ok});
+        sleep(1);
+    }
 }
 

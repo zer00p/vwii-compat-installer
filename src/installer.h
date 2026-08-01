@@ -49,6 +49,8 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
                      uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents);
 
+bool CINS_UninstallTitle(uint64_t titleId);
+
 #ifdef __cplusplus
 }
 #endif
