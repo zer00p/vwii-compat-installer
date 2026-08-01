@@ -22,6 +22,7 @@
 #include <coreinit/filesystem_fsa.h>
 #include <stdio.h>
 #include <string.h>
+#include <format>
 #include <sys/stat.h>
 #include <malloc.h>
 #include "EndianUtils.h"
@@ -131,7 +132,7 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     }
 
     memset(entry, 0, sizeof(content_map_entry));
-    snprintf(entry->name, sizeof(entry->name), "%08x", currentIndex);
+    std::format_to_n(entry->name, sizeof(entry->name), "{:08x}", currentIndex);
     memcpy(entry->hash, expectedHash, 20);
 
     FSError setPosRes = FSASetPosFile(fsaClient, fd, currentIndex * sizeof(content_map_entry));
@@ -331,7 +332,7 @@ error:
         /* Installation failed. We only delete the content directory to clean up
          * partial installations, preserving the data directory and save data. */
         char contentPath[CINS_PATH_LEN];
-        snprintf(contentPath, CINS_PATH_LEN, "%s/content", titlePath);
+        snprintf(contentPath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
         FSARemove(fsaClient, contentPath);
         FSARemove(fsaClient, ticketPath);
     }

@@ -1,4 +1,7 @@
 #include "miniz.h"
+#if defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wtype-limits"
+#endif
 /**************************************************************************
  *
  * Copyright 2013-2014 RAD Game Tools and Valve Software

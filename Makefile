@@ -194,7 +194,7 @@ $(OFILES_SRC)	: $(HFILES_BIN)
 %.o %.bin.o : %.bin
 #-------------------------------------------------------------------------------
 	@echo $(notdir $<)
-	@bin2s -a 32 $< | $(AS) -o $(@)
+	@(bin2s -a 32 $< && echo) | $(AS) -o $(@)
 
 -include $(DEPENDS)
 
