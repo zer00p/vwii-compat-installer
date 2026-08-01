@@ -151,8 +151,7 @@ void InstallDrivePatchAll() {
 
     Patcher_Log("Completed. Successfully patched " + std::to_string(successCount) + "/" + std::to_string(selected_items.size()) + " IOSes.");
     Patcher_Log("");
-    Patcher_Log("Press A to return.");
-    WaitPrompt();
+    WUPI_waitButton();
 }
 
 
@@ -236,8 +235,7 @@ void UndoDrivePatchAll() {
         WUPI_resetScreen();
         Patcher_Log("IOS unpatching cancelled.");
         Patcher_Log("");
-        Patcher_Log("Press A to return.");
-        WaitPrompt();
+        WUPI_waitButton();
         return;
     }
 
@@ -273,8 +271,7 @@ void UndoDrivePatchAll() {
         WUPI_resetScreen();
         Patcher_Log("IOS unpatching cancelled.");
         Patcher_Log("");
-        Patcher_Log("Press A to return.");
-        WaitPrompt();
+        WUPI_waitButton();
         return;
     }
 
@@ -299,8 +296,7 @@ void UndoDrivePatchAll() {
     Patcher_Log("=========================================");
     Patcher_Log("Completed. Successfully restored " + std::to_string(successCount) + "/" + std::to_string(selected_items.size()) + " IOSes.");
     Patcher_Log("");
-    Patcher_Log("Press A to return.");
-    WaitPrompt();
+    WUPI_waitButton();
 }
 
 bool UndoDrivePatchAllBatch() {

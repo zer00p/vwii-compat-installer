@@ -170,8 +170,7 @@ void InstallIOS80() {
     PatchAndInstallIOS80Internal();
     
     Patcher_Log("");
-    Patcher_Log("Press A to return.");
-    WaitPrompt();
+    WUPI_waitButton();
 }
 
 
@@ -227,8 +226,7 @@ void UndoIOS80Patches() {
         WUPI_resetScreen();
         Patcher_Log("Error: Failed to read base IOS80.");
         Patcher_Log("");
-        Patcher_Log("Press A to return.");
-        WaitPrompt();
+        WUPI_waitButton();
         return;
     }
 
@@ -238,8 +236,7 @@ void UndoIOS80Patches() {
         Patcher_Log("IOS80 is currently stock/original.");
         Patcher_Log("There are no patches to undo.");
         Patcher_Log("");
-        Patcher_Log("Press A to return.");
-        WaitPrompt();
+        WUPI_waitButton();
         return;
     }
 
@@ -267,8 +264,7 @@ void UndoIOS80Patches() {
         WUPI_resetScreen();
         Patcher_Log("IOS80 unpatching cancelled.");
         Patcher_Log("");
-        Patcher_Log("Press A to return.");
-        WaitPrompt();
+        WUPI_waitButton();
         return;
     }
 
@@ -284,8 +280,7 @@ void UndoIOS80Patches() {
     }
     
     Patcher_Log("");
-    Patcher_Log("Press A to return.");
-    WaitPrompt();
+    WUPI_waitButton();
 }
 
 bool InstallIOS80Batch() {
