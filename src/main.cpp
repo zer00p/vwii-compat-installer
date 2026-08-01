@@ -311,7 +311,7 @@ void WUPI_cIOSMenu() {
             "Uninstall d2x cIOS",
             "Patch IOS80 (SD Card Menu Channels)",
             "Undo IOS80 Patches",
-            "Apply Drive Inquiry Patch",
+            "Apply Drive Inquiry Patch [EXPERIMENTAL]",
             "Undo Drive Inquiry Patch",
             "Download d2x-cios-installer"
         };
