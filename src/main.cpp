@@ -982,7 +982,7 @@ int main() {
             "Express Uninstall"
         };
         std::vector<std::string> header = {
-            "Compat Title Installer v1.6",
+            "Compat Title Installer v2.0",
             "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair",
             "",
             "Main Menu:"
