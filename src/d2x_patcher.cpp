@@ -14,7 +14,9 @@
 #include "installer.h"
 #include "tinyxml2.h"
 #include "wad.h"
+#include "FSAUtils.h"
 #include "InputUtils.h"
+
 #include "log.h"
 #include "MenuUtils.h"
 #include "StateUtils.h"
@@ -28,7 +30,20 @@
 #include <string>
 #include <memory>
 
+struct D2XConfig {
+    int slot;
+    int base;
+};
+
+static const std::vector<D2XConfig> s_d2xConfigs = {
+    {248, 38},
+    {249, 56},
+    {250, 57},
+    {251, 58}
+};
+
 static std::vector<uint8_t> ParseHexBytes(const std::string& str) {
+
     std::vector<uint8_t> bytes;
     if (str.empty()) return bytes;
     std::string s = str;
@@ -157,21 +172,17 @@ void InstallD2X(const std::string& versionFolder) {
         return;
     }
     
-    struct Config { int slot; int base; };
-    std::vector<Config> configs = {
-        {248, 38},
-        {249, 56},
-        {250, 57},
-        {251, 58}
-    };
+    const auto& configs = s_d2xConfigs;
     
     std::vector<std::string> header = {
+
         "Select d2x cIOS configurations to install:"
     };
     std::vector<std::string> options;
-    for (const auto& config : configs) {
+    for (const auto& config : s_d2xConfigs) {
         options.push_back("Slot " + std::to_string(config.slot) + " (Base IOS " + std::to_string(config.base) + ")");
     }
+
     
     std::vector<int> selected = ShowMultiSelectMenu(header, options, true);
     if (selected.empty()) {
@@ -292,3 +303,102 @@ void InstallD2X(const std::string& versionFolder) {
         Patcher_Log("All selected cIOS installed successfully!\n");
     }
 }
+
+extern FSAClientHandle fsaClient;
+
+bool UninstallD2X() {
+    const auto& configs = s_d2xConfigs;
+
+    std::vector<std::string> header = {
+
+        "Select d2x cIOS configurations to uninstall:"
+    };
+    std::vector<std::string> options;
+    for (const auto& config : configs) {
+        std::string slotHex = ToHexString(config.slot, 8);
+        std::string titlePath = "/vol/slccmpt01/title/00000001/" + slotHex;
+        std::string ticketPath = "/vol/slccmpt01/ticket/00000001/" + slotHex + ".tik";
+        FSStat stat;
+        bool isInstalled = (FSAGetStat(fsaClient, titlePath.c_str(), &stat) == FS_ERROR_OK) ||
+                           (FSAGetStat(fsaClient, ticketPath.c_str(), &stat) == FS_ERROR_OK);
+
+        std::string opt = "Slot " + std::to_string(config.slot) + " (Base IOS " + std::to_string(config.base) + ")";
+        if (isInstalled) {
+            opt += " [Installed]";
+        } else {
+            opt += " [Not Installed]";
+        }
+        options.push_back(opt);
+    }
+
+    std::vector<int> selected = ShowMultiSelectMenu(header, options, true);
+    if (selected.empty()) {
+        return false;
+    }
+
+    WUPI_resetScreen();
+    std::vector<bool> failures(selected.size(), false);
+
+    for (size_t selIdx = 0; selIdx < selected.size(); selIdx++) {
+        int i = selected[selIdx];
+        if (!State::AppRunning()) break;
+
+        Patcher_Log("Uninstalling cIOS slot " + std::to_string(configs[i].slot) + "...\n");
+
+        std::string slotHex = ToHexString(configs[i].slot, 8);
+        std::string titlePath = "/vol/slccmpt01/title/00000001/" + slotHex;
+        std::string ticketPath = "/vol/slccmpt01/ticket/00000001/" + slotHex + ".tik";
+
+        FSStat stat;
+        bool titleExists = (FSAGetStat(fsaClient, titlePath.c_str(), &stat) == FS_ERROR_OK);
+        bool ticketExists = (FSAGetStat(fsaClient, ticketPath.c_str(), &stat) == FS_ERROR_OK);
+
+        if (!titleExists && !ticketExists) {
+            Patcher_Log("Slot " + std::to_string(configs[i].slot) + " is not installed.\n");
+            sleep(1);
+            continue;
+        }
+
+        bool ok = true;
+        if (titleExists) {
+            if (!FSARemoveTree(fsaClient, titlePath.c_str())) {
+                ok = false;
+            }
+        }
+        if (ticketExists) {
+            if (FSARemove(fsaClient, ticketPath.c_str()) != FS_ERROR_OK) {
+                ok = false;
+            }
+        }
+
+        if (ok) {
+            Patcher_Log("Successfully uninstalled slot " + std::to_string(configs[i].slot) + ".\n");
+        } else {
+            Patcher_Log("Failed to fully uninstall slot " + std::to_string(configs[i].slot) + ".\n");
+            failures[selIdx] = true;
+        }
+        sleep(1);
+    }
+
+    WUPI_resetScreen();
+    Patcher_Log("Uninstallation process finished.\n\n");
+    bool anyFailures = false;
+    for (size_t selIdx = 0; selIdx < selected.size(); selIdx++) {
+        anyFailures |= failures[selIdx];
+    }
+
+    if (anyFailures) {
+        Patcher_Log("Summary of failures:\n");
+        for (size_t selIdx = 0; selIdx < selected.size(); selIdx++) {
+            if (failures[selIdx]) {
+                int i = selected[selIdx];
+                Patcher_Log(" - Failed to uninstall cIOS from slot " + std::to_string(configs[i].slot) + "\n");
+            }
+        }
+    } else {
+        Patcher_Log("All selected cIOS uninstalled successfully!\n");
+    }
+
+    return true;
+}
+

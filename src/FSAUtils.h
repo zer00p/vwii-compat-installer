@@ -8,3 +8,7 @@ bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, 
 
 // Recursively creates a directory path using FSA
 void EnsureFSADirectory(FSAClientHandle fsaClient, const char* path);
+
+// Recursively removes a directory tree or file using FSA
+bool FSARemoveTree(FSAClientHandle fsaClient, const char* path);
+

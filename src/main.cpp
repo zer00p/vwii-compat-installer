@@ -299,6 +299,7 @@ void WUPI_cIOSMenu() {
         WUPI_resetScreen();
         std::vector<std::string> options = {
             "Install d2x cIOS",
+            "Uninstall d2x cIOS",
             "Patch IOS80 (SD Card Menu Channels)",
             "Undo IOS80 Patches",
             "Download d2x-cios-installer"
@@ -311,11 +312,16 @@ void WUPI_cIOSMenu() {
         if (selected == 0) {
             WUPI_installD2X();
         } else if (selected == 1) {
-            WUPI_installIOS80();
+            WUPI_resetScreen();
+            if (UninstallD2X()) {
+                WUPI_waitButton();
+            }
         } else if (selected == 2) {
+            WUPI_installIOS80();
+        } else if (selected == 3) {
             WUPI_resetScreen();
             UndoIOS80Patches();
-        } else if (selected == 3) {
+        } else if (selected == 4) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
             if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
@@ -327,6 +333,7 @@ void WUPI_cIOSMenu() {
         } else if (selected == -1) {
             break;
         }
+
     }
 }
 
