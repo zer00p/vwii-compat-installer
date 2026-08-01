@@ -939,6 +939,57 @@ void WUPI_expressSetupUninstall() {
 }
 
 
+void WUPI_showCredits() {
+    std::vector<std::string> header = {
+        "=== Credits ==="
+    };
+    std::vector<std::string> credits = {
+        "-- Original Project --",
+        "TheLordScruffy - Compat Title Installer",
+        "Xpl0itU (DaThinkingChair) - WUT Port",
+        "FIX94 - wuphax (original basis)",
+        "@Ingunar - App icons",
+        "",
+        "-- Open Homebrew Channel --",
+        "FIX94 - Open Homebrew Channel (OHBC)",
+        "Team Twiizers / fail0verflow - Original HBC",
+        "(dhewg, bushing, marcan, segher & others)",
+        "",
+        "-- IOS80 Patcher --",
+        "Dr Clipper, ZRicky11, FIX94,",
+        "damysteryman, GaryOderNichts",
+        "& Patched IOS80 Installer contributors",
+        "",
+        "-- d2x cIOS --",
+        "davebaol, xperia64, blackb0x / wiidev",
+        "& d2x-cios-installer contributors",
+        "",
+        "-- WAD Tools & Crypto --",
+        "Segher Boessenkool - Zeventig / WAD tools",
+        "BFGR, libertyernie - WAD tools mods",
+        "mbedtls contributors - Crypto library",
+        "",
+        "-- USB Loader GX --",
+        "blackb0x / wiidev - USB Loader GX",
+        "Brawl345 - Boot2vWii Forwarder",
+        "",
+        "-- Libraries --",
+        "leethomason - tinyxml2",
+        "richgel999 - miniz (ZIP library)",
+        "cURL contributors - libcurl",
+        "",
+        "-- Services & Documentation --",
+        "Open Shop Channel (oscwii.org) - App repo",
+        "WiiBrew (wiibrew.org) - Documentation",
+        "Nintendo - NUS (System Titles)",
+        "",
+        "-- Build Toolchains --",
+        "devkitPro - devkitPPC / devkitARM",
+        "wut contributors - Wii U Toolchain",
+    };
+    ShowMenu(header, credits);
+}
+
 int main() {
     int32_t tv_screen_size, drc_screen_size;
 
@@ -979,7 +1030,8 @@ int main() {
             "Open Shop Channel",
             "USB Loader GX",
             "Download System Titles (NUS)",
-            "Express Uninstall"
+            "Express Uninstall",
+            "Credits"
         };
         std::vector<std::string> header = {
             "Compat Title Installer v2.0",
@@ -1005,6 +1057,8 @@ int main() {
                 WUPI_NusMenu();
             } else if (selected == 7) {
                 WUPI_expressSetupUninstall();
+            } else if (selected == 8) {
+                WUPI_showCredits();
             } else if (selected == -1) {
                 break;
             }

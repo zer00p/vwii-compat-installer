@@ -27,7 +27,7 @@ If everything is installed, run 'make release' and the output will be available 
 * leethomason/tinyxml2 for the tinyxml2 parsing library
 * The Open Shop Channel (oscwii.org) for their backend repository API used for downloading homebrew apps.
 * richgel999/miniz for the single-file ZIP extraction library.
-* Dr Clipper, damysteryman and contributors to the Patched IOS80 Installer for vWii project.
+* Dr Clipper, ZRicky11, damysteryman, GaryOderNichts, and contributors to the Patched IOS80 Installer for vWii project.
 * Brawl345 for the USB Loader GX Boot2vWii Forwarder.
 
 ## License
@@ -35,8 +35,9 @@ If everything is installed, run 'make release' and the output will be available 
 This software is licensed under the GNU General Public License version 2 (or any
 later version). The full license can be found in the LICENSE file.
 
-The Homebrew Channel is licensed under GPLv2 and is included in binary form. A
-copy of the source code is available at
+The Open Homebrew Channel (OHBC) by FIX94 is included in binary form, based on
+the original Homebrew Channel by Team Twiizers / fail0verflow (GPLv2). A copy of
+the source code is available at
 [fail0verflow/hbc](https://github.com/fail0verflow/hbc).
 
 The `mbedtls` library is dual-licensed under the Apache License 2.0 and GPLv2 (or any later version).

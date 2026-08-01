@@ -9,6 +9,7 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 
 ## Licenses and Crediting
 - If we pull code in or use external documentation, we must credit it in the `README.md` and ensure that we strictly obey the original `LICENSE`.
+- **Credits Maintenance**: Whenever a new library, tool, or external code is added to the project, both the in-app credits screen (`WUPI_showCredits()` in `src/main.cpp`) and the Credits section in `README.md` must be updated to include proper attribution.
 
 ## Learning from the User
 - If the user has to explicitly explain a project-specific concept, rule, or workflow to you, you should proactively append that information to this `AGENTS.md` file so that future agents are aware of it.
