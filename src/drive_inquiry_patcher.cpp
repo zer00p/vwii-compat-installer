@@ -22,7 +22,7 @@
 
 extern FSAClientHandle fsaClient;
 
-static const uint32_t TARGET_IOS[] = {36, 37, 53, 55, 56, 57, 58};
+static const uint32_t TARGET_IOS[] = {31, 33, 35, 36, 37, 53, 55, 56, 57, 58};
 static const int NUM_TARGET_IOS = sizeof(TARGET_IOS) / sizeof(TARGET_IOS[0]);
 
 
@@ -45,7 +45,7 @@ static uint32_t ApplyDrivePatch(uint32_t ios_ver, MemIOS* ios) {
         if (!ios->contents[i].data || ios->contents[i].size == 0) continue;
 
         uint32_t count = 0;
-        if (ios_ver == 36) {
+        if (ios_ver == 31 || ios_ver == 33 || ios_ver == 35 || ios_ver == 36) {
             count = HandleDriveInquiryPatchIOS36(ios->contents[i].data, ios->contents[i].size, false);
         } else {
             count = HandleDriveInquiryPatch(ios->contents[i].data, ios->contents[i].size, false);
@@ -256,7 +256,7 @@ void UndoDrivePatchAll() {
 
             for (uint32_t c = 0; c < ios->numContents; c++) {
                 if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
-                if (ios_ver == 36) {
+                if (ios_ver == 31 || ios_ver == 33 || ios_ver == 35 || ios_ver == 36) {
                     HandleDriveInquiryPatchIOS36(ios->contents[c].data, ios->contents[c].size, true);
                 } else {
                     HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
@@ -326,7 +326,7 @@ bool UndoDrivePatchAllBatch() {
 
             for (uint32_t c = 0; c < ios->numContents; c++) {
                 if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
-                if (ios_ver == 36) {
+                if (ios_ver == 31 || ios_ver == 33 || ios_ver == 35 || ios_ver == 36) {
                     HandleDriveInquiryPatchIOS36(ios->contents[c].data, ios->contents[c].size, true);
                 } else {
                     HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);

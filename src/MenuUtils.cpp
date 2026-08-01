@@ -12,13 +12,13 @@ static void DrawMenu(const std::vector<std::string>& header, const std::vector<s
     }
 
     int count = (int)options.size();
-    int max_display = std::max(1, 17 - 2 - (int)header.size());
+    int max_display = std::max(1, 17 - 1 - (int)header.size());
     int start_idx = std::max(0, std::min(selected - max_display / 2, count - max_display));
 
     for (int i = 0; i < max_display && start_idx + i < count; i++) {
         int idx = start_idx + i;
         std::string line = (idx == selected ? "-> " : "   ") + options[idx];
-        ScreenUtils_PutFont(0, offset + 2 + i, line.c_str());
+        ScreenUtils_PutFont(0, offset + 1 + i, line.c_str());
     }
 
     ScreenUtils_PutFont(0, 17, "A: Select | B: Cancel | D-Pad: Move/Page");
@@ -80,7 +80,7 @@ static void DrawMultiSelectMenu(const std::vector<std::string>& header, const st
     }
 
     int count = (int)options.size();
-    int max_display = std::max(1, 17 - 2 - (int)header.size());
+    int max_display = std::max(1, 17 - 1 - (int)header.size());
     int start_idx = std::max(0, std::min(cursor - max_display / 2, count - max_display));
 
     for (int i = 0; i < max_display && start_idx + i < count; i++) {
@@ -88,7 +88,7 @@ static void DrawMultiSelectMenu(const std::vector<std::string>& header, const st
         std::string prefix = (idx == cursor ? "-> " : "   ");
         prefix += (selectedOptions[idx] ? "[x] " : "[ ] ");
         std::string line = prefix + options[idx];
-        ScreenUtils_PutFont(0, offset + 2 + i, line.c_str());
+        ScreenUtils_PutFont(0, offset + 1 + i, line.c_str());
     }
 
     ScreenUtils_PutFont(0, 17, "A: Toggle | X: All | +: Confirm | B: Cancel | D-Pad: Move/Page");
