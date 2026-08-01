@@ -158,6 +158,65 @@ void InstallDrivePatchAll() {
 
 
 
+static bool RestoreDrivePatchedIOSLocal(uint32_t ios_ver) {
+    auto ios = ReadBaseIOS(ios_ver);
+    if (!ios) {
+        Patcher_Log("Error: Failed to read base IOS" + std::to_string(ios_ver));
+        return false;
+    }
+
+    if (IsOriginalNintendoSignature(ios->tmd->signature, sizeof(ios->tmd->signature))) {
+        Patcher_Log("IOS" + std::to_string(ios_ver) + " is already stock/original.");
+        return true;
+    }
+
+    FSAFileHandle testFd;
+    std::string tmdBackupPath = GetTmdBackupPath(ios_ver);
+    bool hasBackup = (FSAOpenFileEx(fsaClient, tmdBackupPath.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
+    if (hasBackup) {
+        FSACloseFile(fsaClient, testFd);
+
+        Patcher_Log("Restoring IOS" + std::to_string(ios_ver) + " from local backup...");
+
+        uint8_t* origTmdBuf = nullptr;
+        uint32_t origTmdSize = 0;
+        if (!ReadFileToBuffer(tmdBackupPath, &origTmdBuf, &origTmdSize)) {
+            Patcher_Log("Error: Failed to read tmd.bak for IOS" + std::to_string(ios_ver));
+        } else {
+            uint8_t* origTikBuf = nullptr;
+            uint32_t origTikSize = 0;
+            if (!ReadFileToBuffer(GetTikBackupPath(ios_ver), &origTikBuf, &origTikSize)) {
+                Patcher_Log("Error: Failed to read tik.bak for IOS" + std::to_string(ios_ver));
+                free(origTmdBuf);
+            } else {
+                for (uint32_t c = 0; c < ios->numContents; c++) {
+                    if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
+                    if (ios_ver == 31 || ios_ver == 33 || ios_ver == 35 || ios_ver == 36) {
+                        HandleDriveInquiryPatchIOS36(ios->contents[c].data, ios->contents[c].size, true);
+                    } else {
+                        HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
+                    }
+                }
+
+                LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);
+
+                bool localOk = VerifyAndInstallRestoredIOS(ios_ver, ios.get(), origTmdBuf, origTmdSize, origTikBuf, origTikSize);
+
+                free(origTmdBuf);
+                free(origTikBuf);
+
+                if (localOk) {
+                    return true;
+                }
+                Patcher_Log("Local restore failed for IOS" + std::to_string(ios_ver) + ". Falling back to NUS...");
+            }
+        }
+    }
+
+    Patcher_Log("Downloading original IOS" + std::to_string(ios_ver) + " from NUS...");
+    return RestoreIOSFromNUS(ios_ver);
+}
+
 void UndoDrivePatchAll() {
     WUPI_resetScreen();
 
@@ -190,20 +249,20 @@ void UndoDrivePatchAll() {
         "Select how you want to undo the patches."
     };
 
-    // Check if we have backups for all selected
-    bool hasAllBackups = true;
+    // Check if we have backups for any selected
+    bool hasAnyBackup = false;
     for (int idx : selected_items) {
         FSAFileHandle testFd;
         std::string tmdBackup = GetTmdBackupPath(TARGET_IOS[idx]);
         if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
             FSACloseFile(fsaClient, testFd);
-        } else {
-            hasAllBackups = false;
+            hasAnyBackup = true;
+            break;
         }
     }
 
     std::vector<std::string> methodOptions;
-    if (hasAllBackups) {
+    if (hasAnyBackup) {
         methodOptions.push_back("Restore from local backups (In-Place)");
     }
     methodOptions.push_back("Reinstall original IOSes from NUS");
@@ -219,7 +278,7 @@ void UndoDrivePatchAll() {
         return;
     }
 
-    int action = (hasAllBackups && choice == 0) ? 1 : 2;
+    int action = (hasAnyBackup && choice == 0) ? 1 : 2;
 
     WUPI_resetScreen();
 
@@ -233,44 +292,7 @@ void UndoDrivePatchAll() {
         if (action == 2) {
             if (RestoreIOSFromNUS(ios_ver)) successCount++;
         } else if (action == 1) {
-            auto ios = ReadBaseIOS(ios_ver);
-            if (!ios) {
-                Patcher_Log("Error: Failed to read base IOS" + std::to_string(ios_ver));
-                continue;
-            }
-
-            uint8_t* origTmdBuf = nullptr;
-            uint32_t origTmdSize = 0;
-            if (!ReadFileToBuffer(GetTmdBackupPath(ios_ver), &origTmdBuf, &origTmdSize)) {
-                Patcher_Log("Error: Failed to read tmd.bak for IOS" + std::to_string(ios_ver));
-                continue;
-            }
-
-            uint8_t* origTikBuf = nullptr;
-            uint32_t origTikSize = 0;
-            if (!ReadFileToBuffer(GetTikBackupPath(ios_ver), &origTikBuf, &origTikSize)) {
-                Patcher_Log("Error: Failed to read tik.bak for IOS" + std::to_string(ios_ver));
-                free(origTmdBuf);
-                continue;
-            }
-
-            for (uint32_t c = 0; c < ios->numContents; c++) {
-                if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
-                if (ios_ver == 31 || ios_ver == 33 || ios_ver == 35 || ios_ver == 36) {
-                    HandleDriveInquiryPatchIOS36(ios->contents[c].data, ios->contents[c].size, true);
-                } else {
-                    HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
-                }
-            }
-
-            LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);
-
-            if (VerifyAndInstallRestoredIOS(ios_ver, ios.get(), origTmdBuf, origTmdSize, origTikBuf, origTikSize)) {
-                successCount++;
-            }
-
-            free(origTmdBuf);
-            free(origTikBuf);
+            if (RestoreDrivePatchedIOSLocal(ios_ver)) successCount++;
         }
     }
 
@@ -282,67 +304,16 @@ void UndoDrivePatchAll() {
 }
 
 bool UndoDrivePatchAllBatch() {
-    bool hasAllBackups = true;
-    for (int i = 0; i < NUM_TARGET_IOS; i++) {
-        FSAFileHandle testFd;
-        std::string tmdBackup = GetTmdBackupPath(TARGET_IOS[i]);
-        if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-            FSACloseFile(fsaClient, testFd);
-        } else {
-            hasAllBackups = false;
-        }
-    }
-
-    int action = hasAllBackups ? 1 : 2;
     int successCount = 0;
-
     for (int i = 0; i < NUM_TARGET_IOS; i++) {
         uint32_t ios_ver = TARGET_IOS[i];
+        Patcher_Log("=========================================");
         Patcher_Log("Restoring IOS" + std::to_string(ios_ver) + "...");
-
-        if (action == 2) {
-            if (RestoreIOSFromNUS(ios_ver)) successCount++;
-        } else if (action == 1) {
-            auto ios = ReadBaseIOS(ios_ver);
-            if (!ios) {
-                Patcher_Log("Error: Failed to read base IOS" + std::to_string(ios_ver));
-                continue;
-            }
-
-            uint8_t* origTmdBuf = nullptr;
-            uint32_t origTmdSize = 0;
-            if (!ReadFileToBuffer(GetTmdBackupPath(ios_ver), &origTmdBuf, &origTmdSize)) {
-                Patcher_Log("Error: Failed to read tmd.bak for IOS" + std::to_string(ios_ver));
-                continue;
-            }
-
-            uint8_t* origTikBuf = nullptr;
-            uint32_t origTikSize = 0;
-            if (!ReadFileToBuffer(GetTikBackupPath(ios_ver), &origTikBuf, &origTikSize)) {
-                Patcher_Log("Error: Failed to read tik.bak for IOS" + std::to_string(ios_ver));
-                free(origTmdBuf);
-                continue;
-            }
-
-            for (uint32_t c = 0; c < ios->numContents; c++) {
-                if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
-                if (ios_ver == 31 || ios_ver == 33 || ios_ver == 35 || ios_ver == 36) {
-                    HandleDriveInquiryPatchIOS36(ios->contents[c].data, ios->contents[c].size, true);
-                } else {
-                    HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
-                }
-            }
-
-            LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);
-
-            if (VerifyAndInstallRestoredIOS(ios_ver, ios.get(), origTmdBuf, origTmdSize, origTikBuf, origTikSize)) {
-                successCount++;
-            }
-
-            free(origTmdBuf);
-            free(origTikBuf);
+        if (RestoreDrivePatchedIOSLocal(ios_ver)) {
+            successCount++;
         }
     }
-    
+
     return successCount == NUM_TARGET_IOS;
 }
+

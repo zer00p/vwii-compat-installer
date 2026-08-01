@@ -76,23 +76,23 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
     if (FSAOpenFileEx(fsaClient, path.c_str(), "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
         return false;
     }
-    
+
     FSStat stat;
     FSAGetStatFile(fsaClient, fd, &stat);
     uint32_t size = stat.size;
-    
+
     uint8_t* buf = (uint8_t*)memalign(0x40, (size + 0x3F) & ~0x3F);
     if (!buf) {
         FSACloseFile(fsaClient, fd);
         return false;
     }
-    
+
     if (FSAReadFile(fsaClient, buf, 1, size, fd, FSA_READ_FLAG_NONE) != (int32_t)size) {
         free(buf);
         FSACloseFile(fsaClient, fd);
         return false;
     }
-    
+
     FSACloseFile(fsaClient, fd);
     *outBuf = buf;
     *outSize = size;
@@ -126,11 +126,11 @@ bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size) {
 
 void BackupPristineTmdAndTicket(uint32_t ios_ver, MemIOS* ios) {
     if (!ios || !ios->tmd || !ios->ticket) return;
-    
+
     FSAFileHandle testFd;
     std::string tmdBackup = GetTmdBackupPath(ios_ver);
     std::string tikBackup = GetTikBackupPath(ios_ver);
-    
+
     if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
         FSACloseFile(fsaClient, testFd);
     } else {
@@ -217,7 +217,7 @@ bool VerifyAndInstallRestoredIOS(uint32_t ios_ver, MemIOS* ios, const uint8_t* o
     for (uint16_t i = 0; i < origNumContents; i++) {
         uint32_t cid = FromBE32(origRecords[i].contentId);
         const uint8_t* expectedHash = origRecords[i].hash;
-        
+
         bool found = false;
         for (uint32_t j = 0; j < ios->numContents; j++) {
             if (ios->contents[j].cid == cid) {
@@ -236,7 +236,7 @@ bool VerifyAndInstallRestoredIOS(uint32_t ios_ver, MemIOS* ios, const uint8_t* o
             mismatchErrors.push_back("Missing content: " + ToHexString(cid));
         }
     }
-    
+
     if (!hashesMatch) {
         WUPI_resetScreen();
         Patcher_Log("In-place restore failed:");
@@ -286,9 +286,9 @@ std::string GetTikBackupPath(uint32_t ios_ver) {
     return std::string(buf);
 }
 
-void RemoveBackupFiles(uint32_t ios_ver) {
-    std::string tmdBackup = GetTmdBackupPath(ios_ver);
-    std::string tikBackup = GetTikBackupPath(ios_ver);
+void RemoveBackupFiles(uint32_t ios) {
+    std::string tmdBackup = GetTmdBackupPath(ios);
+    std::string tikBackup = GetTikBackupPath(ios);
     FSARemove(fsaClient, tmdBackup.c_str());
     FSARemove(fsaClient, tikBackup.c_str());
 }
@@ -298,18 +298,18 @@ bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size) {
     if (FSAOpenFileEx(fsaClient, path.c_str(), "wb", (FSMode)0666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
         return false;
     }
-    
+
     uint8_t* alignedBuf = (uint8_t*)memalign(0x40, (size + 0x3F) & ~0x3F);
     if (!alignedBuf) {
         FSACloseFile(fsaClient, fd);
         return false;
     }
     memcpy(alignedBuf, buf, size);
-    
+
     int writeRes = FSAWriteFile(fsaClient, alignedBuf, 1, size, fd, FSA_WRITE_FLAG_NONE);
     free(alignedBuf);
     FSACloseFile(fsaClient, fd);
-    
+
     return writeRes == (int)size;
 }
 
@@ -323,7 +323,7 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
         return nullptr;
     }
     outIos->ticket = (TitleTicket*)tikBuf;
-    
+
     // Read TMD
     path = "/vol/slccmpt01/title/00000001/" + ToHexString(baseIos, 8) + "/content/title.tmd";
     uint8_t* tmdBuf = nullptr;
@@ -332,13 +332,13 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
         return nullptr;
     }
     outIos->tmd = (TitleTmd*)tmdBuf;
-    
+
     // Parse TMD contents
     uint16_t numContents = FromBE16(outIos->tmd->numContents);
     outIos->numContents = numContents;
     outIos->maxContents = numContents + 10; // Extra space for modules
     outIos->contents = (MemContent*)calloc(outIos->maxContents, sizeof(MemContent));
-    
+
     // Reallocate TMD buffer to have space for maxContents
     uint32_t maxTmdSize = outIos->tmdSize + (10 * sizeof(TitleContentRecord));
     uint8_t* newTmd = (uint8_t*)memalign(0x40, (maxTmdSize + 0x3F) & ~0x3F);
@@ -350,11 +350,11 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
     memcpy(newTmd, outIos->tmd, outIos->tmdSize);
     free(outIos->tmd);
     outIos->tmd = (TitleTmd*)newTmd;
-    
+
     for (uint16_t i = 0; i < numContents; i++) {
         uint32_t cid = FromBE32(outIos->tmd->contents[i].contentId);
         outIos->contents[i].cid = cid;
-        
+
         uint16_t cType = FromBE16(outIos->tmd->contents[i].type);
         if ((cType & 0x8000) != 0) {
             int32_t sharedIndex = FindSharedContentIndex(outIos->tmd->contents[i].hash);
@@ -372,7 +372,7 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
             return nullptr;
         }
     }
-    
+
     return outIos;
 }
 
@@ -397,7 +397,7 @@ static void BruteTicket(TitleTicket* ticket, uint32_t size) {
 bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
     if (ios.ticketSize >= sizeof(TitleTicket)) {
         memset(ios.ticket->signature, 0, sizeof(ios.ticket->signature));
-        
+
         uint8_t common_key[16];
         if (!GetCommonKeyFromOTP(ios.ticket->commonKeyIndex, common_key)) {
             Patcher_Log("Failed to read common key from OTP\n");
@@ -408,19 +408,19 @@ bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
         uint8_t iv[16] = {0};
         memcpy(iv, &ios.ticket->titleId, 8);
         aes_cbc_dec(common_key, iv, ios.ticket->titleKey, 16, titleKey);
-        
+
         ios.ticket->titleId = ToBE64(((uint64_t)1 << 32) | titleIdLow);
-        
+
         memset(iv, 0, 16);
         memcpy(iv, &ios.ticket->titleId, 8);
         aes_cbc_enc(common_key, iv, titleKey, 16, ios.ticket->titleKey);
-        
+
         BruteTicket(ios.ticket, ios.ticketSize);
     } else {
         Patcher_Log("Ticket size too small\n");
         return false;
     }
-    
+
     if (ios.tmdSize >= offsetof(TitleTmd, contents) && ios.numContents > 0) {
         memset(ios.tmd->signature, 0, sizeof(ios.tmd->signature));
         ios.tmd->titleId = ToBE64(((uint64_t)1 << 32) | titleIdLow);
@@ -429,7 +429,7 @@ bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
         Patcher_Log("TMD size too small\n");
         return false;
     }
-    
+
     TitleContentRecord* records = ios.tmd->contents;
     for (uint32_t i = 0; i < ios.numContents; i++) {
         uint32_t cid = FromBE32(records[i].contentId);
@@ -442,21 +442,21 @@ bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
             }
         }
     }
-    
+
     BruteTmd(ios.tmd, ios.tmdSize);
-    
+
     CINS_Content* cins_contents = (CINS_Content*)malloc(sizeof(CINS_Content) * ios.numContents);
     if (!cins_contents) return false;
-    
+
     for (uint32_t i = 0; i < ios.numContents; i++) {
         cins_contents[i].data = ios.contents[i].data;
         cins_contents[i].length = ios.contents[i].size;
     }
-    
+
     uint64_t fullTitleId = 0x0000000100000000ULL | titleIdLow;
     int32_t ret = CINS_Install(fullTitleId, ios.ticket, ios.ticketSize, ios.tmd, ios.tmdSize, cins_contents, ios.numContents);
-    
+
     free(cins_contents);
-    
+
     return ret >= 0;
 }
