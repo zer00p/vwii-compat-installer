@@ -22,44 +22,34 @@
 
 extern FSAClientHandle fsaClient;
 
-static const uint32_t TARGET_IOS[] = {56, 57, 58};
+static const uint32_t TARGET_IOS[] = {36, 37, 53, 55, 56, 57, 58};
 static const int NUM_TARGET_IOS = sizeof(TARGET_IOS) / sizeof(TARGET_IOS[0]);
 
-static bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size) {
-    uint32_t zeroCount = 0;
-    for (size_t i = 0; i < size; i++) {
-        if (signature[i] == 0) zeroCount++;
-    }
-    return zeroCount < (size / 2);
-}
 
-static int ReplacePattern(uint8_t *buf, uint32_t size, const uint8_t* search, const uint8_t* replace, uint32_t len, bool revert = false) {
-    int count = 0;
-    const uint8_t* p1 = revert ? replace : search;
-    const uint8_t* p2 = revert ? search : replace;
 
-    for (uint32_t i = 0; i < size - len; i++) {
-        if (memcmp(buf + i, p1, len) == 0) {
-            memcpy(buf + i, p2, len);
-            count++;
-            i += len - 1;
-        }
-    }
-    return count;
-}
-
-    int HandleDriveInquiryPatch(uint8_t *buf, uint32_t size, bool revert) {
+int HandleDriveInquiryPatch(uint8_t *buf, uint32_t size, bool revert) {
     static const uint8_t orig[] = { 0x49, 0x4C, 0x23, 0x90, 0x68, 0x0A };
     static const uint8_t pat[]  = { 0x20, 0x00, 0xE5, 0x38, 0x68, 0x0A };
     return ReplacePattern(buf, size, orig, pat, sizeof(orig), revert);
 }
 
-static uint32_t ApplyDrivePatch(MemIOS* ios) {
+int HandleDriveInquiryPatchIOS36(uint8_t *buf, uint32_t size, bool revert) {
+    static const uint8_t orig[] = { 0x49, 0xB7, 0x23, 0x90, 0x68, 0x0A };
+    static const uint8_t pat[]  = { 0x20, 0x00, 0xE6, 0x1A, 0x68, 0x0A };
+    return ReplacePattern(buf, size, orig, pat, sizeof(orig), revert);
+}
+
+static uint32_t ApplyDrivePatch(uint32_t ios_ver, MemIOS* ios) {
     uint32_t totalPatches = 0;
     for (uint32_t i = 0; i < ios->numContents; i++) {
         if (!ios->contents[i].data || ios->contents[i].size == 0) continue;
 
-        uint32_t count = HandleDriveInquiryPatch(ios->contents[i].data, ios->contents[i].size);
+        uint32_t count = 0;
+        if (ios_ver == 36) {
+            count = HandleDriveInquiryPatchIOS36(ios->contents[i].data, ios->contents[i].size, false);
+        } else {
+            count = HandleDriveInquiryPatch(ios->contents[i].data, ios->contents[i].size, false);
+        }
 
         if (count > 0) {
             totalPatches += count;
@@ -105,7 +95,7 @@ static bool PatchAndInstallIOS(uint32_t ios_ver) {
     }
 
     Patcher_Log("Applying Drive Inquiry patch to IOS" + std::to_string(ios_ver) + "...");
-    uint32_t totalPatches = ApplyDrivePatch(ios.get());
+    uint32_t totalPatches = ApplyDrivePatch(ios_ver, ios.get());
 
     if (totalPatches == 0) {
         Patcher_Log("Warning: Could not find patch pattern in IOS" + std::to_string(ios_ver) + ". Skipping.");
@@ -124,23 +114,24 @@ static bool PatchAndInstallIOS(uint32_t ios_ver) {
     return ok;
 }
 
-void InstallDrivePatchIOS56_57_58() {
+void InstallDrivePatchAll() {
     WUPI_resetScreen();
     std::vector<std::string> header = {
-        "Apply Drive Inquiry Patch (IOS56, 57, 58)",
+        "Apply Drive Inquiry Patches",
         "------------------------------------",
-        "This applies Garys 'No Disc Drive' patch to IOS56, 57 and 58.",
+        "This applies Garys 'No Disc Drive' patch to the selected IOSes.",
         "It modifies the DIP module to ignore missing or bad drives.",
         "",
-        "Are you sure you want to proceed?"
-    };
-    std::vector<std::string> options = {
-        "Yes, patch and install IOS56, 57, 58",
-        "No, cancel"
+        "Select which IOSes to patch:"
     };
 
-    int choice = ShowMenu(header, options);
-    if (choice != 0) {
+    std::vector<std::string> options;
+    for (int i = 0; i < NUM_TARGET_IOS; i++) {
+        options.push_back("IOS" + std::to_string(TARGET_IOS[i]));
+    }
+
+    std::vector<int> selected_items = ShowMultiSelectMenu(header, options, true);
+    if (selected_items.empty()) {
         WUPI_resetScreen();
         Patcher_Log("Drive patch installation cancelled.");
         sleep(2);
@@ -150,15 +141,15 @@ void InstallDrivePatchIOS56_57_58() {
     WUPI_resetScreen();
 
     int successCount = 0;
-    for (int i = 0; i < NUM_TARGET_IOS; i++) {
+    for (int idx : selected_items) {
         Patcher_Log("=========================================");
-        if (PatchAndInstallIOS(TARGET_IOS[i])) {
+        if (PatchAndInstallIOS(TARGET_IOS[idx])) {
             successCount++;
         }
         Patcher_Log("");
     }
 
-    Patcher_Log("Completed. Successfully patched " + std::to_string(successCount) + "/" + std::to_string(NUM_TARGET_IOS) + " IOSes.");
+    Patcher_Log("Completed. Successfully patched " + std::to_string(successCount) + "/" + std::to_string(selected_items.size()) + " IOSes.");
     Patcher_Log("");
     Patcher_Log("Press A to return.");
     WaitPrompt();
@@ -167,20 +158,43 @@ void InstallDrivePatchIOS56_57_58() {
 
 
 
-void UndoDrivePatchIOS56_57_58() {
+void UndoDrivePatchAll() {
     WUPI_resetScreen();
 
     std::vector<std::string> header = {
-        "Undo Drive Inquiry Patches (IOS56, 57, 58)",
+        "Undo Drive Inquiry Patches",
+        "------------------------------------",
+        "Select which IOSes to unpatch:"
+    };
+
+    std::vector<std::string> options;
+    for (int i = 0; i < NUM_TARGET_IOS; i++) {
+        options.push_back("IOS" + std::to_string(TARGET_IOS[i]));
+    }
+
+    std::vector<int> selected_items = ShowMultiSelectMenu(header, options, true);
+    if (selected_items.empty()) {
+        WUPI_resetScreen();
+        Patcher_Log("IOS unpatching cancelled.");
+        Patcher_Log("");
+        Patcher_Log("Press A to return.");
+        WaitPrompt();
+        return;
+    }
+
+    // Now ask HOW to unpatch
+    WUPI_resetScreen();
+    std::vector<std::string> methodHeader = {
+        "Undo Drive Inquiry Patches",
         "------------------------------------",
         "Select how you want to undo the patches."
     };
 
-    // Check if we have backups for all 3
+    // Check if we have backups for all selected
     bool hasAllBackups = true;
-    for (int i = 0; i < NUM_TARGET_IOS; i++) {
+    for (int idx : selected_items) {
         FSAFileHandle testFd;
-        std::string tmdBackup = GetTmdBackupPath(TARGET_IOS[i]);
+        std::string tmdBackup = GetTmdBackupPath(TARGET_IOS[idx]);
         if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
             FSACloseFile(fsaClient, testFd);
         } else {
@@ -188,15 +202,15 @@ void UndoDrivePatchIOS56_57_58() {
         }
     }
 
-    std::vector<std::string> options;
+    std::vector<std::string> methodOptions;
     if (hasAllBackups) {
-        options.push_back("Restore from local backups (In-Place)");
+        methodOptions.push_back("Restore from local backups (In-Place)");
     }
-    options.push_back("Reinstall original IOSes from NUS");
-    options.push_back("Cancel");
+    methodOptions.push_back("Reinstall original IOSes from NUS");
+    methodOptions.push_back("Cancel");
 
-    int choice = ShowMenu(header, options);
-    if (choice == (int)options.size() - 1) {
+    int choice = ShowMenu(methodHeader, methodOptions);
+    if (choice == (int)methodOptions.size() - 1) {
         WUPI_resetScreen();
         Patcher_Log("IOS unpatching cancelled.");
         Patcher_Log("");
@@ -211,8 +225,8 @@ void UndoDrivePatchIOS56_57_58() {
 
     int successCount = 0;
 
-    for (int i = 0; i < NUM_TARGET_IOS; i++) {
-        uint32_t ios_ver = TARGET_IOS[i];
+    for (int idx : selected_items) {
+        uint32_t ios_ver = TARGET_IOS[idx];
         Patcher_Log("=========================================");
         Patcher_Log("Restoring IOS" + std::to_string(ios_ver) + "...");
 
@@ -242,7 +256,11 @@ void UndoDrivePatchIOS56_57_58() {
 
             for (uint32_t c = 0; c < ios->numContents; c++) {
                 if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
-                HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
+                if (ios_ver == 36) {
+                    HandleDriveInquiryPatchIOS36(ios->contents[c].data, ios->contents[c].size, true);
+                } else {
+                    HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
+                }
             }
 
             LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);
@@ -257,13 +275,13 @@ void UndoDrivePatchIOS56_57_58() {
     }
 
     Patcher_Log("=========================================");
-    Patcher_Log("Completed. Successfully restored " + std::to_string(successCount) + "/" + std::to_string(NUM_TARGET_IOS) + " IOSes.");
+    Patcher_Log("Completed. Successfully restored " + std::to_string(successCount) + "/" + std::to_string(selected_items.size()) + " IOSes.");
     Patcher_Log("");
     Patcher_Log("Press A to return.");
     WaitPrompt();
 }
 
-bool UndoDrivePatchIOS56_57_58Batch() {
+bool UndoDrivePatchAllBatch() {
     bool hasAllBackups = true;
     for (int i = 0; i < NUM_TARGET_IOS; i++) {
         FSAFileHandle testFd;
@@ -308,7 +326,11 @@ bool UndoDrivePatchIOS56_57_58Batch() {
 
             for (uint32_t c = 0; c < ios->numContents; c++) {
                 if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
-                HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
+                if (ios_ver == 36) {
+                    HandleDriveInquiryPatchIOS36(ios->contents[c].data, ios->contents[c].size, true);
+                } else {
+                    HandleDriveInquiryPatch(ios->contents[c].data, ios->contents[c].size, true);
+                }
             }
 
             LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);

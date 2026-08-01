@@ -311,8 +311,8 @@ void WUPI_cIOSMenu() {
             "Uninstall d2x cIOS",
             "Patch IOS80 (SD Card Menu Channels)",
             "Undo IOS80 Patches",
-            "Apply Drive Inquiry Patch (IOS56, 57, 58) [EXPERIMENTAL]",
-            "Undo Drive Inquiry Patch (IOS56, 57, 58)",
+            "Apply Drive Inquiry Patch",
+            "Undo Drive Inquiry Patch",
             "Download d2x-cios-installer"
         };
         std::vector<std::string> header = {
@@ -333,9 +333,9 @@ void WUPI_cIOSMenu() {
             WUPI_resetScreen();
             UndoIOS80Patches();
         } else if (selected == 4) {
-            InstallDrivePatchIOS56_57_58();
+            InstallDrivePatchAll();
         } else if (selected == 5) {
-            UndoDrivePatchIOS56_57_58();
+            UndoDrivePatchAll();
         } else if (selected == 6) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
@@ -834,7 +834,7 @@ void WUPI_expressSetupUninstall() {
         if (idx == 0) confirmHeader.push_back(" - Homebrew Channel");
         else if (idx == 1) confirmHeader.push_back(" - d2x cIOS (Slots 248, 249, 250, 251)");
         else if (idx == 2) confirmHeader.push_back(" - IOS80 Patches (Revert to stock)");
-        else if (idx == 3) confirmHeader.push_back(" - Drive Inquiry Patches (Revert IOS56/57/58)");
+        else if (idx == 3) confirmHeader.push_back(" - Drive Inquiry Patches (Revert All IOSes)");
         else if (idx == 4) confirmHeader.push_back(" - USB Loader GX (App & Forwarders)");
         else if (idx == 5) confirmHeader.push_back(" - Open Shop Channel Apps");
     }
@@ -884,7 +884,7 @@ void WUPI_expressSetupUninstall() {
         } else if (idx == 3) {
             driveDone = true;
             WUPI_Log("--- Reverting Drive Inquiry Patches ---");
-            driveSuccess = UndoDrivePatchIOS56_57_58Batch();
+            driveSuccess = UndoDrivePatchAllBatch();
             if (!driveSuccess) stepFailed = true;
         } else if (idx == 4) {
             ulgxDone = true;
