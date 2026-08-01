@@ -16,14 +16,14 @@ void WUPI_waitButton();
 #define WUPI_Log(...) \
     do { \
         char _wupi_print_str[256]; \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
+        snprintf(_wupi_print_str, sizeof(_wupi_print_str), __VA_ARGS__); \
         WUPI_putstr(_wupi_print_str); \
     } while (0)
 
 #define WUPI_Log_Overwrite(...) \
     do { \
         char _wupi_print_str[256]; \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
+        snprintf(_wupi_print_str, sizeof(_wupi_print_str), __VA_ARGS__); \
         WUPI_putstr_overwrite(_wupi_print_str); \
     } while (0)
 
