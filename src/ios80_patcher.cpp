@@ -3,13 +3,15 @@
  *
  * Dedicated patcher for vWii System Menu IOS (IOS80).
  * Adapted from the Patched IOS80 Installer for vWii project.
- * Original credits go to Dr Clipper, Lazr1026, FIX94, and contributors.
+ * Original credits go to Dr Clipper, ZRicky11, damysteryman, FIX94,
+ * and contributors.
  *
  * Licensed under GPLv2.
  */
 
 #include "ios80_patcher.h"
 #include "ios_common.h"
+#include "drive_inquiry_patcher.h"
 #include "installer.h"
 #include "MenuUtils.h"
 #include "EndianUtils.h"
@@ -24,33 +26,9 @@
 
 extern FSAClientHandle fsaClient;
 
-static const std::string IOS80_TMD_BACKUP_PATH = "/vol/slccmpt01/title/00000001/00000050/data/tmd.bak";
-static const std::string IOS80_TIK_BACKUP_PATH = "/vol/slccmpt01/title/00000001/00000050/data/tik.bak";
 
-static bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size) {
-    uint32_t zeroCount = 0;
-    for (size_t i = 0; i < size; i++) {
-        if (signature[i] == 0) zeroCount++;
-    }
-    // A 2048-bit RSA signature is random cryptographic data.
-    // If it's more than half zeros, it was wiped or forged by a homebrew tool.
-    return zeroCount < (size / 2);
-}
 
-static int ReplacePattern(uint8_t *buf, uint32_t size, const uint8_t* search, const uint8_t* replace, uint32_t len, bool revert = false) {
-    if (size < len) return 0;
-    uint32_t match_count = 0;
-    const uint8_t* actual_search = revert ? replace : search;
-    const uint8_t* actual_replace = revert ? search : replace;
-    for (uint32_t i = 0; i <= size - len; i++) {
-        if (memcmp(buf + i, actual_search, len) == 0) {
-            memcpy(buf + i, actual_replace, len);
-            i += len - 1;
-            match_count++;
-        }
-    }
-    return match_count;
-}
+
 
 static int HandleVersionCheckPatch(uint8_t *buf, uint32_t size, bool revert = false) {
     static const uint8_t orig[] = { 0xD2, 0x01, 0x4E, 0x56 };
@@ -99,6 +77,8 @@ static int HandleKillAntiSysTitleInstallPatch(uint8_t *buf, uint32_t size, bool 
     return count;
 }
 
+
+
 static uint32_t ApplyAllIOS80Patches(MemIOS* ios) {
     uint32_t totalPatches = 0;
     for (uint32_t i = 0; i < ios->numContents; i++) {
@@ -110,6 +90,7 @@ static uint32_t ApplyAllIOS80Patches(MemIOS* ios) {
         count += HandleIdentifyCheckPatch(ios->contents[i].data, ios->contents[i].size);
         count += HandleFsPermsPatch(ios->contents[i].data, ios->contents[i].size);
         count += HandleKillAntiSysTitleInstallPatch(ios->contents[i].data, ios->contents[i].size);
+        count += HandleDriveInquiryPatch(ios->contents[i].data, ios->contents[i].size);
 
         if (count > 0) {
             totalPatches += count;
@@ -140,13 +121,7 @@ static bool PatchAndInstallIOS80Internal() {
     bool isOriginal = IsOriginalNintendoSignature(ios->tmd->signature, sizeof(ios->tmd->signature));
     
     if (isOriginal) {
-        FSAFileHandle testFd;
-        if (FSAOpenFileEx(fsaClient, IOS80_TMD_BACKUP_PATH.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-            FSACloseFile(fsaClient, testFd);
-        } else {
-            WriteBufferToFile(IOS80_TMD_BACKUP_PATH, (uint8_t*)ios->tmd, ios->tmdSize);
-            WriteBufferToFile(IOS80_TIK_BACKUP_PATH, (uint8_t*)ios->ticket, ios->ticketSize);
-        }
+        BackupPristineTmdAndTicket(80, ios.get());
     } else {
         Patcher_Log("Note: Installed IOS80 is already patched.");
         Patcher_Log("Skipping TMD/Ticket backup.");
@@ -172,9 +147,9 @@ void InstallIOS80() {
     std::vector<std::string> header = {
         "Patch IOS80 (vWii System Menu IOS)",
         "------------------------------------",
-        "This patches IOS80 with the Trucha bug & ES/FS patches",
+        "This patches IOS80 with Trucha, ES/FS, & Drive Inquiry patches",
         "to allow launching custom channels/homebrew directly from",
-        "the vWii SD Card Menu.",
+        "the vWii SD Card Menu and prevent disc drive checks.",
         "",
         "Are you sure you want to proceed?"
     };
@@ -226,7 +201,7 @@ void UndoIOS80Patches() {
     }
 
     FSAFileHandle testFd;
-    bool hasBackup = (FSAOpenFileEx(fsaClient, IOS80_TMD_BACKUP_PATH.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
+    bool hasBackup = (FSAOpenFileEx(fsaClient, GetTmdBackupPath(80).c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
     if (hasBackup) FSACloseFile(fsaClient, testFd);
 
     std::vector<std::string> header = {
@@ -265,189 +240,50 @@ void UndoIOS80Patches() {
     
     if (action == 2) {
         Patcher_Log("Connecting to NUS...");
-        uint64_t titleId = 0x0000000100000050ULL; // IOS80
-        int32_t latestVersion = NUS_GetLatestVersion(titleId);
-        if (latestVersion == -1) {
-            Patcher_Log("Error: Failed to fetch latest version from NUS.");
-            Patcher_Log("");
-        Patcher_Log("Press A to return.");
-            WaitPrompt();
-            return;
-        }
-
-        Patcher_Log("Downloading fresh IOS80 (v" + std::to_string(latestVersion) + ")...");
-        WADContext* ctx = NUS_DownloadTitle(titleId, latestVersion);
-        if (!ctx) {
-            Patcher_Log("Error: Failed to download IOS80.");
-            Patcher_Log("");
-        Patcher_Log("Press A to return.");
-            WaitPrompt();
-            return;
-        }
-        
-        if (!WAD_IsSafeTitle(ctx)) {
-            Patcher_Log("Error: Downloaded title is unsafe. Aborting.");
-            WAD_Free(ctx);
-            Patcher_Log("");
-        Patcher_Log("Press A to return.");
-            WaitPrompt();
-            return;
-        }
-
-        Patcher_Log("Writing original IOS80 to slccmpt...");
-        if (WAD_InstallToVWii(ctx, 0)) {
-            Patcher_Log("");
-        Patcher_Log("Successfully restored original IOS80 from NUS!");
-        } else {
-            Patcher_Log("");
-        Patcher_Log("Error: Failed to write original IOS80.");
-        }
-        if (ctx) WAD_Free(ctx);
+        RestoreIOSFromNUS(80);
         
     } else if (action == 1) {
         Patcher_Log("Loading backup TMD and Ticket...");
         uint8_t* origTmdBuf = nullptr;
         uint32_t origTmdSize = 0;
-        if (!ReadFileToBuffer(IOS80_TMD_BACKUP_PATH, &origTmdBuf, &origTmdSize)) {
+        if (!ReadFileToBuffer(GetTmdBackupPath(80), &origTmdBuf, &origTmdSize)) {
             Patcher_Log("Error: Failed to read tmd.bak.");
             Patcher_Log("");
-        Patcher_Log("Press A to return.");
+            Patcher_Log("Press A to return.");
             WaitPrompt();
             return;
         }
 
         uint8_t* origTikBuf = nullptr;
         uint32_t origTikSize = 0;
-        if (!ReadFileToBuffer(IOS80_TIK_BACKUP_PATH, &origTikBuf, &origTikSize)) {
+        if (!ReadFileToBuffer(GetTikBackupPath(80), &origTikBuf, &origTikSize)) {
             Patcher_Log("Error: Failed to read tik.bak.");
             free(origTmdBuf);
             Patcher_Log("");
-        Patcher_Log("Press A to return.");
+            Patcher_Log("Press A to return.");
             WaitPrompt();
             return;
         }
-
-        TitleTmd* origTmd = (TitleTmd*)origTmdBuf;
-        uint16_t origNumContents = FromBE16(origTmd->numContents);
-        TitleContentRecord* origRecords = origTmd->contents;
 
         Patcher_Log("Reverting patches on IOS80 contents...");
         for (uint32_t i = 0; i < ios->numContents; i++) {
             if (!ios->contents[i].data || ios->contents[i].size == 0) continue;
-
-            // If the content was originally a shared content, the pristine original 
-            // still perfectly exists in /shared1/. We can just load it directly 
-            // and bypass the flawed pattern-matching unpatcher which might corrupt 
-            // natural occurrences of the byte sequences in those modules.
-            bool isShared = false;
-            uint8_t* expectedHash = nullptr;
-            for (uint16_t k = 0; k < origNumContents; k++) {
-                if (FromBE32(origRecords[k].contentId) == ios->contents[i].cid) {
-                    if (FromBE16(origRecords[k].type) & 0x8000) {
-                        isShared = true;
-                    }
-                    expectedHash = origRecords[k].hash;
-                    break;
-                }
-            }
-
-            if (isShared && expectedHash) {
-                int32_t sharedIndex = FindSharedContentIndex(expectedHash);
-                if (sharedIndex >= 0) {
-                    std::string sharedPath = "/vol/slccmpt01/shared1/" + ToHexString(sharedIndex, 8) + ".app";
-                    uint8_t* sharedBuf = nullptr;
-                    uint32_t sharedSize = 0;
-                    if (ReadFileToBuffer(sharedPath, &sharedBuf, &sharedSize)) {
-                        free(ios->contents[i].data);
-                        ios->contents[i].data = sharedBuf;
-                        ios->contents[i].size = sharedSize;
-                        continue; // Successfully loaded the pristine original
-                    }
-                }
-            } else {
-                // This is a private content that cannot be retrieved from /shared1/.
-                // We must manually unpatch it in-memory.
-                HandleVersionCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
-                HandleHashCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
-                HandleIdentifyCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
-                HandleFsPermsPatch(ios->contents[i].data, ios->contents[i].size, true);
-                HandleKillAntiSysTitleInstallPatch(ios->contents[i].data, ios->contents[i].size, true);
-            }
-        }
-        Patcher_Log("Loaded pristine shared contents successfully.");
-
-
-        
-        std::vector<CINS_Content> cinsContents;
-        for (uint32_t i = 0; i < ios->numContents; i++) {
-            CINS_Content cc;
-            cc.data = ios->contents[i].data;
-            cc.length = ios->contents[i].size;
-            cinsContents.push_back(cc);
+            HandleVersionCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
+            HandleHashCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
+            HandleIdentifyCheckPatch(ios->contents[i].data, ios->contents[i].size, true);
+            HandleFsPermsPatch(ios->contents[i].data, ios->contents[i].size, true);
+            HandleKillAntiSysTitleInstallPatch(ios->contents[i].data, ios->contents[i].size, true);
+            HandleDriveInquiryPatch(ios->contents[i].data, ios->contents[i].size, true);
         }
 
-        Patcher_Log("Verifying hashes against original TMD...");
-        
-        bool hashesMatch = true;
-        std::vector<std::string> mismatchErrors;
-        for (uint16_t i = 0; i < origNumContents; i++) {
-            uint32_t cid = FromBE32(origRecords[i].contentId);
-            uint8_t expectedHash[20];
-            memcpy(expectedHash, origRecords[i].hash, 20);
-            
-            bool found = false;
-            for (uint32_t j = 0; j < ios->numContents; j++) {
-                if (ios->contents[j].cid == cid) {
-                    found = true;
-                    uint8_t actualHash[20];
-                    SHA1(ios->contents[j].data, ios->contents[j].size, actualHash);
-                    if (memcmp(expectedHash, actualHash, 20) != 0) {
-                        hashesMatch = false;
-                        mismatchErrors.push_back("Hash mismatch: " + ToHexString(cid));
-                    }
-                    break;
-                }
-            }
-            if (!found) {
-                hashesMatch = false;
-                mismatchErrors.push_back("Missing content: " + ToHexString(cid));
-            }
-        }
-        
-        if (!hashesMatch) {
-            WUPI_resetScreen();
-            Patcher_Log("In-place restore failed:");
-            for (const auto& err : mismatchErrors) {
-                Patcher_Log(err);
-            }
-            Patcher_Log("");
-            Patcher_Log("The unpatched files do not perfectly match");
-            Patcher_Log("the original Nintendo hashes.");
-            Patcher_Log("Please use 'Reinstall from NUS' instead.");
-            free(origTmdBuf);
-            free(origTikBuf);
-            Patcher_Log("");
-        Patcher_Log("Press A to return.");
-            WaitPrompt();
-            return;
-        }
+        Patcher_Log("Loading pristine shared contents...");
+        LoadPristineSharedContents(ios.get(), (TitleTmd*)origTmdBuf);
 
-        Patcher_Log("Restoring original IOS80 configuration...");
-        int32_t res = CINS_Install(0x0000000100000050ULL, 
-                                   (const TitleTicket*)origTikBuf, origTikSize,
-                                   (const TitleTmd*)origTmdBuf, origTmdSize,
-                                   cinsContents.data(), cinsContents.size());
-                                   
+        VerifyAndInstallRestoredIOS(80, ios.get(), origTmdBuf, origTmdSize, origTikBuf, origTikSize);
+
         free(origTmdBuf);
         free(origTikBuf);
 
-        if (res == 0) {
-            Patcher_Log("");
-        Patcher_Log("Successfully restored IOS80 from backup!");
-        } else {
-            Patcher_Log("");
-        Patcher_Log("Error: Failed to restore backup. Code: " + std::to_string(res) + "");
-        }
     }
     
     Patcher_Log("");
@@ -462,35 +298,6 @@ bool InstallIOS80Batch() {
 
 bool UndoIOS80PatchesBatch() {
 
-    uint64_t titleId = 0x0000000100000050ULL; // IOS80
-    Patcher_Log("Reverting IOS80 to stock...\n");
-    int32_t latestVersion = NUS_GetLatestVersion(titleId);
-    if (latestVersion == -1) {
-        Patcher_Log("Error: Failed to fetch latest version from NUS.\n");
-        return false;
-    }
-
-    Patcher_Log("Downloading clean IOS80 (v" + std::to_string(latestVersion) + ")...\n");
-    WADContext* ctx = NUS_DownloadTitle(titleId, latestVersion);
-    if (!ctx) {
-        Patcher_Log("Error: Failed to download IOS80.\n");
-        return false;
-    }
-    
-    if (!WAD_IsSafeTitle(ctx)) {
-        Patcher_Log("Error: Downloaded title is unsafe. Aborting.\n");
-        WAD_Free(ctx);
-        return false;
-    }
-
-    Patcher_Log("Writing original IOS80 to slccmpt...\n");
-    bool ok = WAD_InstallToVWii(ctx, 0);
-    if (ok) {
-        Patcher_Log("Successfully restored original IOS80!\n");
-    } else {
-        Patcher_Log("Error: Failed to write original IOS80.\n");
-    }
-    if (ctx) WAD_Free(ctx);
-    return ok;
+    return RestoreIOSFromNUS(80);
 }
 

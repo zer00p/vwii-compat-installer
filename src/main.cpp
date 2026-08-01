@@ -46,6 +46,7 @@
 #include "d2x_menu.h"
 #include "d2x_patcher.h"
 #include "ios80_patcher.h"
+#include "drive_inquiry_patcher.h"
 #include "MenuUtils.h"
 #include "downloader.h"
 
@@ -310,6 +311,8 @@ void WUPI_cIOSMenu() {
             "Uninstall d2x cIOS",
             "Patch IOS80 (SD Card Menu Channels)",
             "Undo IOS80 Patches",
+            "Apply Drive Inquiry Patch (IOS56, 57, 58) [EXPERIMENTAL]",
+            "Undo Drive Inquiry Patch (IOS56, 57, 58)",
             "Download d2x-cios-installer"
         };
         std::vector<std::string> header = {
@@ -330,6 +333,10 @@ void WUPI_cIOSMenu() {
             WUPI_resetScreen();
             UndoIOS80Patches();
         } else if (selected == 4) {
+            InstallDrivePatchIOS56_57_58();
+        } else if (selected == 5) {
+            UndoDrivePatchIOS56_57_58();
+        } else if (selected == 6) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
             if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
@@ -804,6 +811,7 @@ void WUPI_expressSetupUninstall() {
         "Homebrew Channel",
         "d2x cIOS",
         "IOS80 Patches",
+        "Drive Inquiry Patches",
         "USB Loader GX",
         "Open Shop Channel"
     };
@@ -826,8 +834,9 @@ void WUPI_expressSetupUninstall() {
         if (idx == 0) confirmHeader.push_back(" - Homebrew Channel");
         else if (idx == 1) confirmHeader.push_back(" - d2x cIOS (Slots 248, 249, 250, 251)");
         else if (idx == 2) confirmHeader.push_back(" - IOS80 Patches (Revert to stock)");
-        else if (idx == 3) confirmHeader.push_back(" - USB Loader GX (App & Forwarders)");
-        else if (idx == 4) confirmHeader.push_back(" - Open Shop Channel Apps");
+        else if (idx == 3) confirmHeader.push_back(" - Drive Inquiry Patches (Revert IOS56/57/58)");
+        else if (idx == 4) confirmHeader.push_back(" - USB Loader GX (App & Forwarders)");
+        else if (idx == 5) confirmHeader.push_back(" - Open Shop Channel Apps");
     }
     confirmHeader.push_back("");
     confirmHeader.push_back("Are you sure you want to proceed?");
@@ -847,6 +856,7 @@ void WUPI_expressSetupUninstall() {
     bool d2xDone = false;
     std::vector<std::pair<int, bool>> d2xResults;
     bool ios80Done = false, ios80Success = false;
+    bool driveDone = false, driveSuccess = false;
     bool ulgxDone = false, ulgxWadSuccess = false, ulgxAppSuccess = false, ulgxWuhbSuccess = false;
     bool oscDone = false, oscLibreshopSuccess = false, oscHbbSuccess = false;
 
@@ -872,6 +882,11 @@ void WUPI_expressSetupUninstall() {
             ios80Success = UndoIOS80PatchesBatch();
             if (!ios80Success) stepFailed = true;
         } else if (idx == 3) {
+            driveDone = true;
+            WUPI_Log("--- Reverting Drive Inquiry Patches ---");
+            driveSuccess = UndoDrivePatchIOS56_57_58Batch();
+            if (!driveSuccess) stepFailed = true;
+        } else if (idx == 4) {
             ulgxDone = true;
             WUPI_Log("--- Uninstalling USB Loader GX ---");
             WUPI_Log("Uninstalling vWii Forwarder Channel...");
@@ -886,7 +901,7 @@ void WUPI_expressSetupUninstall() {
             if (!ulgxWadSuccess || !ulgxAppSuccess || !ulgxWuhbSuccess) {
                 stepFailed = true;
             }
-        } else if (idx == 4) {
+        } else if (idx == 5) {
             oscDone = true;
             WUPI_Log("--- Uninstalling Open Shop Channel Apps ---");
             WUPI_Log("Removing LibreShop...");
@@ -923,6 +938,9 @@ void WUPI_expressSetupUninstall() {
     if (ios80Done) {
         WUPI_Log("IOS80 Patches: %s", ios80Success ? "Reverted to stock" : "Failed");
     }
+    if (driveDone) {
+        WUPI_Log("Drive Inquiry Patches: %s", driveSuccess ? "Reverted to stock" : "Failed");
+    }
     if (ulgxDone) {
         WUPI_Log("USB Loader GX:");
         WUPI_Log("  - vWii Forwarder (UNEO): %s", ulgxWadSuccess ? "Uninstalled" : "Failed / Not present");
@@ -955,10 +973,10 @@ void WUPI_showCredits() {
         "Team Twiizers / fail0verflow - Original HBC",
         "(dhewg, bushing, marcan, segher & others)",
         "",
-        "-- IOS80 Patcher --",
+        "-- IOS Patchers --",
         "Dr Clipper, ZRicky11, FIX94,",
         "damysteryman, GaryOderNichts",
-        "& Patched IOS80 Installer contributors",
+        "& Patched IOS Installer contributors",
         "",
         "-- d2x cIOS --",
         "davebaol, xperia64, blackb0x / wiidev",

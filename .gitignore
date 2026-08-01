@@ -6,3 +6,4 @@ build
 *.zip
 .DS_Store
 testdata
+testdata/

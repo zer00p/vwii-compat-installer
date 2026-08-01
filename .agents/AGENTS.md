@@ -17,3 +17,7 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 ## Wii U Filesystem (FSA) Rules
 - **Memory Alignment**: FSA operations (like `FSAWriteFile` or `FSAReadFile`) strictly require data buffers to be 64-byte aligned (`0x40`). Always use `memalign(0x40, size)` instead of `malloc(size)` for any buffer that will be passed into FSA functions. Failing to do this can result in silent failures or 0-byte files, particularly when memory becomes fragmented during batch operations.
 - **Error Checking**: Never ignore the return value of FSA operations. For example, `FSAWriteFile` returns the number of elements written or a negative error code. Always explicitly check that the return value matches the expected write size, and correctly handle the failure by propagating the error or aborting the operation.
+
+## Workspace Clutter and Temporary Files
+- Any test scripts, investigation scripts, or temporary data generated during problem-solving should be placed inside `testdata/scripts/` or `testdata/tmp/` to avoid cluttering the project root.
+- The `testdata/` folder is ignored in `.gitignore`, ensuring that ephemeral exploration files do not get committed. Do not leave scripts in the root directory.

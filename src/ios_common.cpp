@@ -99,6 +99,191 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
     return true;
 }
 
+int ReplacePattern(uint8_t *buf, uint32_t size, const uint8_t* search, const uint8_t* replace, uint32_t len, bool revert) {
+    int count = 0;
+    const uint8_t* p1 = revert ? replace : search;
+    const uint8_t* p2 = revert ? search : replace;
+
+    for (uint32_t i = 0; i < size - len; i++) {
+        if (memcmp(buf + i, p1, len) == 0) {
+            memcpy(buf + i, p2, len);
+            count++;
+            i += len - 1;
+        }
+    }
+    return count;
+}
+
+bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size) {
+    uint32_t zeroCount = 0;
+    for (size_t i = 0; i < size; i++) {
+        if (signature[i] == 0) zeroCount++;
+    }
+    // A 2048-bit RSA signature is random cryptographic data.
+    // If it's more than half zeros, it was wiped or forged by a homebrew tool.
+    return zeroCount < (size / 2);
+}
+
+void BackupPristineTmdAndTicket(uint32_t ios_ver, MemIOS* ios) {
+    if (!ios || !ios->tmd || !ios->ticket) return;
+    
+    FSAFileHandle testFd;
+    std::string tmdBackup = GetTmdBackupPath(ios_ver);
+    std::string tikBackup = GetTikBackupPath(ios_ver);
+    
+    if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+        FSACloseFile(fsaClient, testFd);
+    } else {
+        WriteBufferToFile(tmdBackup, (uint8_t*)ios->tmd, ios->tmdSize);
+        WriteBufferToFile(tikBackup, (uint8_t*)ios->ticket, ios->ticketSize);
+    }
+}
+
+bool RestoreIOSFromNUS(uint32_t ios_ver) {
+    uint64_t titleId = 0x0000000100000000ULL | ios_ver;
+    int32_t latestVersion = NUS_GetLatestVersion(titleId);
+    if (latestVersion == -1) {
+        Patcher_Log("Error: Failed to fetch latest version from NUS for IOS" + std::to_string(ios_ver));
+        return false;
+    }
+
+    WADContext* ctx = NUS_DownloadTitle(titleId, latestVersion);
+    if (!ctx) {
+        Patcher_Log("Error: Failed to download IOS" + std::to_string(ios_ver));
+        return false;
+    }
+
+    if (!WAD_IsSafeTitle(ctx)) {
+        Patcher_Log("Error: Downloaded title is unsafe. Aborting.");
+        WAD_Free(ctx);
+        return false;
+    }
+
+    bool ok = WAD_InstallToVWii(ctx, 0);
+    if (ok) {
+        Patcher_Log("Successfully restored original IOS" + std::to_string(ios_ver) + " from NUS!");
+    } else {
+        Patcher_Log("Error: Failed to write original IOS" + std::to_string(ios_ver));
+    }
+    WAD_Free(ctx);
+    return ok;
+}
+
+bool LoadPristineSharedContents(MemIOS* ios, const TitleTmd* origTmd) {
+    uint16_t origNumContents = FromBE16(origTmd->numContents);
+    const TitleContentRecord* origRecords = origTmd->contents;
+
+    for (uint32_t c = 0; c < ios->numContents; c++) {
+        if (!ios->contents[c].data || ios->contents[c].size == 0) continue;
+
+        bool isShared = false;
+        const uint8_t* expectedHash = nullptr;
+        for (uint16_t k = 0; k < origNumContents; k++) {
+            if (FromBE32(origRecords[k].contentId) == ios->contents[c].cid) {
+                if (FromBE16(origRecords[k].type) & 0x8000) {
+                    isShared = true;
+                }
+                expectedHash = origRecords[k].hash;
+                break;
+            }
+        }
+
+        if (isShared && expectedHash) {
+            int32_t sharedIndex = FindSharedContentIndex(expectedHash);
+            if (sharedIndex >= 0) {
+                std::string sharedPath = "/vol/slccmpt01/shared1/" + ToHexString(sharedIndex, 8) + ".app";
+                uint8_t* sharedBuf = nullptr;
+                uint32_t sharedSize = 0;
+                if (ReadFileToBuffer(sharedPath, &sharedBuf, &sharedSize)) {
+                    free(ios->contents[c].data);
+                    ios->contents[c].data = sharedBuf;
+                    ios->contents[c].size = sharedSize;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool VerifyAndInstallRestoredIOS(uint32_t ios_ver, MemIOS* ios, const uint8_t* origTmdBuf, uint32_t origTmdSize, const uint8_t* origTikBuf, uint32_t origTikSize) {
+    const TitleTmd* origTmd = (const TitleTmd*)origTmdBuf;
+    uint16_t origNumContents = FromBE16(origTmd->numContents);
+    const TitleContentRecord* origRecords = origTmd->contents;
+
+    Patcher_Log("Verifying hashes against original TMD...");
+    bool hashesMatch = true;
+    std::vector<std::string> mismatchErrors;
+    for (uint16_t i = 0; i < origNumContents; i++) {
+        uint32_t cid = FromBE32(origRecords[i].contentId);
+        const uint8_t* expectedHash = origRecords[i].hash;
+        
+        bool found = false;
+        for (uint32_t j = 0; j < ios->numContents; j++) {
+            if (ios->contents[j].cid == cid) {
+                found = true;
+                uint8_t actualHash[20];
+                SHA1(ios->contents[j].data, ios->contents[j].size, actualHash);
+                if (memcmp(expectedHash, actualHash, 20) != 0) {
+                    hashesMatch = false;
+                    mismatchErrors.push_back("Hash mismatch: " + ToHexString(cid));
+                }
+                break;
+            }
+        }
+        if (!found) {
+            hashesMatch = false;
+            mismatchErrors.push_back("Missing content: " + ToHexString(cid));
+        }
+    }
+    
+    if (!hashesMatch) {
+        WUPI_resetScreen();
+        Patcher_Log("In-place restore failed:");
+        for (const auto& err : mismatchErrors) {
+            Patcher_Log(err);
+        }
+        Patcher_Log("");
+        Patcher_Log("The unpatched files do not perfectly match");
+        Patcher_Log("the original Nintendo hashes.");
+        Patcher_Log("Please use 'Reinstall from NUS' instead.");
+        return false;
+    }
+
+    std::vector<CINS_Content> cinsContents;
+    for (uint32_t c = 0; c < ios->numContents; c++) {
+        CINS_Content cc;
+        cc.data = ios->contents[c].data;
+        cc.length = ios->contents[c].size;
+        cinsContents.push_back(cc);
+    }
+
+    Patcher_Log("Restoring original configuration...");
+    int32_t res = CINS_Install(0x0000000100000000ULL | ios_ver,
+                               (const TitleTicket*)origTikBuf, origTikSize,
+                               (const TitleTmd*)origTmdBuf, origTmdSize,
+                               cinsContents.data(), cinsContents.size());
+
+    if (res == 0) {
+        Patcher_Log("Successfully restored IOS" + std::to_string(ios_ver) + " from backup!");
+        return true;
+    } else {
+        Patcher_Log("Error: Failed to restore backup. Code: " + std::to_string(res));
+        return false;
+    }
+}
+
+std::string GetTmdBackupPath(uint32_t ios_ver) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "/vol/slccmpt01/title/00000001/%08x/data/tmd.bak", ios_ver);
+    return std::string(buf);
+}
+
+std::string GetTikBackupPath(uint32_t ios_ver) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "/vol/slccmpt01/title/00000001/%08x/data/tik.bak", ios_ver);
+    return std::string(buf);
+}
+
 bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size) {
     FSAFileHandle fd;
     if (FSAOpenFileEx(fsaClient, path.c_str(), "wb", (FSMode)0666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
