@@ -17,68 +17,175 @@
  */
 
 #include "installer.h"
+#include "FSAUtils.h"
+#include "log.h"
 #include <coreinit/filesystem_fsa.h>
 #include <stdio.h>
 #include <string.h>
+#include <format>
 #include <sys/stat.h>
-
-void WUPI_putstr(const char *);
-
-#define CINS_Log(...)                                \
-    do {                                             \
-        char _wupi_print_str[256];                   \
-        snprintf(_wupi_print_str, 255, __VA_ARGS__); \
-        WUPI_putstr(_wupi_print_str);                \
-    } while (0)
+#include <malloc.h>
+#include "EndianUtils.h"
+#include "MenuUtils.h"
 
 #define IOS_SUCCESS             FS_ERROR_OK
 
 #define CINS_PATH_LEN           (sizeof("/vol/slccmpt01") + 63)
 
-#define CINS_ID_HI              ((uint32_t) (CINS_TITLEID >> 32))
-#define CINS_ID_LO              ((uint32_t) (CINS_TITLEID & 0xFFFFFFFF))
-
 #define CINS_TRY(c)                        \
-    if (!(c))                              \
-        do {                               \
-            CINS_Log("Failed, please exit and try again\n"); \
-            goto error;                    \
-    } while (0)
+    do { if (!(c)) {                       \
+        WUPI_Log("Failed, please exit and try again\n"); \
+        goto error;                        \
+    } } while (0)
 
 extern FSAClientHandle fsaClient;
 
-int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
-                     uint32_t tmd_size, CINS_Content *contents,
+struct __attribute__((packed)) content_map_entry {
+    char name[8];
+    uint8_t hash[20];
+};
+
+int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
+    FSAFileHandle fd = 0;
+    char path[] = "/vol/slccmpt01/shared1/content.map";
+
+    if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        return -1;
+    }
+
+    content_map_entry* entry = (content_map_entry*)memalign(0x40, sizeof(content_map_entry));
+    if (!entry) {
+        FSACloseFile(fsaClient, fd);
+        return -1;
+    }
+
+    int32_t currentIndex = 0;
+    while (true) {
+        int readRes = FSAReadFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
+        if (readRes != 1) {
+            break;
+        }
+
+        if (memcmp(entry->hash, expectedHash, 20) == 0) {
+            FSACloseFile(fsaClient, fd);
+            free(entry);
+            return currentIndex;
+        }
+        currentIndex++;
+    }
+
+    FSACloseFile(fsaClient, fd);
+    free(entry);
+    return -1;
+}
+
+static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
+    int32_t existingIndex = FindSharedContentIndex(expectedHash);
+    if (existingIndex >= 0) {
+        return existingIndex;
+    }
+
+    FSAFileHandle fd = 0;
+    char path[] = "/vol/slccmpt01/shared1/content.map";
+
+    FSAMakeDir(fsaClient, "/vol/slccmpt01/shared1", (FSMode) 0x666);
+
+    if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        if (FSAOpenFileEx(fsaClient, path, "w+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+            WUPI_Log("Failed to open content.map\n");
+            return -1;
+        }
+    }
+
+    content_map_entry* entry = (content_map_entry*)memalign(0x40, sizeof(content_map_entry));
+    if (!entry) {
+        FSACloseFile(fsaClient, fd);
+        return -1;
+    }
+
+    int32_t freeIndex = -1;
+    int32_t currentIndex = 0;
+
+    while (true) {
+        int readRes = FSAReadFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
+        if (readRes != 1) {
+            break;
+        }
+
+        bool isZero = true;
+        for (int i = 0; i < 20; i++) {
+            if (entry->hash[i] != 0) {
+                isZero = false;
+                break;
+            }
+        }
+
+        if (isZero && freeIndex == -1) {
+            freeIndex = currentIndex;
+        }
+
+        currentIndex++;
+    }
+
+    if (freeIndex != -1) {
+        currentIndex = freeIndex;
+    }
+
+    memset(entry, 0, sizeof(content_map_entry));
+    std::format_to_n(entry->name, sizeof(entry->name), "{:08x}", currentIndex);
+    memcpy(entry->hash, expectedHash, 20);
+
+    FSError setPosRes = FSASetPosFile(fsaClient, fd, currentIndex * sizeof(content_map_entry));
+    if (setPosRes != FS_ERROR_OK) {
+        WUPI_Log("Failed to set pos in content.map, res: %d\n", setPosRes);
+        FSACloseFile(fsaClient, fd);
+        free(entry);
+        return -1;
+    }
+
+    int writeRes = FSAWriteFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, FSA_WRITE_FLAG_NONE);
+    if (writeRes != 1) {
+        WUPI_Log("Failed to write to content.map, res: %d\n", writeRes);
+        FSACloseFile(fsaClient, fd);
+        free(entry);
+        return -1;
+    }
+
+    FSACloseFile(fsaClient, fd);
+    free(entry);
+    return currentIndex;
+}
+
+int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
+                     uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents) {
-    FSError ret;
-    int32_t i;
-    FSAFileHandle fd;
+
+    FSError ret = FS_ERROR_NOT_INIT;
+    FSAFileHandle fd = 0;
     char path[CINS_PATH_LEN], pathd[CINS_PATH_LEN];
     char titlePath[CINS_PATH_LEN], ticketPath[CINS_PATH_LEN],
             ticketFolder[CINS_PATH_LEN];
 
-    CINS_Log("Starting install\n");
+    uint32_t idHi = (uint32_t)(titleId >> 32);
+    uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
 
-    /* This installer originally created a temporary directory for the
-     * installation, wrote everything to flash there, then renamed it all to
-     * other directories. The wupserver doesn't already support renaming files,
-     * and my attempt to add it failed so I gave up. */
-    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", CINS_ID_HI,
-             CINS_ID_LO);
-    snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x", CINS_ID_HI);
-    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", CINS_ID_HI,
-             CINS_ID_LO);
-    snprintf(ticketFolder, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x", CINS_ID_HI);
-    /* Init stage is not needed anymore. */
+    uint32_t tmdPayloadOffset = GetPayloadOffset((const uint8_t*)tmd);
 
-    CINS_Log("Writing ticket...\n");
+    WUPI_Log("Starting install\n");
+
+    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
+    snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x", idHi);
+    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
+    snprintf(ticketFolder, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x", idHi);
+
+    WUPI_Log("Writing ticket...\n");
     {
         FSARemove(fsaClient, ticketPath);
 
         ret = FSAMakeDir(fsaClient, ticketFolder, (FSMode) 0x666);
         if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
             CINS_TRY(FSAOpenFileEx(fsaClient, ticketPath, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(ticket), ticket_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+            CINS_TRY(FSAWriteAligned(fsaClient, fd, ticket, ticket_size));
 
             FSACloseFile(fsaClient, fd);
 
@@ -88,7 +195,7 @@ int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
         CINS_TRY(ret == FS_ERROR_OK); // ret == 0
     }
 
-    CINS_Log("Creating title directory...\n");
+    WUPI_Log("Creating title directory...\n");
     {
         /* Create the title directory if it doesn't already exist. The first
          * word (type) should exist, but the second one (the unique title)
@@ -99,10 +206,10 @@ int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
             if (ret == FS_ERROR_ALREADY_EXISTS) {
                 /* The title is already installed, delete content but preserve
                  * the data directory. */
-                CINS_Log(
+                WUPI_Log(
                         "Title directory already exists, deleting content...\n");
                 snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content",
-                         CINS_ID_HI, CINS_ID_LO);
+                         idHi, idLo);
                 ret = FSARemove(fsaClient, path);
                 if (ret == FS_ERROR_OK || ret == FS_ERROR_NOT_FOUND)
                     ret = FS_ERROR_OK;
@@ -118,7 +225,7 @@ int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
         strncat(pathd, "/data", CINS_PATH_LEN - 1);
         ret = FSAMakeDir(fsaClient, pathd, (FSMode) 0x666);
         if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
-            CINS_Log("Failed to create the data directory, ret = %d\n", ret);
+            WUPI_Log("Failed to create the data directory, ret = %d\n", ret);
             goto error;
         }
 
@@ -127,44 +234,166 @@ int32_t CINS_Install(const void *ticket, uint32_t ticket_size, const void *tmd,
         CINS_TRY(FSAMakeDir(fsaClient, pathd, (FSMode) 0x666) == FS_ERROR_OK);
     }
 
-    CINS_Log("Writing TMD...\n");
+    WUPI_Log("Writing TMD...\n");
     {
         /* pathd should be the content directory */
         strncpy(path, pathd, CINS_PATH_LEN);
         strncat(path, "/title.tmd", CINS_PATH_LEN - 1);
 
         CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(tmd), tmd_size, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+        CINS_TRY(FSAWriteAligned(fsaClient, fd, tmd, tmd_size));
 
         FSACloseFile(fsaClient, fd);
+        fd = 0;
     }
 
-    CINS_Log("Writing contents...\n");
+    WUPI_Log("Writing contents...\n");
     {
-        for (i = 0; i < numContents; i++) {
-            // CINS_Log("Writing content %08x.app\n", i);
-            snprintf(path, CINS_PATH_LEN,
-                     "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", CINS_ID_HI,
-                     CINS_ID_LO, i);
+        for (uint16_t i = 0; i < numContents; i++) {
+            uint32_t recordOffset = tmdPayloadOffset + 0xA4 + (i * 36);
+            uint32_t cId = Read32BE((const uint8_t*)tmd + recordOffset);
+            uint16_t cType = Read16BE((const uint8_t*)tmd + recordOffset + 6);
+            uint64_t cSize = Read64BE((const uint8_t*)tmd + recordOffset + 8);
+
+            if ((cType & 0x8000) != 0) {
+                int32_t sharedIndex = GetSharedContentIndex((const uint8_t*)tmd + recordOffset + 0x10);
+                if (sharedIndex < 0) {
+                    WUPI_Log("Failed to get shared content index for content %08x\n", cId);
+                    goto error;
+                }
+                
+                snprintf(path, CINS_PATH_LEN,
+                         "/vol/slccmpt01/shared1/%08x.app", sharedIndex);
+
+                FSAFileHandle testFd;
+                if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+                    bool matches = true;
+                    const uint32_t chunkSize = 64 * 1024;
+                    void* chunkBuf = memalign(0x40, chunkSize);
+                    if (chunkBuf) {
+                        uint64_t offset = 0;
+                        while (offset < cSize) {
+                            uint32_t toRead = (uint32_t)((cSize - offset > chunkSize) ? chunkSize : (cSize - offset));
+                            int readRes = FSAReadFile(fsaClient, chunkBuf, toRead, 1, testFd, 0);
+                            if (readRes != 1) {
+                                matches = false;
+                                break;
+                            }
+                            if (memcmp(chunkBuf, (const uint8_t*)contents[i].data + offset, toRead) != 0) {
+                                matches = false;
+                                break;
+                            }
+                            offset += toRead;
+                        }
+                        
+                        if (matches) {
+                            int extraRead = FSAReadFile(fsaClient, chunkBuf, 1, 1, testFd, 0);
+                            if (extraRead > 0) {
+                                matches = false;
+                            }
+                        }
+                        free(chunkBuf);
+                    } else {
+                        matches = false;
+                    }
+
+                    FSACloseFile(fsaClient, testFd);
+
+                    if (matches) {
+                        continue;
+                    }
+                    
+                    WUPI_Log("Warning: Shared content %08x exists but differs!\n", cId);
+                    WUPI_Log("Press A to reinstall it, B to keep existing.\n");
+                    if (!WaitPrompt()) {
+                        continue;
+                    }
+                }
+            } else {
+                snprintf(path, CINS_PATH_LEN,
+                         "/vol/slccmpt01/title/%08x/%08x/content/%08x.app", idHi,
+                         idLo, cId);
+            }
 
             CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteFile(fsaClient, const_cast<void *>(contents[i].data), contents[i].length, 1, fd, FSA_WRITE_FLAG_NONE) == 1);
+            CINS_TRY(FSAWriteAligned(fsaClient, fd, contents[i].data, cSize));
 
             FSACloseFile(fsaClient, fd);
+            fd = 0;
         }
     }
     ret = IOS_SUCCESS;
-    CINS_Log("Install succeeded!\n");
+    WUPI_Log("Install succeeded!\n");
 
 error:
-    FSACloseFile(fsaClient, fd);
+    if (fd > 0) FSACloseFile(fsaClient, fd);
     if (ret < 0) {
-        CINS_Log("Install failed, attempting to delete title...\n");
-        /* Installation failed in the final stages. Delete these to be sure
-         * there is no 'half installed' title lurking in the filesystem. */
-        FSARemove(fsaClient, titlePath);
+        WUPI_Log("Install failed, attempting to clean up partial content...\n");
+        /* Installation failed. We only delete the content directory to clean up
+         * partial installations, preserving the data directory and save data. */
+        char contentPath[CINS_PATH_LEN];
+        snprintf(contentPath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
+        FSARemove(fsaClient, contentPath);
         FSARemove(fsaClient, ticketPath);
     }
 
     return ret > 0 ? 0 : ret;
 }
+
+bool CINS_TitleExists(uint64_t titleId) {
+    uint32_t idHi = (uint32_t)(titleId >> 32);
+    uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
+
+    char titlePath[CINS_PATH_LEN];
+    char ticketPath[CINS_PATH_LEN];
+    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
+    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
+
+    FSStat stat;
+    bool titleExists = (FSAGetStat(fsaClient, titlePath, &stat) == FS_ERROR_OK);
+    bool ticketExists = (FSAGetStat(fsaClient, ticketPath, &stat) == FS_ERROR_OK);
+
+    return (titleExists || ticketExists);
+}
+
+bool CINS_UninstallTitle(uint64_t titleId) {
+    uint32_t idHi = (uint32_t)(titleId >> 32);
+    uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
+
+    char titlePath[CINS_PATH_LEN];
+    char ticketPath[CINS_PATH_LEN];
+    snprintf(titlePath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x", idHi, idLo);
+    snprintf(ticketPath, CINS_PATH_LEN, "/vol/slccmpt01/ticket/%08x/%08x.tik", idHi, idLo);
+
+    FSStat stat;
+    bool titleExists = (FSAGetStat(fsaClient, titlePath, &stat) == FS_ERROR_OK);
+    bool ticketExists = (FSAGetStat(fsaClient, ticketPath, &stat) == FS_ERROR_OK);
+
+    if (!titleExists && !ticketExists) {
+        return true;
+    }
+
+    bool ok = true;
+    if (titleExists) {
+        if (!FSARemoveTree(fsaClient, titlePath)) {
+            ok = false;
+        }
+    }
+    if (ticketExists) {
+        if (FSARemove(fsaClient, ticketPath) != FS_ERROR_OK) {
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+UninstallResult CINS_UninstallTitleResult(uint64_t titleId) {
+    if (!CINS_TitleExists(titleId)) {
+        return UninstallResult::NOT_PRESENT;
+    }
+    if (CINS_UninstallTitle(titleId)) {
+        return UninstallResult::SUCCESS;
+    }
+    return UninstallResult::FAILED;
+}
+

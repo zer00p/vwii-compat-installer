@@ -5,3 +5,5 @@ build
 *.wuhb
 *.zip
 .DS_Store
+testdata
+testdata/

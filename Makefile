@@ -32,7 +32,7 @@ include $(DEVKITPRO)/wut/share/wut_rules
 #-------------------------------------------------------------------------------
 TARGET		:=	compat_installer
 BUILD		:=	build
-SOURCES		:=	src
+SOURCES		:=	src src/wad_tools
 DATA		:=	data
 INCLUDES	:=	include
 CONTENT		:=
@@ -43,8 +43,7 @@ DRC_SPLASH	:=  meta/wuhb/drc-splash.png
 #-------------------------------------------------------------------------------
 # options for code generation
 #-------------------------------------------------------------------------------
-CFLAGS	:=	$(MACHDEP) $(INCLUDE) -Ofast -flto=auto -fno-fat-lto-objects \
-				-fuse-linker-plugin -fipa-pta -pipe \
+CFLAGS	:=	$(MACHDEP) $(INCLUDE) -Ofast -fipa-pta -pipe \
 				-Wall -Wextra -Wundef -Wshadow -Wpointer-arith \
 				-Wcast-align  \
 				-D__WIIU__ -D__WUT__ \
@@ -55,7 +54,7 @@ CXXFLAGS	:= -std=gnu++20 $(CFLAGS)
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-g $(ARCH) $(RPXSPECS) -Wl,-Map,$(notdir $*.map) -Wno-odr
 
-LIBS	:= -lwut -lmocha
+LIBS	:= -lmocha -lcurl -lbrotlidec -lbrotlicommon -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level
@@ -97,9 +96,10 @@ else
 endif
 #-------------------------------------------------------------------------------
 
-export OFILES	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
-					$(sFILES:.s=.o) $(SFILES:.S=.o) \
-					$(BINFILES:.bin=.o)
+export OFILES_SRC	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
+					$(sFILES:.s=.o) $(SFILES:.S=.o)
+export OFILES	:=	$(OFILES_SRC) \
+					$(patsubst %.pem,%.pem.o,$(patsubst %.bin,%.o,$(BINFILES)))
 export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
@@ -172,6 +172,8 @@ all	:	$(OUTPUT).wuhb
 
 $(OUTPUT).wuhb	:	$(OUTPUT).rpx
 $(OUTPUT).rpx	:	$(OUTPUT).elf
+	@powerpc-eabi-objcopy -R .note.GNU-stack $(OUTPUT).elf $(OUTPUT)_stripped.elf
+	@elf2rpl $(OUTPUT)_stripped.elf $(OUTPUT).rpx
 $(OUTPUT).elf	:	$(OFILES)
 
 $(OFILES_SRC)	: $(HFILES_BIN)
@@ -183,11 +185,16 @@ $(OFILES_SRC)	: $(HFILES_BIN)
 #-------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
+
+%.pem.o	%_pem.h :	%.pem
+#-------------------------------------------------------------------------------
+	@echo $(notdir $<)
+	@$(bin2o)
 #-------------------------------------------------------------------------------
 %.o %.bin.o : %.bin
 #-------------------------------------------------------------------------------
 	@echo $(notdir $<)
-	@bin2s -a 32 $< | $(AS) -o $(@)
+	@(bin2s -a 32 $< && echo) | $(AS) -o $(@)
 
 -include $(DEPENDS)
 

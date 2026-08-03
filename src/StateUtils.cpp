@@ -1,4 +1,5 @@
 #include "StateUtils.h"
+#include "ScreenUtils.h"
 #include <coreinit/core.h>
 #include <coreinit/dynload.h>
 #include <coreinit/foreground.h>
@@ -7,6 +8,8 @@
 #include <whb/proc.h>
 
 bool State::aroma = false;
+bool State::wasBackground = false;
+bool State::exiting = false;
 
 void State::init() {
     OSDynLoad_Module mod;
@@ -20,37 +23,66 @@ void State::init() {
 }
 
 bool State::AppRunning() {
+    if (exiting) return false;
+
     if (aroma) {
-        bool app = true;
-        if (OSIsMainCore()) {
+        if (!OSIsMainCore()) return true;
+
+        while (true) {
             switch (ProcUIProcessMessages(true)) {
                 case PROCUI_STATUS_EXITING:
                     // Being closed, prepare to exit
-                    app = false;
-                    break;
+                    exiting = true;
+                    return false;
                 case PROCUI_STATUS_RELEASE_FOREGROUND:
                     // Free up MEM1 to next foreground app, deinit screen, etc.
                     ProcUIDrawDoneRelease();
+                    wasBackground = true;
                     break;
                 case PROCUI_STATUS_IN_FOREGROUND:
-                    // Executed while app is in foreground
-                    app = true;
-                    break;
+                    // Re-enable screens and replay shadow buffer after returning from background
+                    if (wasBackground) {
+                        extern uint8_t *screen_buffer;
+                        OSScreenSetBufferEx(SCREEN_TV, screen_buffer);
+                        OSScreenSetBufferEx(SCREEN_DRC, screen_buffer + OSScreenGetBufferSizeEx(SCREEN_TV));
+                        ScreenUtils_Enable();
+                        ScreenUtils_Redraw();
+                        wasBackground = false;
+                    }
+                    return true;
                 case PROCUI_STATUS_IN_BACKGROUND:
+                    wasBackground = true;
                     OSSleepTicks(OSMillisecondsToTicks(20));
+                    break;
+                default:
                     break;
             }
         }
-
-        return app;
     }
-    return WHBProcIsRunning();
+    bool running = WHBProcIsRunning();
+    if (!running) {
+        exiting = true;
+    }
+    return running;
+}
+
+
+
+bool State::isExiting() {
+    return exiting;
 }
 
 void State::shutdown() {
-    if (!aroma) {
-        WHBProcShutdown();
+    if (aroma) {
+        // Do NOT call OSScreenShutdown() here. Under Aroma, the system has
+        // already reclaimed foreground memory (MEM1) by the time we reach this
+        // point, so any access to screen hardware will crash (invalid access
+        // in OSScreenEnableEx called internally by OSScreenShutdown).
+        ProcUIShutdown();
+    } else {
         OSScreenShutdown();
+        WHBProcShutdown();
+        // Note: WHBProcIsRunning() already called ProcUIShutdown() when the
+        // main loop exited, so we must NOT call it again here.
     }
-    ProcUIShutdown();
 }

@@ -61,6 +61,12 @@ bool Input::get(ButtonState state, Button button) const {
                 if (kpadClassicState & WPAD_CLASSIC_BUTTON_X) return true;
                 if (kpadProState & WPAD_PRO_BUTTON_X) return true;
                 break;
+            case PAD_BUTTON_Y:
+                if (vpadState & VPAD_BUTTON_Y) return true;
+                if (kpadState & WPAD_BUTTON_2) return true;
+                if (kpadClassicState & WPAD_CLASSIC_BUTTON_Y) return true;
+                if (kpadProState & WPAD_PRO_BUTTON_Y) return true;
+                break;
             case PAD_BUTTON_UP:
                 if (vpadState & VPAD_BUTTON_UP) return true;
                 if (vpadState & VPAD_STICK_L_EMULATION_UP) return true;
@@ -109,6 +115,18 @@ bool Input::get(ButtonState state, Button button) const {
                 if (kpadClassicState & WPAD_CLASSIC_BUTTON_R) return true;
                 if (kpadProState & WPAD_PRO_TRIGGER_R) return true;
                 break;
+            case PAD_BUTTON_PLUS:
+                if (vpadState & VPAD_BUTTON_PLUS) return true;
+                if (kpadState & WPAD_BUTTON_PLUS) return true;
+                if (kpadClassicState & WPAD_CLASSIC_BUTTON_PLUS) return true;
+                if (kpadProState & WPAD_PRO_BUTTON_PLUS) return true;
+                break;
+            case PAD_BUTTON_MINUS:
+                if (vpadState & VPAD_BUTTON_MINUS) return true;
+                if (kpadState & WPAD_BUTTON_MINUS) return true;
+                if (kpadClassicState & WPAD_CLASSIC_BUTTON_MINUS) return true;
+                if (kpadProState & WPAD_PRO_BUTTON_MINUS) return true;
+                break;
             case PAD_BUTTON_ANY:
                 if (vpadState) return true;
                 if (kpadState) return true;
@@ -117,5 +135,17 @@ bool Input::get(ButtonState state, Button button) const {
                 break;
         }
     }
+    return false;
+}
+
+bool Input::getHoldRepeat(Button button, int& timer) const {
+    if (this->get(TRIGGER, button)) {
+        timer = 0;
+        return true;
+    }
+    if (this->get(HOLD, button)) {
+        return (++timer > 20 && timer % 4 == 0);
+    }
+    timer = 0;
     return false;
 }

@@ -19,12 +19,25 @@ If everything is installed, run 'make release' and the output will be available 
 * FIX94, this repo is largely based off of wuphax.
 * @Ingunar on GitHub, for the awesome icons
 * TheLordScruffy/mkwcat, for the original Compat Title Installer
+* Xpl0itU (aka DaThinkingChair), for the WUT Port
+* mbedtls contributors, for the cryptography library used for WAD installation
+* Segher Boessenkool, BFGR, and libertyernie, for the WAD tools
+* WiiBrew contributors (wiibrew.org), for the invaluable documentation on the WAD file format and title structures
+* davebaol, xperia64, blackb0x / wiidev, and other contributors to d2x-cios-installer for the cIOS patching engine
+* leethomason/tinyxml2 for the tinyxml2 parsing library
+* The Open Shop Channel (oscwii.org) for their backend repository API used for downloading homebrew apps.
+* richgel999/miniz for the single-file ZIP extraction library.
+* Dr Clipper, ZRicky11, damysteryman, GaryOderNichts, and contributors for the Patched IOS installers and No Disc Drive patches.
+* Brawl345 for the USB Loader GX Boot2vWii Forwarder.
 
 ## License
 
 This software is licensed under the GNU General Public License version 2 (or any
 later version). The full license can be found in the LICENSE file.
 
-The Homebrew Channel is licensed under GPLv2 and is included in binary form. A
-copy of the source code is available at
+The Open Homebrew Channel (OHBC) by FIX94 is included in binary form, based on
+the original Homebrew Channel by Team Twiizers / fail0verflow (GPLv2). A copy of
+the source code is available at
 [fail0verflow/hbc](https://github.com/fail0verflow/hbc).
+
+The `mbedtls` library is dual-licensed under the Apache License 2.0 and GPLv2 (or any later version).
