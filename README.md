@@ -20,6 +20,7 @@ If everything is installed, run 'make release' and the output will be available 
 * @Ingunar on GitHub, for the awesome icons
 * TheLordScruffy/mkwcat, for the original Compat Title Installer
 * Xpl0itU (aka DaThinkingChair), for the WUT Port
+* zer00p, for v2.0 features
 * mbedtls contributors, for the cryptography library used for WAD installation
 * Segher Boessenkool, BFGR, and libertyernie, for the WAD tools
 * WiiBrew contributors (wiibrew.org), for the invaluable documentation on the WAD file format and title structures
