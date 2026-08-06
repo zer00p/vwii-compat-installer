@@ -1,7 +1,10 @@
 # Compat Title Installer
 
-Install a channel to the vWii Menu from Wii U Mode. In its current state, it
-simply installs the Homebrew Channel.
+All-in-one homebrew setup tool that lets you fully homebrew your vWii directly from the Wii U menu. It features an express installer to quickly get your vWii ready with the Homebrew Channel, USB Loader GX, d2x cIOS, WADs, and the Open Shop Channel (Homebrew Browser / LibreShop). 
+
+It doubles as a recovery tool, letting you reinstall system titles without worrying about update blocks. 
+
+Additionally, it includes optional experimental patches so you can use your vWii even if your console's disc drive is broken.
 
 ## Building
 
