@@ -7,6 +7,8 @@ public:
     static void shutdown();
 
     static bool isExiting();
+    static bool isInBackground();
+    static bool canDraw();
 
 private:
     static bool aroma;

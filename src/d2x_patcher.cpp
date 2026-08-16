@@ -284,6 +284,8 @@ void InstallD2X(const std::string& versionFolder) {
         sleep(2);
     }
     
+    if (!State::AppRunning()) return;
+
     WUPI_resetScreen();
     Patcher_Log("Installation process finished.\n\n");
     bool anyFailures = false;
@@ -355,6 +357,8 @@ bool UninstallD2X() {
         }
         sleep(1);
     }
+
+    if (!State::AppRunning()) return false;
 
     WUPI_resetScreen();
     Patcher_Log("Uninstallation process finished.\n\n");

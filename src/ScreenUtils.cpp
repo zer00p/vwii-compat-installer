@@ -16,7 +16,7 @@ static struct {
 } s_Shadow;
 
 void ScreenUtils_ClearBuffer(uint32_t color) {
-    if (State::isExiting()) return;
+    if (!State::canDraw()) return;
     s_Shadow.clearColor = color;
     for (int i = 0; i < SHADOW_MAX_ROWS; i++)
         s_Shadow.lines[i].text[0] = '\0';
@@ -25,7 +25,7 @@ void ScreenUtils_ClearBuffer(uint32_t color) {
 }
 
 void ScreenUtils_PutFont(uint32_t x, uint32_t y, const char *str) {
-    if (State::isExiting()) return;
+    if (!State::canDraw()) return;
     if (y < SHADOW_MAX_ROWS) {
         s_Shadow.lines[y].x = x;
         strncpy(s_Shadow.lines[y].text, str, SHADOW_MAX_COLS - 1);
@@ -36,7 +36,7 @@ void ScreenUtils_PutFont(uint32_t x, uint32_t y, const char *str) {
 }
 
 void ScreenUtils_FlipBuffers() {
-    if (State::isExiting()) return;
+    if (!State::canDraw()) return;
     OSScreenFlipBuffersEx(SCREEN_TV);
     OSScreenFlipBuffersEx(SCREEN_DRC);
 }
@@ -55,7 +55,7 @@ void ScreenUtils_ClearBothBuffers() {
 }
 
 void ScreenUtils_Redraw() {
-    if (State::isExiting()) return;
+    if (!State::canDraw()) return;
     /* Replay the shadow to both back-buffers (raw calls to avoid re-recording). */
     for (int pass = 0; pass < 2; pass++) {
         OSScreenClearBufferEx(SCREEN_TV, s_Shadow.clearColor);
@@ -72,7 +72,7 @@ void ScreenUtils_Redraw() {
 }
 
 void ScreenUtils_ScrollUp() {
-    if (State::isExiting()) return;
+    if (!State::canDraw()) return;
     for (int i = 1; i < SHADOW_MAX_ROWS; i++) {
         s_Shadow.lines[i - 1].x = s_Shadow.lines[i].x;
         strncpy(s_Shadow.lines[i - 1].text, s_Shadow.lines[i].text, SHADOW_MAX_COLS);

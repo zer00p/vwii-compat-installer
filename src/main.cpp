@@ -49,6 +49,7 @@
 #include "drive_inquiry_patcher.h"
 #include "MenuUtils.h"
 #include "downloader.h"
+#include "setting_manager.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -186,6 +187,7 @@ void WUPI_installWAD() {
     int failCount = 0;
 
     for (const auto& wadPath : selectedWads) {
+        if (!State::AppRunning()) break;
         WUPI_Log("Installing (%d/%d):", successCount + failCount + 1, (int)selectedWads.size());
 
         const char* filename = strrchr(wadPath.c_str(), '/');
@@ -227,6 +229,8 @@ void WUPI_installWAD() {
             }
         }
     }
+
+    if (!State::AppRunning()) return;
 
     WUPI_resetScreen();
     WUPI_Log("Batch Install Complete!");
@@ -281,6 +285,7 @@ void WUPI_openShopChannelMenu() {
     int failCount = 0;
 
     for (int idx : selected) {
+        if (!State::AppRunning()) break;
         WUPI_Log("Downloading (%d/%d):", successCount + failCount + 1, (int)selected.size());
         WUPI_Log("%s\n", options[idx].c_str());
 
@@ -295,6 +300,8 @@ void WUPI_openShopChannelMenu() {
             }
         }
     }
+
+    if (!State::AppRunning()) return;
 
     WUPI_resetScreen();
     WUPI_Log("Batch Download Complete!\n");
@@ -547,6 +554,7 @@ void WUPI_NusMenu() {
         int failCount = 0;
 
         for (int selected : selected_items) {
+            if (!State::AppRunning()) break;
             if (selected >= 0 && selected < (int)(sizeof(g_nusTitles) / sizeof(g_nusTitles[0]))) {
                 uint64_t titleId = g_nusTitles[selected].id;
                 WUPI_Log("--- Processing %s (%d/%d) ---", g_nusTitles[selected].name, successCount + failCount + 1, (int)selected_items.size());
@@ -607,6 +615,8 @@ void WUPI_NusMenu() {
                 }
             }
         }
+
+        if (!State::AppRunning()) break;
 
         WUPI_resetScreen();
         WUPI_Log("Batch Complete!\n");
@@ -768,6 +778,8 @@ void WUPI_expressSetupInstall() {
             if (!WaitPrompt()) break;
         }
     }
+
+    if (!State::AppRunning()) return;
 
     WUPI_resetScreen();
     WUPI_Log("=========================================");
@@ -983,6 +995,8 @@ void WUPI_expressSetupUninstall() {
             if (!WaitPrompt()) break;
         }
     }
+
+    if (!State::AppRunning()) return;
 
     WUPI_resetScreen();
     WUPI_Log("=========================================");

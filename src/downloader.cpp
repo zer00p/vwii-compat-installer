@@ -1,5 +1,6 @@
 #include "downloader.h"
 #include "FSAUtils.h"
+#include "StateUtils.h"
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <malloc.h>
@@ -9,6 +10,13 @@
 #include "log.h"
 #include <coreinit/filesystem_fsa.h>
 #include "cacert_pem.h"
+
+static int CurlProgressCallback(void *, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    if (!State::AppRunning() || State::isExiting()) {
+        return 1;
+    }
+    return 0;
+}
 
 static void SetCurlCACert(CURL *curl_handle) {
     curl_blob blob;
@@ -85,6 +93,8 @@ bool DownloadAndExtractApp(const std::string& appId) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
+    curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
     SetCurlCACert(curl_handle);
 
     std::string fetchMsg = "Fetching " + appId + ".zip...";
@@ -187,6 +197,8 @@ bool DownloadToMemory(const std::string& url, uint8_t** outData, size_t* outSize
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
+    curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
     SetCurlCACert(curl_handle);
 
     CURLcode res = curl_easy_perform(curl_handle);
@@ -238,6 +250,8 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
+    curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
     SetCurlCACert(curl_handle);
 
     CURLcode res = curl_easy_perform(curl_handle);

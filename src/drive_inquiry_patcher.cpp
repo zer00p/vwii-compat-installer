@@ -13,6 +13,7 @@
 #include "log.h"
 #include "wad.h"
 #include "downloader.h"
+#include "StateUtils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -142,12 +143,15 @@ void InstallDrivePatchAll() {
 
     int successCount = 0;
     for (int idx : selected_items) {
+        if (!State::AppRunning()) break;
         Patcher_Log("=========================================");
         if (PatchAndInstallIOS(TARGET_IOS[idx])) {
             successCount++;
         }
         Patcher_Log("");
     }
+
+    if (!State::AppRunning()) return;
 
     Patcher_Log("Completed. Successfully patched " + std::to_string(successCount) + "/" + std::to_string(selected_items.size()) + " IOSes.");
     Patcher_Log("");
@@ -267,7 +271,8 @@ void UndoDrivePatchAll() {
     methodOptions.push_back("Cancel");
 
     int choice = ShowMenu(methodHeader, methodOptions);
-    if (choice == (int)methodOptions.size() - 1) {
+    if (choice == -1 || choice == (int)methodOptions.size() - 1) {
+        if (!State::AppRunning()) return;
         WUPI_resetScreen();
         Patcher_Log("IOS unpatching cancelled.");
         Patcher_Log("");
@@ -282,6 +287,7 @@ void UndoDrivePatchAll() {
     int successCount = 0;
 
     for (int idx : selected_items) {
+        if (!State::AppRunning()) break;
         uint32_t ios_ver = TARGET_IOS[idx];
         Patcher_Log("=========================================");
         Patcher_Log("Restoring IOS" + std::to_string(ios_ver) + "...");
@@ -293,6 +299,8 @@ void UndoDrivePatchAll() {
         }
     }
 
+    if (!State::AppRunning()) return;
+
     Patcher_Log("=========================================");
     Patcher_Log("Completed. Successfully restored " + std::to_string(successCount) + "/" + std::to_string(selected_items.size()) + " IOSes.");
     Patcher_Log("");
@@ -302,6 +310,7 @@ void UndoDrivePatchAll() {
 bool UndoDrivePatchAllBatch() {
     int successCount = 0;
     for (int i = 0; i < NUM_TARGET_IOS; i++) {
+        if (!State::AppRunning()) break;
         uint32_t ios_ver = TARGET_IOS[i];
         Patcher_Log("=========================================");
         Patcher_Log("Restoring IOS" + std::to_string(ios_ver) + "...");
@@ -312,4 +321,3 @@ bool UndoDrivePatchAllBatch() {
 
     return successCount == NUM_TARGET_IOS;
 }
-

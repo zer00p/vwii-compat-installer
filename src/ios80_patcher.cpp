@@ -17,6 +17,7 @@
 #include "EndianUtils.h"
 #include "log.h"
 #include "wad.h"
+#include "StateUtils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -260,7 +261,8 @@ void UndoIOS80Patches() {
     WUPI_resetScreen();
 
     int choice = ShowMenu(header, options);
-    if (choice == (int)options.size() - 1) {
+    if (choice == -1 || choice == (int)options.size() - 1) {
+        if (!State::AppRunning()) return;
         WUPI_resetScreen();
         Patcher_Log("IOS80 unpatching cancelled.");
         Patcher_Log("");
