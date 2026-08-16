@@ -2,7 +2,7 @@
 
 All-in-one homebrew setup tool that lets you fully homebrew your vWii directly from the Wii U menu. It features an express installer to quickly get your vWii ready with the Homebrew Channel, USB Loader GX, d2x cIOS, WADs, and the Open Shop Channel (Homebrew Browser / LibreShop). 
 
-It doubles as a recovery tool, letting you reinstall system titles without worrying about update blocks. 
+It doubles as a recovery tool, letting you reinstall system titles without worrying about update blocks, and regenerate or modify the vWii `setting.txt` directly from Wii U mode.
 
 Additionally, it includes optional experimental patches so you can use your vWii even if your console's disc drive is broken.
 
@@ -32,6 +32,7 @@ If everything is installed, run 'make release' and the output will be available 
 * The Open Shop Channel (oscwii.org) for their backend repository API used for downloading homebrew apps.
 * richgel999/miniz for the single-file ZIP extraction library.
 * Dr Clipper, ZRicky11, damysteryman, GaryOderNichts, and contributors for the Patched IOS installers and No Disc Drive patches.
+* GaryOderNichts for vWii-Decaffeinator and the `setting.txt` generation logic.
 * Brawl345 for the USB Loader GX Boot2vWii Forwarder.
 
 ## License

@@ -1,5 +1,6 @@
 #include "ios_common.h"
 #include "installer.h"
+#include "FSAUtils.h"
 #include "log.h"
 #include "EndianUtils.h"
 #include <mbedtls/sha1.h>
@@ -294,23 +295,7 @@ void RemoveBackupFiles(uint32_t ios) {
 }
 
 bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size) {
-    FSAFileHandle fd;
-    if (FSAOpenFileEx(fsaClient, path.c_str(), "wb", (FSMode)0666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        return false;
-    }
-
-    uint8_t* alignedBuf = (uint8_t*)memalign(0x40, (size + 0x3F) & ~0x3F);
-    if (!alignedBuf) {
-        FSACloseFile(fsaClient, fd);
-        return false;
-    }
-    memcpy(alignedBuf, buf, size);
-
-    int writeRes = FSAWriteFile(fsaClient, alignedBuf, 1, size, fd, FSA_WRITE_FLAG_NONE);
-    free(alignedBuf);
-    FSACloseFile(fsaClient, fd);
-
-    return writeRes == (int)size;
+    return FSACreateFileWithOwner(fsaClient, path.c_str(), buf, size, STOCK_MODE_SYSTEM_FILE, 0, 0);
 }
 
 std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {

@@ -21,3 +21,34 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 ## Workspace Clutter and Temporary Files
 - Any test scripts, investigation scripts, or temporary data generated during problem-solving should be placed inside `testdata/scripts/` or `testdata/tmp/` to avoid cluttering the project root.
 - The `testdata/` folder is ignored in `.gitignore`, ensuring that ephemeral exploration files do not get committed. Do not leave scripts in the root directory.
+
+## C++ Code Conventions
+- **Prefer Modern C++ Strings**: Prefer `std::string` and `const std::string&` over raw C-strings (`char*`, `char[]`) and fixed-size buffers for path manipulation and string handling wherever reasonable. For path parameters that will be passed down to C filesystem APIs, use `const std::string&` so callers can pass `std::string`, string literals, or C-strings and `.c_str()` is readily available without manual conversion.
+- **Packed Structures**: Use `struct __attribute__((packed)) Name { ... };` with `static_assert(sizeof(Name) == ...)` for binary on-disk structures to match GCC/devkitPro conventions across the codebase.
+
+## vWii setting.txt Rules
+- **Supported Regions**: There is no Korean (KOR) vWii / Wii U. The only valid vWii regions are Europe (`EUR`), USA (`USA`), and Japan (`JPN`).
+
+## vWii SLCCMPT Filesystem (SFFS / ISFS) Ownership and Permissions
+> **Full Reference Documentation**: See [docs/SLCCMPT_PERMISSIONS.md](docs/SLCCMPT_PERMISSIONS.md) for the complete permission matrix, SFFS mode byte layout, and architecture details.
+
+- **Cafe OS Process Default Ownership**: When files/directories are created via Cafe OS FSA over `/dev/fsa`, the IOSU kernel stamps them with Cafe OS process credentials (`UID 0x10050000` / `268755456`, `GID 1024`) and default umask `mode = 0xc1` (`rw-------`, Owner only).
+- **vWii Access Lockout**: In vWii mode, the System Menu runs with `UID = 4096` (`0x1000`) and IOS runs with `UID = 0`. If files have `0xc1` mode and `UID 0x10050000`, vWii treats them as "Other", gets `ACCESS_DENIED` (`-102`), and black-screens.
+- **Stock Ownership and Modes**:
+  - System tickets (`/ticket/00000001/*.tik`), system TMDs, system `.app` files, shared `.app` files (`/shared1/*.app`), `content.map`, and `/sys/uid.sys` are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf1` (`rw-rw----`).
+  - Directories (`/title`, `/title/<idHi>`, `/title/<idHi>/<idLo>`, `/content`, `/shared1`, `/sys`) are owned by **`UID = 0`**, **`GID = 0`**.
+  - Title data directories (`/title/<idHi>/<idLo>/data`) are owned by the title's allocated Title UID and TMD Group ID (`0xc2` mode, `STOCK_MODE_DATA_DIR`).
+  - `setting.txt` (`/title/00000001/00000002/data/setting.txt`) is owned by **`UID = 4096`**, **`GID = 1`** with mode `0x55` (read-only for all).
+- **Changing Ownership via IPC (`FSA_ChangeOwner`)**:
+  - `FSA_ChangeOwner` sends raw IOSU ioctl `0x70` (`FSA_COMMAND_CHANGE_OWNER`) with `FSARequest` / `FSAResponse` (`0x40` aligned).
+  - **Permission Modes**: Use predefined stock mode constants (`STOCK_MODE_SETTING_TXT`, `STOCK_MODE_SYSTEM_FILE`, `STOCK_MODE_SYSTEM_DIR`, `STOCK_MODE_CONTENT_DIR`, `STOCK_MODE_DATA_DIR`, `STOCK_MODE_TICKET_SUBDIR`).
+  - **Directory Chown Timing (While Empty)**: A directory can ONLY have its owner changed while it is **STILL EMPTY** (immediately following `FSAMakeDir`). If child files or subdirectories are created inside a directory first, `FSA_ChangeOwner` on the directory fails with `FS_ERROR_NOT_EMPTY` (`-196632`).
+  - **File Chown Timing (0 Bytes / Empty)**: A file can ONLY have its owner changed while it is **0 BYTES (EMPTY)**. If data is written to the file first, `FSA_ChangeOwner` fails with `FS_ERROR_NOT_EMPTY` (`-196632`). Always use the `FSACreateFileWithOwner(...)` helper.
+- **Title UID and Group Allocation (`/sys/uid.sys`)**:
+  - `/sys/uid.sys` stores a packed binary table of 12-byte entries (`struct __attribute__((packed)) RawUidEntry { uint64_t titleId; uint32_t uid; };`).
+  - UID `4096` (`0x1000`) is always reserved for the System Menu (`0000000100000002`).
+  - When installing a title, `UID_GetOrCreate` searches `/sys/uid.sys` for an existing registration, or appends a new UID allocation (`max_uid + 1`).
+  - TMD Group ID (offset `0x98` in TMD payload) provides the GID (`1` for System/IOS, `12337` / `'01'` for channels).
+  - Titles run unprivileged in user mode and cannot create `/data` or chown directories themselves; installers MUST create the `/data` directory and register the title in `/sys/uid.sys` during title installation for save data persistence.
+
+

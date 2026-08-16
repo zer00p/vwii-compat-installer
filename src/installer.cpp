@@ -18,6 +18,7 @@
 
 #include "installer.h"
 #include "FSAUtils.h"
+#include "uid_sys.h"
 #include "log.h"
 #include <coreinit/filesystem_fsa.h>
 #include <stdio.h>
@@ -88,12 +89,17 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
 
-    FSAMakeDir(fsaClient, "/vol/slccmpt01/shared1", (FSMode) 0x666);
+    FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/shared1", STOCK_MODE_CONTENT_DIR, 0, 0);
 
-    if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        if (FSAOpenFileEx(fsaClient, path, "w+", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+    if (FSAOpenFileEx(fsaClient, path, "r+", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        if (FSAOpenFileEx(fsaClient, path, "w+", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
             WUPI_Log("Failed to open content.map\n");
             return -1;
+        }
+        FSError mRes = FSAChangeMode(fsaClient, path, STOCK_MODE_SYSTEM_FILE);
+        FSError oRes = FSA_ChangeOwner(fsaClient, path, 0, 0);
+        if (mRes != FS_ERROR_OK || oRes != FS_ERROR_OK) {
+            WUPI_Log("Warning: content.map mode/owner (m=%d, o=%d)\n", mRes, oRes);
         }
     }
 
@@ -108,60 +114,49 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
 
     while (true) {
         int readRes = FSAReadFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
-        if (readRes != 1) {
+        if (readRes <= 0) {
             break;
         }
 
-        bool isZero = true;
-        for (int i = 0; i < 20; i++) {
-            if (entry->hash[i] != 0) {
-                isZero = false;
-                break;
-            }
-        }
-
-        if (isZero && freeIndex == -1) {
+        if (freeIndex < 0 && entry->name[0] == '\0') {
             freeIndex = currentIndex;
         }
 
         currentIndex++;
     }
 
-    if (freeIndex != -1) {
-        currentIndex = freeIndex;
+    if (freeIndex < 0) {
+        freeIndex = currentIndex;
     }
 
-    memset(entry, 0, sizeof(content_map_entry));
-    std::format_to_n(entry->name, sizeof(entry->name), "{:08x}", currentIndex);
+    std::format_to_n(entry->name, sizeof(entry->name), "{:08x}", freeIndex);
     memcpy(entry->hash, expectedHash, 20);
 
-    FSError setPosRes = FSASetPosFile(fsaClient, fd, currentIndex * sizeof(content_map_entry));
+    FSError setPosRes = FSASetPosFile(fsaClient, fd, freeIndex * sizeof(content_map_entry));
     if (setPosRes != FS_ERROR_OK) {
-        WUPI_Log("Failed to set pos in content.map, res: %d\n", setPosRes);
-        FSACloseFile(fsaClient, fd);
+        WUPI_Log("Failed to set pos in content.map\n");
         free(entry);
+        FSACloseFile(fsaClient, fd);
         return -1;
     }
 
-    int writeRes = FSAWriteFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, FSA_WRITE_FLAG_NONE);
-    if (writeRes != 1) {
-        WUPI_Log("Failed to write to content.map, res: %d\n", writeRes);
-        FSACloseFile(fsaClient, fd);
-        free(entry);
-        return -1;
-    }
-
-    FSACloseFile(fsaClient, fd);
+    int writeRes = FSAWriteFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
     free(entry);
-    return currentIndex;
+    FSACloseFile(fsaClient, fd);
+
+    if (writeRes <= 0) {
+        WUPI_Log("Failed to write to content.map\n");
+        return -1;
+    }
+
+    return freeIndex;
 }
 
 int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
                      uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents) {
+    FSError ret = FS_ERROR_OK;
 
-    FSError ret = FS_ERROR_NOT_INIT;
-    FSAFileHandle fd = 0;
     char path[CINS_PATH_LEN], pathd[CINS_PATH_LEN];
     char titlePath[CINS_PATH_LEN], ticketPath[CINS_PATH_LEN],
             ticketFolder[CINS_PATH_LEN];
@@ -180,15 +175,10 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
     WUPI_Log("Writing ticket...\n");
     {
-        FSARemove(fsaClient, ticketPath);
-
-        ret = FSAMakeDir(fsaClient, ticketFolder, (FSMode) 0x666);
+        EnsureFSADir(fsaClient, "/vol/slccmpt01/ticket");
+        ret = FSAMakeDirWithOwner(fsaClient, ticketFolder, STOCK_MODE_TICKET_SUBDIR, 0, 0);
         if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
-            CINS_TRY(FSAOpenFileEx(fsaClient, ticketPath, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteAligned(fsaClient, fd, ticket, ticket_size));
-
-            FSACloseFile(fsaClient, fd);
-
+            CINS_TRY(FSACreateFileWithOwner(fsaClient, ticketPath, ticket, ticket_size, STOCK_MODE_SYSTEM_FILE, 0, 0));
             ret = FS_ERROR_OK;
         }
 
@@ -200,9 +190,10 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         /* Create the title directory if it doesn't already exist. The first
          * word (type) should exist, but the second one (the unique title)
          * shouldn't unless there is save data. */
-        ret = FSAMakeDir(fsaClient, path, (FSMode) 0x666);
+        EnsureFSADir(fsaClient, "/vol/slccmpt01/title");
+        ret = FSAMakeDirWithOwner(fsaClient, path, STOCK_MODE_SYSTEM_DIR, 0, 0);
         if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
-            ret = FSAMakeDir(fsaClient, titlePath, (FSMode) 0x666);
+            ret = FSAMakeDirWithOwner(fsaClient, titlePath, STOCK_MODE_SYSTEM_DIR, 0, 0);
             if (ret == FS_ERROR_ALREADY_EXISTS) {
                 /* The title is already installed, delete content but preserve
                  * the data directory. */
@@ -218,12 +209,13 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
         CINS_TRY(ret == FS_ERROR_OK); // ret == 0
 
-        /* This directory is necessary for the Wii Menu to function
-         * correctly, but also don't overwrite any data that might already
-         * exist. */
+        /* Ensure the title's data directory exists with correct Title UID and TMD Group ID */
+        uint16_t groupId = Read16BE((const uint8_t*)tmd + tmdPayloadOffset + 0x98);
+        uint32_t titleUid = UID_GetOrCreate(fsaClient, titleId);
+
         strncpy(pathd, titlePath, CINS_PATH_LEN);
         strncat(pathd, "/data", CINS_PATH_LEN - 1);
-        ret = FSAMakeDir(fsaClient, pathd, (FSMode) 0x666);
+        ret = FSAMakeDirWithOwner(fsaClient, pathd, STOCK_MODE_DATA_DIR, titleUid, groupId);
         if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
             WUPI_Log("Failed to create the data directory, ret = %d\n", ret);
             goto error;
@@ -231,7 +223,11 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
         strncpy(pathd, titlePath, CINS_PATH_LEN);
         strncat(pathd, "/content", CINS_PATH_LEN - 1);
-        CINS_TRY(FSAMakeDir(fsaClient, pathd, (FSMode) 0x666) == FS_ERROR_OK);
+        ret = FSAMakeDirWithOwner(fsaClient, pathd, STOCK_MODE_CONTENT_DIR, 0, 0);
+        if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
+            WUPI_Log("Failed to create the content directory, ret = %d\n", ret);
+            goto error;
+        }
     }
 
     WUPI_Log("Writing TMD...\n");
@@ -240,11 +236,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         strncpy(path, pathd, CINS_PATH_LEN);
         strncat(path, "/title.tmd", CINS_PATH_LEN - 1);
 
-        CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-        CINS_TRY(FSAWriteAligned(fsaClient, fd, tmd, tmd_size));
-
-        FSACloseFile(fsaClient, fd);
-        fd = 0;
+        CINS_TRY(FSACreateFileWithOwner(fsaClient, path, tmd, tmd_size, STOCK_MODE_SYSTEM_FILE, 0, 0));
     }
 
     WUPI_Log("Writing contents...\n");
@@ -266,7 +258,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
                          "/vol/slccmpt01/shared1/%08x.app", sharedIndex);
 
                 FSAFileHandle testFd;
-                if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+                if (FSAOpenFileEx(fsaClient, path, "r", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
                     bool matches = true;
                     const uint32_t chunkSize = 64 * 1024;
                     void* chunkBuf = memalign(0x40, chunkSize);
@@ -315,18 +307,14 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
                          idLo, cId);
             }
 
-            CINS_TRY(FSAOpenFileEx(fsaClient, path, "wb", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK);
-            CINS_TRY(FSAWriteAligned(fsaClient, fd, contents[i].data, cSize));
-
-            FSACloseFile(fsaClient, fd);
-            fd = 0;
+            EnsureFSAParentDir(fsaClient, path);
+            CINS_TRY(FSACreateFileWithOwner(fsaClient, path, contents[i].data, cSize, STOCK_MODE_SYSTEM_FILE, 0, 0));
         }
     }
     ret = IOS_SUCCESS;
     WUPI_Log("Install succeeded!\n");
 
 error:
-    if (fd > 0) FSACloseFile(fsaClient, fd);
     if (ret < 0) {
         WUPI_Log("Install failed, attempting to clean up partial content...\n");
         /* Installation failed. We only delete the content directory to clean up

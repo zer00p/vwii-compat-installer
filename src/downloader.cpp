@@ -144,10 +144,9 @@ bool DownloadAndExtractApp(const std::string& appId) {
         std::string outPath = std::string("/vol/external01/") + file_stat.m_filename;
         
         if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
-            EnsureFSADirectory(fsaClient, outPath.c_str());
-            FSAMakeDir(fsaClient, outPath.c_str(), (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER | FS_MODE_EXEC_OWNER));
+            EnsureFSADir(fsaClient, outPath);
         } else {
-            EnsureFSADirectory(fsaClient, outPath.c_str());
+            EnsureFSAParentDir(fsaClient, outPath);
             
             size_t uncomp_size;
             void* p = mz_zip_reader_extract_file_to_heap(&zip_archive, file_stat.m_filename, &uncomp_size, 0);
@@ -279,7 +278,7 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
 
     ShowDownloadStatus("Saving file...");
 
-    EnsureFSADirectory(fsaClient, outPath.c_str());
+    EnsureFSAParentDir(fsaClient, outPath);
     FSAFileHandle fd = 0;
     bool success = false;
     if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {

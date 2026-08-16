@@ -49,7 +49,8 @@
 #include "drive_inquiry_patcher.h"
 #include "MenuUtils.h"
 #include "downloader.h"
-#include "setting_manager.h"
+#include "settingtxt_manager.h"
+#include "settingtxt_menu.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -436,46 +437,8 @@ void WUPI_usbLoaderGXMenu() {
     WUPI_waitButton();
 }
 
-// Decryption logic documented at: https://wiibrew.org/wiki//title/00000001/00000002/data/setting.txt
-void DecryptSettingTxt(char* buf, size_t len) {
-    uint32_t key = 0x73B5DBFA;
-    for (size_t i = 0; i < len; i++) {
-        buf[i] ^= key & 0xff;
-        key = (key << 1) | (key >> 31);
-    }
-}
-
 int32_t GetVWiiRegion() {
-    FSAFileHandle fd = 0;
-    int openRes = FSAOpenFileEx(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data/setting.txt", "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd);
-    if (openRes == FS_ERROR_OK) {
-        char* alignBuf = (char*)memalign(0x40, 2048);
-        if (alignBuf) {
-            memset(alignBuf, 0, 2048);
-            int res = FSAReadFile(fsaClient, alignBuf, 1, 1024, fd, 0);
-            FSACloseFile(fsaClient, fd);
-            if (res > 0) {
-                DecryptSettingTxt(alignBuf, res);
-                std::string settings(alignBuf, res);
-                free(alignBuf);
-                if (settings.find("AREA=EUR") != std::string::npos) return 2;
-                if (settings.find("AREA=USA") != std::string::npos) return 1;
-                if (settings.find("AREA=JPN") != std::string::npos) return 0;
-                // There is no Korean vWii System Menu, but keeping a fallback just in case
-                if (settings.find("AREA=KOR") != std::string::npos) return 3;
-                WUPI_Log("Setting.txt opened, but AREA= string not found!\n");
-            } else {
-                WUPI_Log("Failed to read setting.txt, res: %d\n", res);
-                free(alignBuf);
-            }
-        } else {
-            WUPI_Log("Failed to allocate memory for setting.txt\n");
-            FSACloseFile(fsaClient, fd);
-        }
-    } else {
-        WUPI_Log("Failed to open setting.txt, error: %d\n", openRes);
-    }
-    return -1;
+    return Setting_GetEffectiveRegionCode();
 }
 
 struct NusTitle {
@@ -1051,10 +1014,11 @@ void WUPI_showCredits() {
         "Team Twiizers / fail0verflow - Original HBC",
         "(dhewg, bushing, marcan, segher & others)",
         "",
-        "-- IOS Patchers --",
+        "-- IOS Patchers & Tools --",
         "Dr Clipper, ZRicky11, FIX94,",
         "damysteryman, GaryOderNichts",
         "& Patched IOS Installer contributors",
+        "GaryOderNichts - vWii-Decaffeinator (setting.txt generation)",
         "",
         "-- d2x cIOS --",
         "davebaol, xperia64, blackb0x / wiidev",
@@ -1127,6 +1091,7 @@ int main() {
             "Open Shop Channel",
             "USB Loader GX",
             "Download System Titles (NUS)",
+            "Manage setting.txt",
             "Express Uninstall",
             "Credits"
         };
@@ -1153,8 +1118,10 @@ int main() {
             } else if (selected == 6) {
                 WUPI_NusMenu();
             } else if (selected == 7) {
-                WUPI_expressSetupUninstall();
+                WUPI_settingTxtMenu();
             } else if (selected == 8) {
+                WUPI_expressSetupUninstall();
+            } else if (selected == 9) {
                 WUPI_showCredits();
             } else if (selected == -1) {
                 break;
