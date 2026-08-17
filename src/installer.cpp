@@ -41,12 +41,7 @@
 
 extern FSAClientHandle fsaClient;
 
-struct __attribute__((packed)) content_map_entry {
-    char name[8];
-    uint8_t hash[20];
-};
-
-int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
+int32_t FindSharedContentIndex(const Sha1Hash& expectedHash) {
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
 
@@ -54,7 +49,7 @@ int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
         return -1;
     }
 
-    content_map_entry* entry = (content_map_entry*)memalign(0x40, sizeof(content_map_entry));
+    ContentMapEntry* entry = (ContentMapEntry*)memalign(0x40, sizeof(ContentMapEntry));
     if (!entry) {
         FSACloseFile(fsaClient, fd);
         return -1;
@@ -62,12 +57,12 @@ int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
 
     int32_t currentIndex = 0;
     while (true) {
-        int readRes = FSAReadFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
+        int readRes = FSAReadFile(fsaClient, entry, sizeof(ContentMapEntry), 1, fd, 0);
         if (readRes != 1) {
             break;
         }
 
-        if (memcmp(entry->hash, expectedHash, 20) == 0) {
+        if (entry->hash == expectedHash) {
             FSACloseFile(fsaClient, fd);
             free(entry);
             return currentIndex;
@@ -78,6 +73,11 @@ int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
     FSACloseFile(fsaClient, fd);
     free(entry);
     return -1;
+}
+
+int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
+    if (!expectedHash) return -1;
+    return FindSharedContentIndex(*reinterpret_cast<const Sha1Hash*>(expectedHash));
 }
 
 static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
@@ -103,7 +103,7 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
         }
     }
 
-    content_map_entry* entry = (content_map_entry*)memalign(0x40, sizeof(content_map_entry));
+    ContentMapEntry* entry = (ContentMapEntry*)memalign(0x40, sizeof(ContentMapEntry));
     if (!entry) {
         FSACloseFile(fsaClient, fd);
         return -1;
@@ -113,7 +113,7 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     int32_t currentIndex = 0;
 
     while (true) {
-        int readRes = FSAReadFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
+        int readRes = FSAReadFile(fsaClient, entry, sizeof(ContentMapEntry), 1, fd, 0);
         if (readRes <= 0) {
             break;
         }
@@ -130,9 +130,9 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     }
 
     std::format_to_n(entry->name, sizeof(entry->name), "{:08x}", freeIndex);
-    memcpy(entry->hash, expectedHash, 20);
+    memcpy(entry->hash.data(), expectedHash, 20);
 
-    FSError setPosRes = FSASetPosFile(fsaClient, fd, freeIndex * sizeof(content_map_entry));
+    FSError setPosRes = FSASetPosFile(fsaClient, fd, freeIndex * sizeof(ContentMapEntry));
     if (setPosRes != FS_ERROR_OK) {
         WUPI_Log("Failed to set pos in content.map\n");
         free(entry);
@@ -140,7 +140,7 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
         return -1;
     }
 
-    int writeRes = FSAWriteFile(fsaClient, entry, sizeof(content_map_entry), 1, fd, 0);
+    int writeRes = FSAWriteFile(fsaClient, entry, sizeof(ContentMapEntry), 1, fd, 0);
     free(entry);
     FSACloseFile(fsaClient, fd);
 

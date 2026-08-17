@@ -82,6 +82,12 @@ void WAD_Free(WADContext* ctx);
 // Returns true on success, false on failure.
 bool WAD_InstallToVWii(WADContext* ctx, int fsaFd);
 
+// Validates safety and installs WADContext to vWii. Returns true on success, false on failure.
+bool WAD_InstallSafe(WADContext* ctx);
+
+// Downloads title from NUS, validates safety, installs to vWii, and frees context.
+bool NUS_DownloadAndInstall(uint64_t titleId, int32_t version);
+
 // Check if the given Title ID is a safe title type (blocks System Menu and critical IOS).
 bool WAD_IsSafeTitle(WADContext* ctx);
 

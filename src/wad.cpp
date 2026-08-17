@@ -164,6 +164,29 @@ bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
                         ctx->numContents) == 0;
 }
 
+bool WAD_InstallSafe(WADContext* ctx) {
+    if (!ctx) {
+        WUPI_Log("Error: Invalid WAD context.\n");
+        return false;
+    }
+    if (!WAD_IsSafeTitle(ctx)) {
+        WUPI_Log("Error: Unsafe title. Aborting installation.\n");
+        return false;
+    }
+    return WAD_InstallToVWii(ctx, 0);
+}
+
+bool NUS_DownloadAndInstall(uint64_t titleId, int32_t version) {
+    WADContext* ctx = NUS_DownloadTitle(titleId, version);
+    if (!ctx) {
+        WUPI_Log("Error: Failed to download title from NUS.\n");
+        return false;
+    }
+    bool result = WAD_InstallSafe(ctx);
+    WAD_Free(ctx);
+    return result;
+}
+
 int32_t NUS_GetLatestVersion(uint64_t titleId) {
     uint64_t fetchTitleId = titleId;
 

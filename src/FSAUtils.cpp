@@ -200,3 +200,44 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
 
     return writeOk;
 }
+
+extern FSAClientHandle fsaClient;
+
+bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize) {
+    if (!outBuf || !outSize) return false;
+    *outBuf = nullptr;
+    *outSize = 0;
+
+    FSAFileHandle fd = 0;
+    if (FSAOpenFileEx(fsaClient, path.c_str(), "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        return false;
+    }
+
+    FSStat stat;
+    if (FSAGetStatFile(fsaClient, fd, &stat) != FS_ERROR_OK) {
+        FSACloseFile(fsaClient, fd);
+        return false;
+    }
+    uint32_t size = stat.size;
+
+    uint8_t* buf = (uint8_t*)memalign(0x40, (size + 0x3F) & ~0x3F);
+    if (!buf) {
+        FSACloseFile(fsaClient, fd);
+        return false;
+    }
+
+    if (FSAReadFile(fsaClient, buf, 1, size, fd, FSA_READ_FLAG_NONE) != (int32_t)size) {
+        free(buf);
+        FSACloseFile(fsaClient, fd);
+        return false;
+    }
+
+    FSACloseFile(fsaClient, fd);
+    *outBuf = buf;
+    *outSize = size;
+    return true;
+}
+
+bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode, uint32_t uid, uint32_t gid) {
+    return FSACreateFileWithOwner(fsaClient, path.c_str(), buf, size, mode, uid, gid);
+}

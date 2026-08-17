@@ -51,6 +51,7 @@
 #include "downloader.h"
 #include "settingtxt_manager.h"
 #include "settingtxt_menu.h"
+#include "region_changer.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -393,18 +394,9 @@ void WUPI_usbLoaderGXMenu() {
             if (DownloadFile(wadUrl, wadPath)) {
                 WUPI_putstr("Loading and decrypting WAD...\n");
                 WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
-                if (!ctx) {
-                    WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
-                } else if (!WAD_IsSafeTitle(ctx)) {
-                    WUPI_putstr("Error: Unsafe WAD! Skipping for safety.\n");
-                } else {
-                    WUPI_putstr("Writing to slccmpt...\n");
-                    if (WAD_InstallToVWii(ctx, 0)) {
-                        WUPI_putstr("WAD Installation complete!\n");
-                        success = true;
-                    } else {
-                        WUPI_putstr("Error: WAD installation failed.\n");
-                    }
+                if (WAD_InstallSafe(ctx)) {
+                    WUPI_putstr("WAD Installation complete!\n");
+                    success = true;
                 }
                 if (ctx) {
                     WAD_Free(ctx);
@@ -550,29 +542,12 @@ void WUPI_NusMenu() {
                 }
                 WUPI_Log("Version: %d\n", version);
 
-                bool failed = false;
-                WADContext* ctx = NUS_DownloadTitle(titleId, version);
-                if (!ctx) {
-                    WUPI_Log("Error: Failed to download or prepare title.\n");
-                    failed = true;
-                } else if (!WAD_IsSafeTitle(ctx)) {
-                    WUPI_Log("Error: Title is unsafe. Aborting installation.\n");
-                    failed = true;
+                if (NUS_DownloadAndInstall(titleId, version)) {
+                    WUPI_Log("Installation complete!\n");
+                    successCount++;
+                    sleep(1);
                 } else {
-                    WUPI_Log("Writing to slccmpt...\n");
-                    if (WAD_InstallToVWii(ctx, 0)) {
-                        WUPI_Log("Installation complete!\n");
-                        successCount++;
-                        sleep(1);
-                    } else {
-                        WUPI_Log("Error: Installation failed.\n");
-                        failed = true;
-                    }
-                }
-                if (ctx) WAD_Free(ctx);
-
-                if (failed) {
-                    failCount++;
+                    failCount++;                    
                     WUPI_putstr("Press A to continue with next title, B to abort.");
                     if (!WaitPrompt()) break;
                 }
@@ -706,10 +681,8 @@ void WUPI_expressSetupInstall() {
             std::string wadPath = "/vol/external01/wad/USBLoaderGX_forwarder_UNEO.wad";
             if (DownloadFile(wadUrl, wadPath)) {
                 WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
-                if (ctx && WAD_IsSafeTitle(ctx)) {
-                    if (WAD_InstallToVWii(ctx, 0)) {
-                        ulgxWadSuccess = true;
-                    }
+                if (WAD_InstallSafe(ctx)) {
+                    ulgxWadSuccess = true;
                 }
                 if (ctx) WAD_Free(ctx);
             }
@@ -1091,6 +1064,7 @@ int main() {
             "Open Shop Channel",
             "USB Loader GX",
             "Download System Titles (NUS)",
+            "Region Change Wizard",
             "Manage setting.txt",
             "Express Uninstall",
             "Credits"
@@ -1118,10 +1092,12 @@ int main() {
             } else if (selected == 6) {
                 WUPI_NusMenu();
             } else if (selected == 7) {
-                WUPI_settingTxtMenu();
+                RegionChange_RunWizard();
             } else if (selected == 8) {
-                WUPI_expressSetupUninstall();
+                WUPI_settingTxtMenu();
             } else if (selected == 9) {
+                WUPI_expressSetupUninstall();
+            } else if (selected == 10) {
                 WUPI_showCredits();
             } else if (selected == -1) {
                 break;

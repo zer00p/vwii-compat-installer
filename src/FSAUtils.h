@@ -42,4 +42,8 @@ FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, 
 // Creates an empty file, sets ownership (UID/GID) and mode while empty (size 0), then writes payload
 bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, FSMode mode, uint32_t uid, uint32_t gid);
 
+// Reads an entire file into a 0x40-aligned memory buffer using FSA. The caller is responsible for free()-ing outBuf.
+bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize);
 
+// Writes a buffer to a file on FSA setting proper ownership and permission mode
+bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = STOCK_MODE_SYSTEM_FILE, uint32_t uid = 0, uint32_t gid = 0);

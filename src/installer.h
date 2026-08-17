@@ -54,10 +54,10 @@ bool CINS_UninstallTitle(uint64_t titleId);
 
 #ifdef __cplusplus
 }
-#endif
 
-#ifdef __cplusplus
 #include "FSAUtils.h"
+
+int32_t FindSharedContentIndex(const Sha1Hash& expectedHash);
 UninstallResult CINS_UninstallTitleResult(uint64_t titleId);
 #endif
 

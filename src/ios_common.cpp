@@ -72,34 +72,6 @@ void SHA1(const uint8_t* data, size_t len, uint8_t hash[20]) {
     mbedtls_sha1_free(&ctx);
 }
 
-bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize) {
-    FSAFileHandle fd;
-    if (FSAOpenFileEx(fsaClient, path.c_str(), "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        return false;
-    }
-
-    FSStat stat;
-    FSAGetStatFile(fsaClient, fd, &stat);
-    uint32_t size = stat.size;
-
-    uint8_t* buf = (uint8_t*)memalign(0x40, (size + 0x3F) & ~0x3F);
-    if (!buf) {
-        FSACloseFile(fsaClient, fd);
-        return false;
-    }
-
-    if (FSAReadFile(fsaClient, buf, 1, size, fd, FSA_READ_FLAG_NONE) != (int32_t)size) {
-        free(buf);
-        FSACloseFile(fsaClient, fd);
-        return false;
-    }
-
-    FSACloseFile(fsaClient, fd);
-    *outBuf = buf;
-    *outSize = size;
-    return true;
-}
-
 int ReplacePattern(uint8_t *buf, uint32_t size, const uint8_t* search, const uint8_t* replace, uint32_t len, bool revert) {
     int count = 0;
     const uint8_t* p1 = revert ? replace : search;
@@ -185,7 +157,7 @@ bool LoadPristineSharedContents(MemIOS* ios, const TitleTmd* origTmd) {
                 if (FromBE16(origRecords[k].type) & 0x8000) {
                     isShared = true;
                 }
-                expectedHash = origRecords[k].hash;
+                expectedHash = origRecords[k].hash.data();
                 break;
             }
         }
@@ -217,7 +189,7 @@ bool VerifyAndInstallRestoredIOS(uint32_t ios_ver, MemIOS* ios, const uint8_t* o
     std::vector<std::string> mismatchErrors;
     for (uint16_t i = 0; i < origNumContents; i++) {
         uint32_t cid = FromBE32(origRecords[i].contentId);
-        const uint8_t* expectedHash = origRecords[i].hash;
+        const uint8_t* expectedHash = origRecords[i].hash.data();
 
         bool found = false;
         for (uint32_t j = 0; j < ios->numContents; j++) {
@@ -294,10 +266,6 @@ void RemoveBackupFiles(uint32_t ios) {
     FSARemove(fsaClient, tikBackup.c_str());
 }
 
-bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size) {
-    return FSACreateFileWithOwner(fsaClient, path.c_str(), buf, size, STOCK_MODE_SYSTEM_FILE, 0, 0);
-}
-
 std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
     auto outIos = std::unique_ptr<MemIOS>(new MemIOS());
     // Read Ticket
@@ -342,7 +310,7 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
 
         uint16_t cType = FromBE16(outIos->tmd->contents[i].type);
         if ((cType & 0x8000) != 0) {
-            int32_t sharedIndex = FindSharedContentIndex(outIos->tmd->contents[i].hash);
+            int32_t sharedIndex = FindSharedContentIndex(outIos->tmd->contents[i].hash.data());
             if (sharedIndex < 0) {
                 Patcher_Log("Failed to find shared content for cid " + ToHexString(cid, 8) + "\n");
                 return nullptr;
@@ -420,9 +388,7 @@ bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
         uint32_t cid = FromBE32(records[i].contentId);
         for (uint32_t j = 0; j < ios.numContents; j++) {
             if (ios.contents[j].cid == cid) {
-                uint8_t hash[20];
-                SHA1(ios.contents[j].data, ios.contents[j].size, hash);
-                memcpy(records[i].hash, hash, 20);
+                SHA1(ios.contents[j].data, ios.contents[j].size, records[i].hash.data());
                 break;
             }
         }

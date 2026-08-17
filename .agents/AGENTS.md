@@ -4,7 +4,7 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 
 ## Building the App
 - The application is built using `make`. It relies on the devkitPPC, devkitARM, and `wut` toolchains, as well as the `libmocha` library.
-- To build the release artifacts, run `make release`. The output will be available as `compat_installer-HBL.zip` and `compat_installer-Aroma.zip`.
+- For compilation verification during development, use standard `make`. Only run `make release` when explicitly packaging release zip bundles (`compat_installer-HBL.zip` and `compat_installer-Aroma.zip`).
 - You can also build it using the provided `Dockerfile` which defines the necessary build environment.
 
 ## Licenses and Crediting

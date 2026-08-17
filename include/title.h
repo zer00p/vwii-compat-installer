@@ -1,7 +1,13 @@
-#ifndef TITLE_H
-#define TITLE_H
+#pragma once
 
 #include <stdint.h>
+
+#ifdef __cplusplus
+#include <array>
+using Sha1Hash = std::array<uint8_t, 20>;
+#else
+typedef struct { uint8_t data[20]; } Sha1Hash;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,8 +19,15 @@ typedef struct __attribute__((packed)) TitleContentRecord {
     uint16_t index;
     uint16_t type;
     uint64_t size;
-    uint8_t hash[20];
+    Sha1Hash hash;
 } TitleContentRecord;
+
+// Entry in /shared1/content.map (maps 8-char hex name to SHA-1 hash)
+typedef struct __attribute__((packed)) ContentMapEntry {
+    char name[8];
+    Sha1Hash hash;
+} ContentMapEntry;
+
 
 // Complete TMD structure mapping
 typedef struct __attribute__((packed)) TitleTmd {
@@ -71,5 +84,3 @@ typedef struct __attribute__((packed)) TitleTicket {
 #ifdef __cplusplus
 }
 #endif
-
-#endif // TITLE_H
