@@ -975,10 +975,9 @@ int main() {
             "cIOS Menu",
             "Open Shop Channel",
             "USB Loader GX",
-            "Download System Titles (NUS)",
             "Region Change Wizard",
             "Manage setting.txt",
-            "Full Wipe & Reinstall",
+            "Reinstall & Wipe",
             "Express Uninstall",
             "Credits"
         };
@@ -1003,16 +1002,14 @@ int main() {
             } else if (selected == 5) {
                 WUPI_usbLoaderGXMenu();
             } else if (selected == 6) {
-                WUPI_NusMenu();
-            } else if (selected == 7) {
                 RegionChange_RunWizard();
-            } else if (selected == 8) {
+            } else if (selected == 7) {
                 WUPI_settingTxtMenu();
+            } else if (selected == 8) {
+                WUPI_reinstallWipeMenu();
             } else if (selected == 9) {
-                WUPI_fullWipeAndReinstall();
-            } else if (selected == 10) {
                 WUPI_expressSetupUninstall();
-            } else if (selected == 11) {
+            } else if (selected == 10) {
                 WUPI_showCredits();
             } else if (selected == -1) {
                 break;
