@@ -42,6 +42,7 @@ Bit:   7   6   5   4   3   2   1   0
 | `/shared1/*.app` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Shared system content. |
 | `/shared1/content.map` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Shared content SHA-1 mapping table. |
 | `/sys/uid.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Title UID allocation table. |
+| `/sys/cert.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Central certificate trust store (`XS00000003`, `CA00000001`, `CP00000004`). |
 | `/title`, `/content`, `/shared1`, `/sys` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rwxrwxr--` | Root system directories. |
 | `/title/<idHi>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rwxrwxr--` | Title category directory (e.g. `00000001`). |
 | `/title/<idHi>/<idLo>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rwxrwxr--` | Specific title directory. |

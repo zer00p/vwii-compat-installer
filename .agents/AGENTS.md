@@ -35,7 +35,7 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 - **Cafe OS Process Default Ownership**: When files/directories are created via Cafe OS FSA over `/dev/fsa`, the IOSU kernel stamps them with Cafe OS process credentials (`UID 0x10050000` / `268755456`, `GID 1024`) and default umask `mode = 0xc1` (`rw-------`, Owner only).
 - **vWii Access Lockout**: In vWii mode, the System Menu runs with `UID = 4096` (`0x1000`) and IOS runs with `UID = 0`. If files have `0xc1` mode and `UID 0x10050000`, vWii treats them as "Other", gets `ACCESS_DENIED` (`-102`), and black-screens.
 - **Stock Ownership and Modes**:
-  - System tickets (`/ticket/00000001/*.tik`), system TMDs, system `.app` files, shared `.app` files (`/shared1/*.app`), `content.map`, and `/sys/uid.sys` are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf1` (`rw-rw----`).
+  - System tickets (`/ticket/00000001/*.tik`), system TMDs, system `.app` files, shared `.app` files (`/shared1/*.app`), `content.map`, `/sys/uid.sys`, and `/sys/cert.sys` are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf1` (`rw-rw----`).
   - Directories (`/title`, `/title/<idHi>`, `/title/<idHi>/<idLo>`, `/content`, `/shared1`, `/sys`) are owned by **`UID = 0`**, **`GID = 0`**.
   - Title data directories (`/title/<idHi>/<idLo>/data`) are owned by the title's allocated Title UID and TMD Group ID (`0xc2` mode, `STOCK_MODE_DATA_DIR`).
   - `setting.txt` (`/title/00000001/00000002/data/setting.txt`) is owned by **`UID = 4096`**, **`GID = 1`** with mode `0x55` (read-only for all).

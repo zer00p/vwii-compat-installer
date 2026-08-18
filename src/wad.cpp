@@ -18,6 +18,7 @@
 
 #include "wad.h"
 #include "installer.h"
+#include "cert_sys.h"
 #include "log.h"
 #include "EndianUtils.h"
 #include <mocha/mocha.h>
@@ -60,16 +61,16 @@ extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]) {
     return true;
 }
 
-extern "C" int ExtractWadToMemory(const char* filepath, void** ticket, uint32_t* ticket_size, void** tmd, uint32_t* tmd_size, CINS_Content** contents, uint16_t* numContents, uint64_t* titleId);
+extern "C" int ExtractWadToMemory(const char* filepath, void** ticket, uint32_t* ticket_size, void** tmd, uint32_t* tmd_size, CINS_Content** contents, uint16_t* numContents, uint64_t* titleId, void** cert, uint32_t* cert_size);
 
 WADContext* WAD_LoadAndDecrypt(const char* filepath) {
-    void *ticket = NULL, *tmd = NULL;
-    uint32_t ticket_size = 0, tmd_size = 0;
+    void *ticket = NULL, *tmd = NULL, *cert = NULL;
+    uint32_t ticket_size = 0, tmd_size = 0, cert_size = 0;
     CINS_Content *contents = NULL;
     uint16_t numContents = 0;
     uint64_t titleId = 0;
 
-    int res = ExtractWadToMemory(filepath, &ticket, &ticket_size, &tmd, &tmd_size, &contents, &numContents, &titleId);
+    int res = ExtractWadToMemory(filepath, &ticket, &ticket_size, &tmd, &tmd_size, &contents, &numContents, &titleId, &cert, &cert_size);
     if (res != 0) {
         WUPI_Log("ExtractWadToMemory failed for %s\n", filepath);
         return NULL;
@@ -84,10 +85,13 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
         free(contents);
         free(ticket);
         free(tmd);
+        if (cert) free(cert);
         return NULL;
     }
     memset(ctx, 0, sizeof(WADContext));
 
+    ctx->certData = (uint8_t*)cert;
+    ctx->certSize = cert_size;
     ctx->ticketData = (uint8_t*)ticket;
     ctx->ticketSize = ticket_size;
     ctx->tmdData = (uint8_t*)tmd;
@@ -106,6 +110,7 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
 
 void WAD_Free(WADContext* ctx) {
     if (ctx) {
+        if (ctx->certData) free(ctx->certData);
         if (ctx->ticketData) free(ctx->ticketData);
         if (ctx->tmdData) free(ctx->tmdData);
         if (ctx->contentsArray) {
@@ -158,6 +163,10 @@ bool WAD_IsSafeTitle(WADContext* ctx) {
 bool WAD_InstallToVWii(WADContext* ctx, int fsaFd) {
     (void)fsaFd;
     if (!ctx) return false;
+
+    if (ctx->certData && ctx->certSize > 0) {
+        CERT_ImportCerts(fsaClient, ctx->certData, ctx->certSize);
+    }
 
     return CINS_Install(ctx->tmdTitleId, (const TitleTicket *)ctx->ticketData, ctx->ticketSize,
                         (const TitleTmd *)ctx->tmdData, ctx->tmdSize, ctx->contentsArray,
@@ -295,7 +304,6 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         free(tmdData); free(tikData);
         return NULL;
     }
-    tmdSize = requiredTmdSize;
 
     size_t requiredTikSize = tikPayloadOffset + 0x164;
     if (tikSize < requiredTikSize) {
@@ -303,6 +311,30 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         free(tmdData); free(tikData);
         return NULL;
     }
+
+    uint8_t* certData = NULL;
+    size_t certSize = 0;
+    size_t tikCertLen = (tikSize > requiredTikSize) ? (tikSize - requiredTikSize) : 0;
+    size_t tmdCertLen = (tmdSize > requiredTmdSize) ? (tmdSize - requiredTmdSize) : 0;
+    if (tikCertLen > 0 || tmdCertLen > 0) {
+        certSize = tikCertLen + tmdCertLen;
+        certData = (uint8_t*)malloc(certSize);
+        if (certData) {
+            size_t off = 0;
+            if (tikCertLen > 0) {
+                memcpy(certData + off, tikData + requiredTikSize, tikCertLen);
+                off += tikCertLen;
+            }
+            if (tmdCertLen > 0) {
+                memcpy(certData + off, tmdData + requiredTmdSize, tmdCertLen);
+                off += tmdCertLen;
+            }
+        } else {
+            certSize = 0;
+        }
+    }
+
+    tmdSize = requiredTmdSize;
     tikSize = requiredTikSize;
 
     // Decrypt Title Key
@@ -316,6 +348,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         set_common_key(dynamic_common_key);
     } else {
         WUPI_Log("Failed to get common key (idx %d)\n", ckey_idx);
+        if (certData) free(certData);
         free(tmdData); free(tikData);
         return NULL;
     }
@@ -325,6 +358,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
 
     CINS_Content* c_arr = (CINS_Content*)calloc(numContents, sizeof(CINS_Content));
     if (!c_arr) {
+        if (certData) free(certData);
         free(tmdData); free(tikData);
         return NULL;
     }
@@ -381,6 +415,8 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         WADContext* ctx = (WADContext*)calloc(1, sizeof(WADContext));
         if (!ctx) goto error;
 
+        ctx->certData = certData;
+        ctx->certSize = certSize;
         ctx->ticketData = tikData;
         ctx->ticketSize = tikSize;
         ctx->tmdData = tmdData;
@@ -394,6 +430,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     }
 
 error:
+    if (certData) free(certData);
     if (c_arr) {
         for (int i = 0; i < numContents; i++) {
             if (c_arr[i].data) free((void*)c_arr[i].data);

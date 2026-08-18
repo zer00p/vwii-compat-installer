@@ -43,7 +43,7 @@ static u8 *get_wad(u32 len)
 	return p;
 }
 
-int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket_size, void** out_tmd, uint32_t* tmd_size, CINS_Content** out_contents, uint16_t* out_numContents, uint64_t* out_titleId)
+int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket_size, void** out_tmd, uint32_t* tmd_size, CINS_Content** out_contents, uint16_t* out_numContents, uint64_t* out_titleId, void** out_cert, uint32_t* out_cert_size)
 {
 	u8 header[0x80];
 	u32 header_len, cert_len, tik_len, tmd_len, app_len, trailer_len, rounded_app_len;
@@ -98,6 +98,11 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	*out_tmd = tmd;
 	*tmd_size = tmd_len;
 
+	if (out_cert && out_cert_size) {
+		*out_cert = cert;
+		*out_cert_size = cert_len;
+	}
+
 	u8 ckey_idx = 0;
 	if (tik_payloadOffset > 0 && tik_len >= tik_payloadOffset + 0xB2) {
 		ckey_idx = tik[tik_payloadOffset + 0xB1];
@@ -107,7 +112,8 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 	if (GetCommonKeyFromOTP(ckey_idx, dynamic_common_key)) {
 		set_common_key(dynamic_common_key);
 	} else {
-		free(cert); free(tik); free(tmd); free(app); free(trailer);
+		if (!out_cert || !out_cert_size) free(cert);
+		free(tik); free(tmd); free(app); free(trailer);
 		WUPI_Log("ExtractWadToMemory: Failed to get common key (idx %d)\n", ckey_idx);
 		return -1;
 	}
@@ -118,7 +124,8 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 
 	c_arr = (CINS_Content*)malloc(sizeof(CINS_Content) * num_contents);
 	if (!c_arr) {
-		free(cert); free(tik); free(tmd); free(app); free(trailer);
+		if (!out_cert || !out_cert_size) free(cert);
+		free(tik); free(tmd); free(app); free(trailer);
 		WUPI_Log("ExtractWadToMemory: Failed to allocate contents array\n");
 		return -1;
 	}
@@ -131,7 +138,8 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 		if (rounded_len < len || rounded_len > rounded_app_len || (u32)(p - app) > rounded_app_len - rounded_len) {
 			for (u32 j = 0; j < i; j++) free((void*)c_arr[j].data);
 			free(c_arr);
-			free(cert); free(trailer); free(app);
+			if (!out_cert || !out_cert_size) free(cert);
+			free(trailer); free(app);
 			free(tik); free(tmd);
 			WUPI_Log("ExtractWad: OoB %d (l=%u, a=%u)\n", i, len, app_len);
 			return -1;
@@ -154,7 +162,8 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 			free(decrypted_app);
 			for (u32 j = 0; j < i; j++) free((void*)c_arr[j].data);
 			free(c_arr);
-			free(cert); free(trailer); free(app);
+			if (!out_cert || !out_cert_size) free(cert);
+			free(trailer); free(app);
 			free(tik); free(tmd);
 			WUPI_Log("ExtractWadToMemory: Hash check failed for content %d\n", i);
 			return -1;
@@ -168,7 +177,9 @@ int ExtractWadToMemory(const char* filepath, void** out_ticket, uint32_t* ticket
 
 	*out_contents = c_arr;
 
-	free(cert);
+	if (!out_cert || !out_cert_size) {
+		free(cert);
+	}
 	free(trailer);
 	free(app);
 
