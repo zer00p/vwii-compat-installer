@@ -81,15 +81,7 @@ static bool PatchAndInstallIOS(uint32_t ios_ver) {
     bool isOriginal = IsOriginalNintendoSignature(ios->tmd->signature, sizeof(ios->tmd->signature));
 
     if (isOriginal) {
-        FSAFileHandle testFd;
-        std::string tmdBackup = GetTmdBackupPath(ios_ver);
-        std::string tikBackup = GetTikBackupPath(ios_ver);
-        if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-            FSACloseFile(fsaClient, testFd);
-        } else {
-            WriteBufferToFile(tmdBackup, (uint8_t*)ios->tmd, ios->tmdSize);
-            WriteBufferToFile(tikBackup, (uint8_t*)ios->ticket, ios->ticketSize);
-        }
+        BackupPristineTmdAndTicket(ios_ver, ios.get());
     } else {
         Patcher_Log("Note: Installed IOS" + std::to_string(ios_ver) + " is already patched.");
         Patcher_Log("Skipping TMD/Ticket backup.");
@@ -173,12 +165,9 @@ static bool RestoreDrivePatchedIOSLocal(uint32_t ios_ver) {
         return true;
     }
 
-    FSAFileHandle testFd;
     std::string tmdBackupPath = GetTmdBackupPath(ios_ver);
-    bool hasBackup = (FSAOpenFileEx(fsaClient, tmdBackupPath.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
+    bool hasBackup = HasPristineBackup(ios_ver);
     if (hasBackup) {
-        FSACloseFile(fsaClient, testFd);
-
         Patcher_Log("Restoring IOS" + std::to_string(ios_ver) + " from local backup...");
 
         uint8_t* origTmdBuf = nullptr;
@@ -254,10 +243,7 @@ void UndoDrivePatchAll() {
     // Check if we have backups for any selected
     bool hasAnyBackup = false;
     for (int idx : selected_items) {
-        FSAFileHandle testFd;
-        std::string tmdBackup = GetTmdBackupPath(TARGET_IOS[idx]);
-        if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-            FSACloseFile(fsaClient, testFd);
+        if (HasPristineBackup(TARGET_IOS[idx])) {
             hasAnyBackup = true;
             break;
         }

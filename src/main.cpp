@@ -200,24 +200,11 @@ void WUPI_installWAD() {
 
         bool failed = false;
         WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
-        if (!ctx) {
-            WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
-            failed = true;
-        } else if (!WAD_IsSafeTitle(ctx)) {
-            WUPI_putstr("Error: This is an original Wii System Title!");
-            WUPI_putstr("Installing this WILL BRICK your vWii.");
-            WUPI_putstr("Skipping this WAD for safety.");
-            failed = true;
+        if (WAD_InstallSafe(ctx)) {
+            successCount++;
+            sleep(1);
         } else {
-            WUPI_putstr("Writing to slccmpt...\n");
-            if (WAD_InstallToVWii(ctx, 0)) {
-                WUPI_putstr("WAD Installation complete!\n");
-                successCount++;
-                sleep(1);
-            } else {
-                WUPI_putstr("Error: WAD installation failed.\n");
-                failed = true;
-            }
+            failed = true;
         }
 
         if (ctx) {

@@ -241,9 +241,7 @@ void UndoIOS80Patches() {
         return;
     }
 
-    FSAFileHandle testFd;
-    bool hasBackup = (FSAOpenFileEx(fsaClient, GetTmdBackupPath(80).c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
-    if (hasBackup) FSACloseFile(fsaClient, testFd);
+    bool hasBackup = HasPristineBackup(80);
 
     std::vector<std::string> header = {
         "Undo IOS80 Patches",
@@ -296,10 +294,7 @@ bool UndoIOS80PatchesBatch() {
         return true;
     }
 
-    FSAFileHandle testFd;
-    bool hasBackup = (FSAOpenFileEx(fsaClient, GetTmdBackupPath(80).c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
-    if (hasBackup) {
-        FSACloseFile(fsaClient, testFd);
+    if (HasPristineBackup(80)) {
         Patcher_Log("Restoring IOS80 from local backup...");
         if (RestoreIOS80FromBackup()) {
             return true;

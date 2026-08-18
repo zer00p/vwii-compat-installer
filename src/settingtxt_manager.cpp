@@ -80,30 +80,15 @@ static bool ParseSettingsString(const std::string& content, VwiiSettings& out) {
 }
 
 bool Setting_ReadCurrent(VwiiSettings& outSettings) {
-    FSAFileHandle fd = 0;
-    int openRes = FSAOpenFileEx(fsaClient, VWII_SETTING_TXT_PATH, "r", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd);
-    if (openRes != FS_ERROR_OK) {
+    uint8_t* buf = nullptr;
+    uint32_t size = 0;
+    if (!ReadFileToBuffer(VWII_SETTING_TXT_PATH, &buf, &size) || size == 0) {
         return false;
     }
 
-    char* alignBuf = (char*)memalign(0x40, 2048);
-    if (!alignBuf) {
-        FSACloseFile(fsaClient, fd);
-        return false;
-    }
-    memset(alignBuf, 0, 2048);
-
-    int bytesRead = FSAReadFile(fsaClient, alignBuf, 1, 1024, fd, 0);
-    FSACloseFile(fsaClient, fd);
-
-    if (bytesRead <= 0) {
-        free(alignBuf);
-        return false;
-    }
-
-    Setting_Cipher((uint8_t*)alignBuf, bytesRead);
-    std::string decrypted(alignBuf, bytesRead);
-    free(alignBuf);
+    Setting_Cipher(buf, size);
+    std::string decrypted((char*)buf, size);
+    free(buf);
 
     return ParseSettingsString(decrypted, outSettings);
 }
@@ -339,33 +324,19 @@ bool Setting_ExportToSD(const std::string& path, bool decrypted) {
 }
 
 bool Setting_ImportFromSD(const std::string& path, VwiiSettings& outSettings) {
-    FSAFileHandle fd = 0;
-    if (FSAOpenFileEx(fsaClient, path.c_str(), "r", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+    uint8_t* buf = nullptr;
+    uint32_t size = 0;
+    if (!ReadFileToBuffer(path, &buf, &size) || size == 0) {
         return false;
     }
 
-    char* alignBuf = (char*)memalign(0x40, 2048);
-    if (!alignBuf) {
-        FSACloseFile(fsaClient, fd);
-        return false;
-    }
-    memset(alignBuf, 0, 2048);
-
-    int bytesRead = FSAReadFile(fsaClient, alignBuf, 1, 1024, fd, 0);
-    FSACloseFile(fsaClient, fd);
-
-    if (bytesRead <= 0) {
-        free(alignBuf);
-        return false;
-    }
-
-    std::string text(alignBuf, bytesRead);
+    std::string text((char*)buf, size);
     // If not plain text, try decrypting
     if (text.find("AREA=") == std::string::npos) {
-        Setting_Cipher((uint8_t*)alignBuf, bytesRead);
-        text = std::string(alignBuf, bytesRead);
+        Setting_Cipher(buf, size);
+        text = std::string((char*)buf, size);
     }
-    free(alignBuf);
+    free(buf);
 
     return ParseSettingsString(text, outSettings);
 }

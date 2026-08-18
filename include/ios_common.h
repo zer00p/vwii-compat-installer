@@ -43,6 +43,7 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos);
 bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios);
 
 bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size);
+bool HasPristineBackup(uint32_t ios_ver);
 void BackupPristineTmdAndTicket(uint32_t ios_ver, MemIOS* ios);
 
 bool RestoreIOSFromNUS(uint32_t ios_ver);

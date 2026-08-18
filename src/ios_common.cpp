@@ -97,18 +97,22 @@ bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size) {
     return zeroCount < (size / 2);
 }
 
+bool HasPristineBackup(uint32_t ios_ver) {
+    FSAFileHandle testFd = 0;
+    std::string tmdBackup = GetTmdBackupPath(ios_ver);
+    if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+        FSACloseFile(fsaClient, testFd);
+        return true;
+    }
+    return false;
+}
+
 void BackupPristineTmdAndTicket(uint32_t ios_ver, MemIOS* ios) {
     if (!ios || !ios->tmd || !ios->ticket) return;
 
-    FSAFileHandle testFd;
-    std::string tmdBackup = GetTmdBackupPath(ios_ver);
-    std::string tikBackup = GetTikBackupPath(ios_ver);
-
-    if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-        FSACloseFile(fsaClient, testFd);
-    } else {
-        WriteBufferToFile(tmdBackup, (uint8_t*)ios->tmd, ios->tmdSize);
-        WriteBufferToFile(tikBackup, (uint8_t*)ios->ticket, ios->ticketSize);
+    if (!HasPristineBackup(ios_ver)) {
+        WriteBufferToFile(GetTmdBackupPath(ios_ver), (uint8_t*)ios->tmd, ios->tmdSize);
+        WriteBufferToFile(GetTikBackupPath(ios_ver), (uint8_t*)ios->ticket, ios->ticketSize);
     }
 }
 
@@ -120,27 +124,14 @@ bool RestoreIOSFromNUS(uint32_t ios_ver) {
         return false;
     }
 
-    WADContext* ctx = NUS_DownloadTitle(titleId, latestVersion);
-    if (!ctx) {
-        Patcher_Log("Error: Failed to download IOS" + std::to_string(ios_ver));
-        return false;
-    }
-
-    if (!WAD_IsSafeTitle(ctx)) {
-        Patcher_Log("Error: Downloaded title is unsafe. Aborting.");
-        WAD_Free(ctx);
-        return false;
-    }
-
-    bool ok = WAD_InstallToVWii(ctx, 0);
-    if (ok) {
+    if (NUS_DownloadAndInstall(titleId, latestVersion)) {
         Patcher_Log("Successfully restored original IOS" + std::to_string(ios_ver) + " from NUS!");
         RemoveBackupFiles(ios_ver);
+        return true;
     } else {
-        Patcher_Log("Error: Failed to write original IOS" + std::to_string(ios_ver));
+        Patcher_Log("Error: Failed to restore original IOS" + std::to_string(ios_ver));
+        return false;
     }
-    WAD_Free(ctx);
-    return ok;
 }
 
 bool LoadPristineSharedContents(MemIOS* ios, const TitleTmd* origTmd) {
