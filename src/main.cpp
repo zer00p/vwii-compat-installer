@@ -53,6 +53,7 @@
 #include "settingtxt_menu.h"
 #include "region_changer.h"
 #include "wipe_reinstall.h"
+#include "title_deleter.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -968,6 +969,7 @@ int main() {
             "Region Change Wizard",
             "Manage setting.txt",
             "Reinstall & Wipe",
+            "Delete Titles",
             "Express Uninstall",
             "Credits"
         };
@@ -998,8 +1000,10 @@ int main() {
             } else if (selected == 8) {
                 WUPI_reinstallWipeMenu();
             } else if (selected == 9) {
-                WUPI_expressSetupUninstall();
+                WUPI_DeleteTitlesMenu();
             } else if (selected == 10) {
+                WUPI_expressSetupUninstall();
+            } else if (selected == 11) {
                 WUPI_showCredits();
             } else if (selected == -1) {
                 break;
