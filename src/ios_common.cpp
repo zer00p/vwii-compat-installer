@@ -63,15 +63,6 @@ void Write64BE(uint8_t* p, uint64_t v) {
     p[7] = v & 0xFF;
 }
 
-void SHA1(const uint8_t* data, size_t len, uint8_t hash[20]) {
-    mbedtls_sha1_context ctx;
-    mbedtls_sha1_init(&ctx);
-    mbedtls_sha1_starts_ret(&ctx);
-    mbedtls_sha1_update_ret(&ctx, data, len);
-    mbedtls_sha1_finish_ret(&ctx, hash);
-    mbedtls_sha1_free(&ctx);
-}
-
 int ReplacePattern(uint8_t *buf, uint32_t size, const uint8_t* search, const uint8_t* replace, uint32_t len, bool revert) {
     int count = 0;
     const uint8_t* p1 = revert ? replace : search;
@@ -187,7 +178,7 @@ bool VerifyAndInstallRestoredIOS(uint32_t ios_ver, MemIOS* ios, const uint8_t* o
             if (ios->contents[j].cid == cid) {
                 found = true;
                 uint8_t actualHash[20];
-                SHA1(ios->contents[j].data, ios->contents[j].size, actualHash);
+                sha(ios->contents[j].data, ios->contents[j].size, actualHash);
                 if (memcmp(expectedHash, actualHash, 20) != 0) {
                     hashesMatch = false;
                     mismatchErrors.push_back("Hash mismatch: " + ToHexString(cid));
@@ -324,7 +315,7 @@ static void BruteTmd(TitleTmd* tmd, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
         tmd->fakeBootIndex = fill;
-        SHA1((uint8_t*)tmd + offsetof(TitleTmd, issuer), size - offsetof(TitleTmd, issuer), hash);
+        sha((uint8_t*)tmd + offsetof(TitleTmd, issuer), size - offsetof(TitleTmd, issuer), hash);
         if (hash[0] == 0) return;
     }
 }
@@ -333,7 +324,7 @@ static void BruteTicket(TitleTicket* ticket, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
         ticket->padding2 = fill;
-        SHA1((uint8_t*)ticket + offsetof(TitleTicket, issuer), size - offsetof(TitleTicket, issuer), hash);
+        sha((uint8_t*)ticket + offsetof(TitleTicket, issuer), size - offsetof(TitleTicket, issuer), hash);
         if (hash[0] == 0) return;
     }
 }
@@ -379,7 +370,7 @@ bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
         uint32_t cid = FromBE32(records[i].contentId);
         for (uint32_t j = 0; j < ios.numContents; j++) {
             if (ios.contents[j].cid == cid) {
-                SHA1(ios.contents[j].data, ios.contents[j].size, records[i].hash.data());
+                sha(ios.contents[j].data, ios.contents[j].size, records[i].hash.data());
                 break;
             }
         }

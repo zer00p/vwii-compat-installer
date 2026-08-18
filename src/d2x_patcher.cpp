@@ -21,6 +21,9 @@
 #include "MenuUtils.h"
 #include "StateUtils.h"
 #include "EndianUtils.h"
+extern "C" {
+#include "wad_tools/tools.h"
+}
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,7 +122,7 @@ static bool AppendModule(MemIOS& ios, const std::string& versionFolder, const st
         records[idx].index = ToBE16(idx);
         records[idx].type = ToBE16(1);
         records[idx].size = ToBE64(moduleSize);
-        SHA1(moduleData, moduleSize, records[idx].hash.data());
+        sha(moduleData, moduleSize, records[idx].hash.data());
     } else {
         // Just append new content
         uint32_t idx = ios.numContents++;
@@ -132,7 +135,7 @@ static bool AppendModule(MemIOS& ios, const std::string& versionFolder, const st
         records[idx].index = ToBE16(idx);
         records[idx].type = ToBE16(1);
         records[idx].size = ToBE64(moduleSize);
-        SHA1(moduleData, moduleSize, records[idx].hash.data());
+        sha(moduleData, moduleSize, records[idx].hash.data());
     }
 
     // Update numContents in TMD header
@@ -260,7 +263,7 @@ void InstallD2X(const std::string& versionFolder) {
                             if (type & 0x8000) {
                                 records[k].type = ToBE16(type & ~0x8000);
                             }
-                            SHA1(content->data, content->size, records[k].hash.data());
+                            sha(content->data, content->size, records[k].hash.data());
                             break;
                         }
                     }
@@ -475,7 +478,7 @@ void InstallD2XBatch(const std::string& versionFolder, std::vector<std::pair<int
                             if (type & 0x8000) {
                                 records[k].type = ToBE16(type & ~0x8000);
                             }
-                            SHA1(content->data, content->size, records[k].hash.data());
+                            sha(content->data, content->size, records[k].hash.data());
                             break;
                         }
                     }

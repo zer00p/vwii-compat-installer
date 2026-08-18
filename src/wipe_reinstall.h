@@ -3,6 +3,9 @@
 // Displays the Reinstall & Wipe submenu
 void WUPI_reinstallWipeMenu();
 
+// Scan and restore vWii system environment
+void WUPI_ScanAndRestoreMenu();
+
 // System Titles installer from NUS (multi-select / batch install)
 void WUPI_NusMenu();
 

@@ -35,7 +35,6 @@ void Write16BE(uint8_t* p, uint16_t v);
 void Write32BE(uint8_t* p, uint32_t v);
 void Write64BE(uint8_t* p, uint64_t v);
 
-void SHA1(const uint8_t* data, size_t len, uint8_t hash[20]);
 std::string GetTmdBackupPath(uint32_t ios_ver);
 std::string GetTikBackupPath(uint32_t ios_ver);
 void RemoveBackupFiles(uint32_t ios_ver);

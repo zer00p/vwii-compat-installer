@@ -8,6 +8,20 @@
 inline constexpr const char* VWII_CERT_SYS_PATH = "/vol/slccmpt01/sys/cert.sys";
 
 #ifdef __cplusplus
+#include <string>
+#include <vector>
+
+struct ParsedCert {
+    std::string name;
+    std::string issuer;
+    uint32_t sigType;
+    const uint8_t* data;
+    size_t size;
+};
+
+void CERT_ParseCertificates(const uint8_t* data, size_t size, std::vector<ParsedCert>& outCerts);
+bool CERT_IsRetailCertificate(const ParsedCert& cert);
+
 extern "C" {
 #endif
 

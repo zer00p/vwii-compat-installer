@@ -1,6 +1,7 @@
 #include "settingtxt_manager.h"
 #include "FSAUtils.h"
 #include "uid_sys.h"
+#include "MenuUtils.h"
 #include "log.h"
 
 #include <coreinit/filesystem_fsa.h>
@@ -339,11 +340,24 @@ bool Setting_ImportFromSD(const std::string& path, VwiiSettings& outSettings) {
     return ParseSettingsString(text, outSettings);
 }
 
-int32_t Setting_GetRegionIndex(const VwiiSettings& settings) {
-    if (settings.area == "JPN") return 0;
-    if (settings.area == "USA") return 1;
-    if (settings.area == "EUR") return 2;
+std::string Setting_GetRegionName(int32_t regionCode) {
+    switch (regionCode) {
+        case 0: return "JPN";
+        case 1: return "USA";
+        case 2: return "EUR";
+        default: return "Unknown";
+    }
+}
+
+int32_t Setting_GetRegionIndex(const std::string& area) {
+    if (area == "JPN") return 0;
+    if (area == "USA") return 1;
+    if (area == "EUR") return 2;
     return -1;
+}
+
+int32_t Setting_GetRegionIndex(const VwiiSettings& settings) {
+    return Setting_GetRegionIndex(settings.area);
 }
 
 int32_t Setting_GetEffectiveRegionCode() {
@@ -360,4 +374,49 @@ int32_t Setting_GetEffectiveRegionCode() {
     }
 
     return -1;
+}
+
+std::string Setting_PromptRegionSelection(const std::string& headerTitle, const std::string& currentVwiiRegion) {
+    VwiiSettings mcpSettings;
+    std::string wiiuRegion = "EUR";
+    if (Setting_RegenerateFromMCP(mcpSettings) && !mcpSettings.area.empty()) {
+        wiiuRegion = mcpSettings.area;
+    }
+
+    std::vector<std::string> regions;
+    regions.push_back(wiiuRegion);
+    for (const char* r : {"EUR", "USA", "JPN"}) {
+        if (wiiuRegion != r) {
+            regions.push_back(r);
+        }
+    }
+
+    std::vector<std::string> regionOptions;
+    for (size_t i = 0; i < regions.size(); i++) {
+        std::string opt = regions[i];
+        if (regions[i] == wiiuRegion) {
+            opt += " (Console Native - Recommended)";
+        }
+        if (!currentVwiiRegion.empty() && regions[i] == currentVwiiRegion) {
+            opt += " [Current vWii]";
+        }
+        regionOptions.push_back(opt);
+    }
+
+    std::vector<std::string> selectHeader = {
+        headerTitle,
+    };
+    if (!currentVwiiRegion.empty()) {
+        selectHeader.push_back("Current vWii Region: " + currentVwiiRegion);
+    }
+    selectHeader.push_back("Console Native Region: " + wiiuRegion);
+    selectHeader.push_back("");
+    selectHeader.push_back("Select target vWii region:");
+
+    int selected = ShowMenu(selectHeader, regionOptions);
+    if (selected < 0 || selected >= (int)regions.size()) {
+        return "";
+    }
+
+    return regions[selected];
 }

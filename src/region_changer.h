@@ -29,6 +29,15 @@ struct OrphanSharedContent {
     uint64_t fileSize;
 };
 
+struct OldRegionTitle {
+    uint64_t titleId;
+    std::string name;
+    std::string region;
+};
+
+// Scans for installed foreign/old region system titles (Manual, Region Select, System Transfer)
+std::vector<OldRegionTitle> GetInstalledOldRegionTitles(const std::string& targetRegion);
+
 // Interactive Wizard entry point
 void RegionChange_RunWizard();
 

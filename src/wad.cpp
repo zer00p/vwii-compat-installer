@@ -19,6 +19,8 @@
 #include "wad.h"
 #include "installer.h"
 #include "cert_sys.h"
+#include "MenuUtils.h"
+#include "StateUtils.h"
 #include "log.h"
 #include "EndianUtils.h"
 #include <mocha/mocha.h>
@@ -28,6 +30,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#include <unistd.h>
 #include <format>
 #include "downloader.h"
 extern "C" {
@@ -524,4 +527,31 @@ bool NUS_InstallSystemTitle(const NusTitle* title, int32_t regionCode) {
     }
     WUPI_Log("Version: %d\n", version);
     return NUS_DownloadAndInstall(titleId, version);
+}
+
+bool NUS_InstallTitlesBatch(const std::vector<const NusTitle*>& titles, int32_t regionCode, int& outSuccess, int& outFailed) {
+    outSuccess = 0;
+    outFailed = 0;
+    int total = (int)titles.size();
+
+    for (int i = 0; i < total; i++) {
+        if (!State::AppRunning()) break;
+        const auto* t = titles[i];
+        if (!t) continue;
+
+        WUPI_Log("--- Processing %s (%d/%d) ---", t->name, i + 1, total);
+
+        if (NUS_InstallSystemTitle(t, regionCode)) {
+            WUPI_Log("Installation complete!\n");
+            outSuccess++;
+            sleep(1);
+        } else {
+            outFailed++;
+            WUPI_putstr("Press A to continue with next title, B to abort.");
+            if (!WaitPrompt()) {
+                return false;
+            }
+        }
+    }
+    return (outFailed == 0);
 }

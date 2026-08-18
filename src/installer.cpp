@@ -257,44 +257,13 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
                 snprintf(path, CINS_PATH_LEN,
                          "/vol/slccmpt01/shared1/%08x.app", sharedIndex);
 
-                FSAFileHandle testFd;
-                if (FSAOpenFileEx(fsaClient, path, "r", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-                    bool matches = true;
-                    const uint32_t chunkSize = 64 * 1024;
-                    void* chunkBuf = memalign(0x40, chunkSize);
-                    if (chunkBuf) {
-                        uint64_t offset = 0;
-                        while (offset < cSize) {
-                            uint32_t toRead = (uint32_t)((cSize - offset > chunkSize) ? chunkSize : (cSize - offset));
-                            int readRes = FSAReadFile(fsaClient, chunkBuf, toRead, 1, testFd, 0);
-                            if (readRes != 1) {
-                                matches = false;
-                                break;
-                            }
-                            if (memcmp(chunkBuf, (const uint8_t*)contents[i].data + offset, toRead) != 0) {
-                                matches = false;
-                                break;
-                            }
-                            offset += toRead;
-                        }
-                        
-                        if (matches) {
-                            int extraRead = FSAReadFile(fsaClient, chunkBuf, 1, 1, testFd, 0);
-                            if (extraRead > 0) {
-                                matches = false;
-                            }
-                        }
-                        free(chunkBuf);
-                    } else {
-                        matches = false;
-                    }
-
-                    FSACloseFile(fsaClient, testFd);
-
-                    if (matches) {
+                FSStat testStat;
+                if (FSAGetStat(fsaClient, path, &testStat) == FS_ERROR_OK) {
+                    const uint8_t* expectedHash = (const uint8_t*)tmd + recordOffset + 0x10;
+                    if (FSACheckFileSha1(fsaClient, path, expectedHash, cSize)) {
                         continue;
                     }
-                    
+
                     WUPI_Log("Warning: Shared content %08x exists but differs!\n", cId);
                     WUPI_Log("Press A to reinstall it, B to keep existing.\n");
                     if (!WaitPrompt()) {

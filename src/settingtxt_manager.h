@@ -42,8 +42,19 @@ bool Setting_ExportToSD(const std::string& path, bool decrypted);
 // Import setting.txt from SD card (auto-detects encrypted or plaintext)
 bool Setting_ImportFromSD(const std::string& path, VwiiSettings& outSettings);
 
+// Get region name string ("JPN", "USA", "EUR", or "Unknown")
+std::string Setting_GetRegionName(int32_t regionCode);
+
+// Get region code from area string (0: JPN, 1: USA, 2: EUR, -1: Unknown/Error)
+int32_t Setting_GetRegionIndex(const std::string& area);
+
 // Get region code (0: JPN, 1: USA, 2: EUR, -1: Unknown/Error)
 int32_t Setting_GetRegionIndex(const VwiiSettings& settings);
 
 // Query region from setting.txt with fallback to MCP if missing
 int32_t Setting_GetEffectiveRegionCode();
+
+// Prompts the user with a standardized region selection menu ("EUR", "USA", "JPN"),
+// displaying console native region as recommended and optionally marking current vWii region.
+// Returns region string ("EUR", "USA", "JPN") or empty string if user backed out / canceled.
+std::string Setting_PromptRegionSelection(const std::string& headerTitle, const std::string& currentVwiiRegion = "");

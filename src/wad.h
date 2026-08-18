@@ -115,6 +115,13 @@ bool NUS_InstallSystemTitle(const NusTitle* title, int32_t regionCode);
 
 #ifdef __cplusplus
 }
+
+#include <vector>
+
+// Installs a list of NUS system titles in a loop, displaying progress and handling abort prompts.
+// Returns true if all completed successfully, false if any failed or user aborted.
+bool NUS_InstallTitlesBatch(const std::vector<const NusTitle*>& titles, int32_t regionCode, int& outSuccess, int& outFailed);
+
 #endif
 
 #endif // WAD_H

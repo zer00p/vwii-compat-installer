@@ -295,13 +295,7 @@ static std::vector<RegionTitleInfo> GetTargetRegionTitles(const std::string& tar
     return titles;
 }
 
-struct OldRegionTitle {
-    uint64_t titleId;
-    std::string name;
-    std::string region;
-};
-
-static std::vector<OldRegionTitle> GetInstalledOldRegionTitles(const std::string& targetRegion) {
+std::vector<OldRegionTitle> GetInstalledOldRegionTitles(const std::string& targetRegion) {
     std::vector<OldRegionTitle> oldTitles;
     const struct {
         const char* reg;
@@ -309,8 +303,7 @@ static std::vector<OldRegionTitle> GetInstalledOldRegionTitles(const std::string
     } otherRegions[] = {
         {"EUR", 'P'},
         {"USA", 'E'},
-        {"JPN", 'J'},
-        {"KOR", 'K'}
+        {"JPN", 'J'}
     };
 
     for (const auto& r : otherRegions) {
@@ -339,53 +332,16 @@ void RegionChange_RunWizard() {
     WUPI_resetScreen();
 
     // 1. Detect Wii U Native Region & Current vWii Region
-    VwiiSettings mcpSettings;
-    std::string wiiuRegion = "EUR";
-    if (Setting_RegenerateFromMCP(mcpSettings) && !mcpSettings.area.empty()) {
-        wiiuRegion = mcpSettings.area;
-    }
-
     VwiiSettings currentVwiiSettings;
-    std::string currentVwiiRegion = "Unknown";
+    std::string currentVwiiRegion = "";
     if (Setting_ReadCurrent(currentVwiiSettings) && !currentVwiiSettings.area.empty()) {
         currentVwiiRegion = currentVwiiSettings.area;
     }
 
-    std::vector<std::string> regions;
-    // Put native Wii U region first as default / recommended
-    regions.push_back(wiiuRegion);
-    for (const char* r : {"EUR", "USA", "JPN"}) {
-        if (wiiuRegion != r) {
-            regions.push_back(r);
-        }
-    }
-
-    std::vector<std::string> regionOptions;
-    for (size_t i = 0; i < regions.size(); i++) {
-        std::string opt = regions[i];
-        if (regions[i] == wiiuRegion) {
-            opt += " (Console Native Region - Recommended)";
-        }
-        if (regions[i] == currentVwiiRegion) {
-            opt += " [Current vWii]";
-        }
-        regionOptions.push_back(opt);
-    }
-
-    std::vector<std::string> selectHeader = {
-        "=== Region Change Wizard ===",
-        "Current vWii Region: " + currentVwiiRegion,
-        "Wii U Native Region: " + wiiuRegion,
-        "",
-        "Select target vWii region:"
-    };
-
-    int selected = ShowMenu(selectHeader, regionOptions);
-    if (selected < 0 || selected >= (int)regions.size()) {
+    std::string targetRegion = Setting_PromptRegionSelection("=== Region Change Wizard ===", currentVwiiRegion);
+    if (targetRegion.empty()) {
         return;
     }
-
-    std::string targetRegion = regions[selected];
 
     // Confirmation Screen
     std::vector<std::string> confirmHeader = {

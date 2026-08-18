@@ -1,4 +1,5 @@
 #include "wipe_reinstall.h"
+#include "system_scanner.h"
 #include "settingtxt_manager.h"
 #include "FSAUtils.h"
 #include "wad.h"
@@ -305,46 +306,14 @@ static void RunWipeWizard(WipeMode mode) {
     if (!State::AppRunning()) return;
 
     // 2. Step 2: Region Selection & setting.txt Regeneration
-    VwiiSettings mcpSettings;
-    std::string wiiuRegion = "EUR";
-    if (Setting_RegenerateFromMCP(mcpSettings) && !mcpSettings.area.empty()) {
-        wiiuRegion = mcpSettings.area;
-    }
-
-    std::vector<std::string> regions;
-    // Native Wii U region first as recommended default
-    regions.push_back(wiiuRegion);
-    for (const char* r : {"EUR", "USA", "JPN"}) {
-        if (wiiuRegion != r) {
-            regions.push_back(r);
-        }
-    }
-
-    std::vector<std::string> regionOptions;
-    for (size_t i = 0; i < regions.size(); i++) {
-        std::string opt = regions[i];
-        if (regions[i] == wiiuRegion) {
-            opt += " (Console Native Region - Recommended)";
-        }
-        regionOptions.push_back(opt);
-    }
-
-    std::vector<std::string> selectHeader = {
-        "=== Step 2/3: Select Target vWii Region ===",
-        "Wii U Native Region: " + wiiuRegion,
-        "",
-        "Select target region for setting.txt:"
-    };
-
-    int selectedRegionIdx = ShowMenu(selectHeader, regionOptions);
-    if (selectedRegionIdx < 0 || selectedRegionIdx >= (int)regions.size()) {
+    std::string targetRegion = Setting_PromptRegionSelection("=== Step 2/3: Select Target vWii Region ===");
+    if (targetRegion.empty()) {
         WUPI_resetScreen();
         WUPI_Log("Region selection cancelled.\n");
         WUPI_Log("setting.txt was not regenerated.\n");
         WUPI_waitButton();
         return;
     }
-    std::string targetRegion = regions[selectedRegionIdx];
 
     WUPI_resetScreen();
     WUPI_Log("=========================================");
@@ -396,22 +365,11 @@ static void RunWipeWizard(WipeMode mode) {
         int32_t regionCode = Setting_GetRegionIndex(newSettings);
         if (regionCode == -1) regionCode = 2; // Default to EUR (2) if unknown
 
+        std::vector<const NusTitle*> allTitles;
         for (size_t i = 0; i < g_numNusTitles; i++) {
-            if (!State::AppRunning()) break;
-            const auto& t = g_nusTitles[i];
-
-            WUPI_Log("--- Processing %s (%d/%d) ---", t.name, (int)(i + 1), (int)g_numNusTitles);
-
-            if (NUS_InstallSystemTitle(&t, regionCode)) {
-                WUPI_Log("Installation complete!\n");
-                titlesInstalled++;
-                sleep(1);
-            } else {
-                titlesFailed++;
-                WUPI_putstr("Press A to continue with next title, B to abort.");
-                if (!WaitPrompt()) break;
-            }
+            allTitles.push_back(&g_nusTitles[i]);
         }
+        NUS_InstallTitlesBatch(allTitles, regionCode, titlesInstalled, titlesFailed);
     }
 
     if (!State::AppRunning()) return;
@@ -459,6 +417,7 @@ void WUPI_reinstallWipeMenu() {
         "Select an operation:"
     };
     std::vector<std::string> options = {
+        "Scan and Restore System",
         "Reinstall System Titles (NUS)",
         "Full Wipe (Exclude User Titles & Tickets)",
         "Full Wipe (Exclude User Tickets)",
@@ -468,12 +427,14 @@ void WUPI_reinstallWipeMenu() {
     while (State::AppRunning()) {
         int selected = ShowMenu(header, options);
         if (selected == 0) {
-            WUPI_NusMenu();
+            WUPI_ScanAndRestoreMenu();
         } else if (selected == 1) {
-            WUPI_wipeExcludeTitlesAndTickets();
+            WUPI_NusMenu();
         } else if (selected == 2) {
-            WUPI_wipeExcludeTickets();
+            WUPI_wipeExcludeTitlesAndTickets();
         } else if (selected == 3) {
+            WUPI_wipeExcludeTickets();
+        } else if (selected == 4) {
             WUPI_fullWipeAndReinstall();
         } else if (selected == -1) {
             break;

@@ -1,6 +1,7 @@
 #include "FSAUtils.h"
 #include "log.h"
 #include <coreinit/ios.h>
+#include <mbedtls/sha1.h>
 #include <malloc.h>
 #include <string.h>
 #include <string>
@@ -244,6 +245,64 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
 
 bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode, uint32_t uid, uint32_t gid) {
     return FSACreateFileWithOwner(fsaClient, path.c_str(), buf, size, mode, uid, gid);
+}
+
+bool FSAGetFileSha1(FSAClientHandle fsa, const std::string& path, uint8_t outHash[20], uint64_t expectedSize) {
+    if (!outHash) return false;
+
+    FSAFileHandle fd = 0;
+    if (FSAOpenFileEx(fsa, path.c_str(), "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        return false;
+    }
+
+    FSStat stat;
+    if (FSAGetStatFile(fsa, fd, &stat) != FS_ERROR_OK || stat.size != expectedSize) {
+        FSACloseFile(fsa, fd);
+        return false;
+    }
+
+    mbedtls_sha1_context ctx;
+    mbedtls_sha1_init(&ctx);
+    mbedtls_sha1_starts_ret(&ctx);
+
+    const size_t CHUNK_SIZE = 64 * 1024;
+    uint8_t* buf = (uint8_t*)memalign(0x40, CHUNK_SIZE);
+    if (!buf) {
+        FSACloseFile(fsa, fd);
+        mbedtls_sha1_free(&ctx);
+        return false;
+    }
+
+    uint64_t remaining = expectedSize;
+    bool ok = true;
+    while (remaining > 0) {
+        size_t toRead = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : (size_t)remaining;
+        int readBytes = FSAReadFile(fsa, buf, 1, toRead, fd, FSA_READ_FLAG_NONE);
+        if (readBytes != (int)toRead) {
+            ok = false;
+            break;
+        }
+        mbedtls_sha1_update_ret(&ctx, buf, toRead);
+        remaining -= toRead;
+    }
+
+    free(buf);
+    FSACloseFile(fsa, fd);
+
+    if (ok) {
+        mbedtls_sha1_finish_ret(&ctx, outHash);
+    }
+    mbedtls_sha1_free(&ctx);
+    return ok;
+}
+
+bool FSACheckFileSha1(FSAClientHandle fsa, const std::string& path, const uint8_t expectedHash[20], uint64_t expectedSize) {
+    if (!expectedHash) return false;
+    uint8_t actualHash[20];
+    if (!FSAGetFileSha1(fsa, path, actualHash, expectedSize)) {
+        return false;
+    }
+    return (memcmp(actualHash, expectedHash, 20) == 0);
 }
 
 bool FSA_InitStockRootDirs(FSAClientHandle fsa) {

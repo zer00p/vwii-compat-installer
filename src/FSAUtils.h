@@ -48,5 +48,11 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
 // Writes a buffer to a file on FSA setting proper ownership and permission mode
 bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = STOCK_MODE_SYSTEM_FILE, uint32_t uid = 0, uint32_t gid = 0);
 
+// Computes the SHA-1 hash of a file on FSA using 64KB aligned streaming buffers. Returns true if file matches expectedSize and was hashed successfully.
+bool FSAGetFileSha1(FSAClientHandle fsa, const std::string& path, uint8_t outHash[20], uint64_t expectedSize);
+
+// Checks if a file exists on FSA, matches expectedSize, and has the matching SHA-1 hash.
+bool FSACheckFileSha1(FSAClientHandle fsa, const std::string& path, const uint8_t expectedHash[20], uint64_t expectedSize);
+
 // Re-creates standard stock SLCCMPT root directories with correct ownership and permission modes
 bool FSA_InitStockRootDirs(FSAClientHandle fsa);

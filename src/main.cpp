@@ -445,26 +445,16 @@ void WUPI_NusMenu() {
             continue;
         }
 
-        int successCount = 0;
-        int failCount = 0;
-
+        std::vector<const NusTitle*> selectedTitles;
         for (int selected : selected_items) {
-            if (!State::AppRunning()) break;
             if (selected >= 0 && selected < (int)g_numNusTitles) {
-                const auto& t = g_nusTitles[selected];
-                WUPI_Log("--- Processing %s (%d/%d) ---", t.name, successCount + failCount + 1, (int)selected_items.size());
-
-                if (NUS_InstallSystemTitle(&t, regionCode)) {
-                    WUPI_Log("Installation complete!\n");
-                    successCount++;
-                    sleep(1);
-                } else {
-                    failCount++;
-                    WUPI_putstr("Press A to continue with next title, B to abort.");
-                    if (!WaitPrompt()) break;
-                }
+                selectedTitles.push_back(&g_nusTitles[selected]);
             }
         }
+
+        int successCount = 0;
+        int failCount = 0;
+        NUS_InstallTitlesBatch(selectedTitles, regionCode, successCount, failCount);
 
         if (!State::AppRunning()) break;
 

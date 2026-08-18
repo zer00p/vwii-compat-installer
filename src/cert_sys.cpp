@@ -6,15 +6,7 @@
 #include <string>
 #include <vector>
 
-struct ParsedCert {
-    std::string name;
-    std::string issuer;
-    uint32_t sigType;
-    const uint8_t* data;
-    size_t size;
-};
-
-static bool IsRetailCertificate(const ParsedCert& cert) {
+bool CERT_IsRetailCertificate(const ParsedCert& cert) {
     if (cert.name == "XS00000003" && cert.issuer == "Root-CA00000001" &&
         cert.sigType == 0x00010001 && cert.size == 0x300) {
         return true;
@@ -30,7 +22,7 @@ static bool IsRetailCertificate(const ParsedCert& cert) {
     return false;
 }
 
-static void ParseCertificates(const uint8_t* data, size_t size, std::vector<ParsedCert>& outCerts) {
+void CERT_ParseCertificates(const uint8_t* data, size_t size, std::vector<ParsedCert>& outCerts) {
     if (!data || size < 4) return;
 
     size_t pos = 0;
@@ -91,14 +83,14 @@ bool CERT_ImportCerts(FSAClientHandle fsaClient, const void* certData, size_t ce
     WUPI_Log("CERT: %s missing, recovering from title certificates...\n", VWII_CERT_SYS_PATH);
 
     std::vector<ParsedCert> incomingCerts;
-    ParseCertificates((const uint8_t*)certData, certSize, incomingCerts);
+    CERT_ParseCertificates((const uint8_t*)certData, certSize, incomingCerts);
 
     const ParsedCert* xsCert = nullptr;
     const ParsedCert* caCert = nullptr;
     const ParsedCert* cpCert = nullptr;
 
     for (const auto& cert : incomingCerts) {
-        if (!IsRetailCertificate(cert)) {
+        if (!CERT_IsRetailCertificate(cert)) {
             WUPI_Log("CERT: Ignoring non-retail cert '%s' (issuer '%s')\n",
                      cert.name.c_str(), cert.issuer.c_str());
             continue;
