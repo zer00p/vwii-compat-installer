@@ -4,6 +4,7 @@
 #include <malloc.h>
 #include <string.h>
 #include <string>
+#include <vector>
 
 bool EnsureFSADir(FSAClientHandle fsaClient, const std::string& dirPath) {
     if (dirPath.empty()) return false;
@@ -78,7 +79,7 @@ bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, 
     return true;
 }
 
-bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path) {
+bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keepRoot) {
     FSStat stat;
     if (FSAGetStat(fsaClient, path.c_str(), &stat) != FS_ERROR_OK) {
         return true;
@@ -94,7 +95,7 @@ bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path) {
                 }
                 std::string subPath = path + "/" + entry->name;
                 if (entry->info.flags & FS_STAT_DIRECTORY) {
-                    FSARemoveTree(fsaClient, subPath);
+                    FSARemoveTree(fsaClient, subPath, false);
                 } else {
                     FSARemove(fsaClient, subPath.c_str());
                 }
@@ -102,6 +103,9 @@ bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path) {
             free(entry);
         }
         FSACloseDir(fsaClient, dir);
+    }
+    if (keepRoot) {
+        return true;
     }
     return (FSARemove(fsaClient, path.c_str()) == FS_ERROR_OK);
 }
@@ -240,4 +244,31 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
 
 bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode, uint32_t uid, uint32_t gid) {
     return FSACreateFileWithOwner(fsaClient, path.c_str(), buf, size, mode, uid, gid);
+}
+
+bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
+    // Stock root directories with stock modes and UID 0, GID 0
+    const struct {
+        const char* path;
+        FSMode mode;
+    } rootDirs[] = {
+        {"/vol/slccmpt01/sys",     STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
+        {"/vol/slccmpt01/title",   STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
+        {"/vol/slccmpt01/ticket",  STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
+        {"/vol/slccmpt01/shared1", STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
+        {"/vol/slccmpt01/shared2", STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
+        {"/vol/slccmpt01/content", STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
+        {"/vol/slccmpt01/tmp",     STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
+        {"/vol/slccmpt01/import",  STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
+    };
+
+    bool allOk = true;
+    for (const auto& d : rootDirs) {
+        FSError res = FSAMakeDirWithOwner(fsa, d.path, d.mode, 0, 0);
+        if (res != FS_ERROR_OK && res != FS_ERROR_ALREADY_EXISTS) {
+            WUPI_Log("FSA_InitStockRootDirs: Failed to create %s (%d)\n", d.path, res);
+            allOk = false;
+        }
+    }
+    return allOk;
 }

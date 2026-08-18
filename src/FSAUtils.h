@@ -21,8 +21,8 @@ bool EnsureFSAParentDir(FSAClientHandle fsaClient, const std::string& filePath);
 // Recursively creates a directory and all parent directories using FSA. Returns true on success.
 bool EnsureFSADir(FSAClientHandle fsaClient, const std::string& dirPath);
 
-// Recursively removes a directory tree or file using FSA
-bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path);
+// Recursively removes a directory tree or file using FSA. Set keepRoot=true to keep the root directory itself.
+bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keepRoot = false);
 
 enum class UninstallResult {
     SUCCESS,
@@ -47,3 +47,6 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
 
 // Writes a buffer to a file on FSA setting proper ownership and permission mode
 bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = STOCK_MODE_SYSTEM_FILE, uint32_t uid = 0, uint32_t gid = 0);
+
+// Re-creates standard stock SLCCMPT root directories with correct ownership and permission modes
+bool FSA_InitStockRootDirs(FSAClientHandle fsa);

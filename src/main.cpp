@@ -52,6 +52,7 @@
 #include "settingtxt_manager.h"
 #include "settingtxt_menu.h"
 #include "region_changer.h"
+#include "wipe_reinstall.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -420,60 +421,12 @@ int32_t GetVWiiRegion() {
     return Setting_GetEffectiveRegionCode();
 }
 
-struct NusTitle {
-    uint64_t id;
-    const char* name;
-    bool regionSpecificId;
-    bool regionSpecificVersion;
-};
-
-static const NusTitle g_nusTitles[] = {
-    {0x0000000100000002ULL, "System Menu (vWii)", false, true},
-    {0x0000000100000009ULL, "IOS9", false, false},
-    {0x000000010000000cULL, "IOS12", false, false},
-    {0x000000010000000dULL, "IOS13", false, false},
-    {0x000000010000000eULL, "IOS14", false, false},
-    {0x000000010000000fULL, "IOS15", false, false},
-    {0x0000000100000011ULL, "IOS17", false, false},
-    {0x0000000100000015ULL, "IOS21", false, false},
-    {0x0000000100000016ULL, "IOS22", false, false},
-    {0x000000010000001cULL, "IOS28", false, false},
-    {0x000000010000001fULL, "IOS31", false, false},
-    {0x0000000100000021ULL, "IOS33", false, false},
-    {0x0000000100000022ULL, "IOS34", false, false},
-    {0x0000000100000023ULL, "IOS35", false, false},
-    {0x0000000100000024ULL, "IOS36", false, false},
-    {0x0000000100000025ULL, "IOS37", false, false},
-    {0x0000000100000026ULL, "IOS38", false, false},
-    {0x0000000100000029ULL, "IOS41", false, false},
-    {0x000000010000002bULL, "IOS43", false, false},
-    {0x000000010000002dULL, "IOS45", false, false},
-    {0x000000010000002eULL, "IOS46", false, false},
-    {0x0000000100000030ULL, "IOS48", false, false},
-    {0x0000000100000035ULL, "IOS53", false, false},
-    {0x0000000100000037ULL, "IOS55", false, false},
-    {0x0000000100000038ULL, "IOS56", false, false},
-    {0x0000000100000039ULL, "IOS57", false, false},
-    {0x000000010000003aULL, "IOS58", false, false},
-    {0x000000010000003bULL, "IOS59", false, false},
-    {0x000000010000003eULL, "IOS62", false, false},
-    {0x0000000100000050ULL, "IOS80", false, false},
-    {0x0000000100000200ULL, "BC-Wii", false, false},
-    {0x0000000100000201ULL, "MIOS", false, false},
-    {0x0001000248414241ULL, "Shopping Channel", false, false},
-    {0x0001000248414341ULL, "Mii Channel", false, false},
-    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true, false},
-    {0x0001000248435641ULL, "Wii U Menu Channel", false, false},
-    {0x0001000848414c00ULL, "Region Select", true, false},
-    {0x0001000848435a00ULL, "Wii System Transfer", true, false},
-};
-
 void WUPI_NusMenu() {
     while (State::AppRunning()) {
         WUPI_resetScreen();
         std::vector<std::string> options;
-        for (const auto& t : g_nusTitles) {
-            options.push_back(t.name);
+        for (size_t i = 0; i < g_numNusTitles; i++) {
+            options.push_back(g_nusTitles[i].name);
         }
         std::vector<std::string> header = {
             "Install System Titles from NUS:"
@@ -497,44 +450,16 @@ void WUPI_NusMenu() {
 
         for (int selected : selected_items) {
             if (!State::AppRunning()) break;
-            if (selected >= 0 && selected < (int)(sizeof(g_nusTitles) / sizeof(g_nusTitles[0]))) {
-                uint64_t titleId = g_nusTitles[selected].id;
-                WUPI_Log("--- Processing %s (%d/%d) ---", g_nusTitles[selected].name, successCount + failCount + 1, (int)selected_items.size());
+            if (selected >= 0 && selected < (int)g_numNusTitles) {
+                const auto& t = g_nusTitles[selected];
+                WUPI_Log("--- Processing %s (%d/%d) ---", t.name, successCount + failCount + 1, (int)selected_items.size());
 
-                if (g_nusTitles[selected].regionSpecificId) {
-                    uint8_t regionChar = 0;
-                    switch (regionCode) {
-                        case 0: regionChar = 'J'; break;
-                        case 1: regionChar = 'E'; break;
-                        case 2: regionChar = 'P'; break;
-                        case 3: regionChar = 'K'; break;
-                    }
-                    if (regionChar != 0) {
-                        titleId |= regionChar;
-                    }
-                }
-
-                int32_t latestVersion = NUS_GetLatestVersion(titleId);
-                if (latestVersion == -1) {
-                    WUPI_Log("Error: Failed to fetch latest version from NUS.\n");
-                    failCount++;
-                    WUPI_putstr("Press A to continue with next title, B to abort.");
-                    if (!WaitPrompt()) break;
-                    continue;
-                }
-
-                int32_t version = latestVersion;
-                if (g_nusTitles[selected].regionSpecificVersion) {
-                    version = (latestVersion & ~3) | regionCode;
-                }
-                WUPI_Log("Version: %d\n", version);
-
-                if (NUS_DownloadAndInstall(titleId, version)) {
+                if (NUS_InstallSystemTitle(&t, regionCode)) {
                     WUPI_Log("Installation complete!\n");
                     successCount++;
                     sleep(1);
                 } else {
-                    failCount++;                    
+                    failCount++;
                     WUPI_putstr("Press A to continue with next title, B to abort.");
                     if (!WaitPrompt()) break;
                 }
@@ -1053,6 +978,7 @@ int main() {
             "Download System Titles (NUS)",
             "Region Change Wizard",
             "Manage setting.txt",
+            "Full Wipe & Reinstall",
             "Express Uninstall",
             "Credits"
         };
@@ -1083,8 +1009,10 @@ int main() {
             } else if (selected == 8) {
                 WUPI_settingTxtMenu();
             } else if (selected == 9) {
-                WUPI_expressSetupUninstall();
+                WUPI_fullWipeAndReinstall();
             } else if (selected == 10) {
+                WUPI_expressSetupUninstall();
+            } else if (selected == 11) {
                 WUPI_showCredits();
             } else if (selected == -1) {
                 break;

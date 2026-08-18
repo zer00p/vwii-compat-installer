@@ -441,3 +441,87 @@ error:
     if (tikData) free(tikData);
     return NULL;
 }
+
+const NusTitle g_nusTitles[38] = {
+    {0x0000000100000002ULL, "System Menu (vWii)", false, true},
+    {0x0000000100000009ULL, "IOS9", false, false},
+    {0x000000010000000cULL, "IOS12", false, false},
+    {0x000000010000000dULL, "IOS13", false, false},
+    {0x000000010000000eULL, "IOS14", false, false},
+    {0x000000010000000fULL, "IOS15", false, false},
+    {0x0000000100000011ULL, "IOS17", false, false},
+    {0x0000000100000015ULL, "IOS21", false, false},
+    {0x0000000100000016ULL, "IOS22", false, false},
+    {0x000000010000001cULL, "IOS28", false, false},
+    {0x000000010000001fULL, "IOS31", false, false},
+    {0x0000000100000021ULL, "IOS33", false, false},
+    {0x0000000100000022ULL, "IOS34", false, false},
+    {0x0000000100000023ULL, "IOS35", false, false},
+    {0x0000000100000024ULL, "IOS36", false, false},
+    {0x0000000100000025ULL, "IOS37", false, false},
+    {0x0000000100000026ULL, "IOS38", false, false},
+    {0x0000000100000029ULL, "IOS41", false, false},
+    {0x000000010000002bULL, "IOS43", false, false},
+    {0x000000010000002dULL, "IOS45", false, false},
+    {0x000000010000002eULL, "IOS46", false, false},
+    {0x0000000100000030ULL, "IOS48", false, false},
+    {0x0000000100000035ULL, "IOS53", false, false},
+    {0x0000000100000037ULL, "IOS55", false, false},
+    {0x0000000100000038ULL, "IOS56", false, false},
+    {0x0000000100000039ULL, "IOS57", false, false},
+    {0x000000010000003aULL, "IOS58", false, false},
+    {0x000000010000003bULL, "IOS59", false, false},
+    {0x000000010000003eULL, "IOS62", false, false},
+    {0x0000000100000050ULL, "IOS80", false, false},
+    {0x0000000100000200ULL, "BC-Wii", false, false},
+    {0x0000000100000201ULL, "MIOS", false, false},
+    {0x0001000248414241ULL, "Shopping Channel", false, false},
+    {0x0001000248414341ULL, "Mii Channel", false, false},
+    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true, false},
+    {0x0001000248435641ULL, "Wii U Menu Channel", false, false},
+    {0x0001000848414c00ULL, "Region Select", true, false},
+    {0x0001000848435a00ULL, "Wii System Transfer", true, false},
+};
+
+const size_t g_numNusTitles = sizeof(g_nusTitles) / sizeof(g_nusTitles[0]);
+
+uint64_t NUS_ResolveTitleId(const NusTitle* title, int32_t regionCode) {
+    if (!title) return 0;
+    uint64_t titleId = title->id;
+    if (title->regionSpecificId) {
+        uint8_t regionChar = 0;
+        switch (regionCode) {
+            case 0: regionChar = 'J'; break;
+            case 1: regionChar = 'E'; break;
+            case 2: regionChar = 'P'; break;
+        }
+        if (regionChar != 0) {
+            titleId |= regionChar;
+        }
+    }
+    return titleId;
+}
+
+int32_t NUS_ResolveTitleVersion(const NusTitle* title, uint64_t resolvedTitleId, int32_t regionCode) {
+    if (!title) return -1;
+    int32_t latestVersion = NUS_GetLatestVersion(resolvedTitleId);
+    if (latestVersion < 0) {
+        return -1;
+    }
+    if (title->regionSpecificVersion) {
+        return (latestVersion & ~3) | regionCode;
+    }
+    return latestVersion;
+}
+
+bool NUS_InstallSystemTitle(const NusTitle* title, int32_t regionCode) {
+    if (!title) return false;
+    uint64_t titleId = NUS_ResolveTitleId(title, regionCode);
+    int32_t version = NUS_ResolveTitleVersion(title, titleId, regionCode);
+    if (version < 0) {
+        WUPI_Log("Error: Failed to fetch latest version from NUS for %s.\n", title->name);
+        return false;
+    }
+    WUPI_Log("Version: %d\n", version);
+    return NUS_DownloadAndInstall(titleId, version);
+}

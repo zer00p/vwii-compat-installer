@@ -94,6 +94,24 @@ bool WAD_IsSafeTitle(WADContext* ctx);
 // Reads the common key from OTP hardware
 bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]);
 
+typedef struct {
+    uint64_t id;
+    const char* name;
+    bool regionSpecificId;
+    bool regionSpecificVersion;
+} NusTitle;
+
+extern const NusTitle g_nusTitles[38];
+extern const size_t g_numNusTitles;
+
+// Resolves region-specific Title ID (e.g. adding 'E', 'P', 'J' character)
+uint64_t NUS_ResolveTitleId(const NusTitle* title, int32_t regionCode);
+
+// Resolves title version from NUS and applies region-specific versioning if needed
+int32_t NUS_ResolveTitleVersion(const NusTitle* title, uint64_t resolvedTitleId, int32_t regionCode);
+
+// Resolves version and installs a system title from NUS
+bool NUS_InstallSystemTitle(const NusTitle* title, int32_t regionCode);
 
 #ifdef __cplusplus
 }
