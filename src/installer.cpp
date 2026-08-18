@@ -248,6 +248,11 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
             uint64_t cSize = Read64BE((const uint8_t*)tmd + recordOffset + 8);
 
             if ((cType & 0x8000) != 0) {
+                // If content data is null, it was already verified intact on NAND during download check
+                if (!contents[i].data) {
+                    continue;
+                }
+
                 int32_t sharedIndex = GetSharedContentIndex((const uint8_t*)tmd + recordOffset + 0x10);
                 if (sharedIndex < 0) {
                     WUPI_Log("Failed to get shared content index for content %08x\n", cId);

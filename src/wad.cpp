@@ -367,8 +367,25 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     }
 
     for (int i = 0; i < numContents; i++) {
-        WUPI_Log_Overwrite("Fetching Content %d/%d from NUS...\n", i + 1, numContents);
         uint32_t cid = Read32BE(tmdData + tmdPayloadOffset + 0xA4 + 0x24*i);
+        uint16_t ctype = Read16BE(tmdData + tmdPayloadOffset + 0xA4 + 0x24*i + 6);
+        uint64_t expectedLen = Read64BE(tmdData + tmdPayloadOffset + 0xac + 0x24*i);
+        const uint8_t* expected_hash = tmdData + tmdPayloadOffset + 0xb4 + 0x24*i;
+
+        if ((ctype & 0x8000) != 0) {
+            int32_t sharedIndex = FindSharedContentIndex(expected_hash);
+            if (sharedIndex >= 0) {
+                std::string sharedPath = std::format("/vol/slccmpt01/shared1/{:08x}.app", sharedIndex);
+                if (FSACheckFileSha1(fsaClient, sharedPath, expected_hash, expectedLen)) {
+                    WUPI_Log_Overwrite("Fetching Content %d/%d (Shared: on NAND, skipped)\n", i + 1, numContents);
+                    c_arr[i].data = nullptr;
+                    c_arr[i].length = expectedLen;
+                    continue;
+                }
+            }
+        }
+
+        WUPI_Log_Overwrite("Fetching Content %d/%d from NUS...\n", i + 1, numContents);
         url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/{:08x}", fetchTitleId, cid);
 
         uint8_t* encData = NULL;
@@ -377,8 +394,6 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
             WUPI_Log("Failed to download content %d.\n", i);
             goto error;
         }
-
-        uint64_t expectedLen = Read64BE(tmdData + tmdPayloadOffset + 0xac + 0x24*i);
 
         if (expectedLen > encSize) {
             WUPI_Log("Content %d: expected size exceeds download.\n", i);
@@ -400,9 +415,6 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
 
         uint8_t actual_hash[20];
         sha(decData, expectedLen, actual_hash);
-
-        uint8_t expected_hash[20];
-        memcpy(expected_hash, tmdData + tmdPayloadOffset + 0xb4 + 0x24*i, 20);
 
         if (memcmp(expected_hash, actual_hash, 20) != 0) {
             WUPI_Log("Hash mismatch for content %d\n", i);
