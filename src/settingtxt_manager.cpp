@@ -141,19 +141,17 @@ bool Setting_Write(const VwiiSettings& settings) {
     EnsureFSADir(fsaClient, "/vol/slccmpt01/title/00000001");
 
     // 2. /vol/slccmpt01/title/00000001/00000002 (System Menu Title Dir - must be chowned while empty)
-    FSError resDir1 = FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002", STOCK_MODE_SYSTEM_DIR, 0, 0);
+    FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002", STOCK_MODE_SYSTEM_DIR, 0, 0);
 
     // 3. /vol/slccmpt01/title/00000001/00000002/data (System Menu Data Dir - MUST be owned by UID 4096, GID 1 while empty)
-    FSError resDir2 = FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", STOCK_MODE_DATA_DIR, 4096, 1);
+    FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", STOCK_MODE_DATA_DIR, VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
 
     // Ensure /sys/uid.sys exists with entry 0 for System Menu (0x1000)
-    UID_GetOrCreate(fsaClient, 0x0000000100000002ULL);
-
-    WUPI_Log("Hierarchy: 00000002(make=%d), data(make=%d)\n", resDir1, resDir2);
+    UID_GetOrCreate(fsaClient, VWII_TITLE_ID_SYSTEM_MENU);
 
     // Create file, set stock ownership (UID 4096, GID 1) while 0-byte empty, then write encrypted data
     bool writeOk = FSACreateFileWithOwner(fsaClient, VWII_SETTING_TXT_PATH, alignBuf, 256,
-                                          STOCK_MODE_SETTING_TXT, 4096, 1);
+                                          STOCK_MODE_SETTING_TXT, VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
     free(alignBuf);
 
     if (!writeOk) {

@@ -25,22 +25,22 @@ uint32_t UID_GetOrCreate(FSAClientHandle fsaClient, uint64_t titleId) {
         memset(writeBuf, 0, 0x40);
 
         // Entry 0: System Menu (0000000100000002, UID 0x1000)
-        writeBuf[0] = { 0x0000000100000002ULL, 0x1000 };
+        writeBuf[0] = { VWII_TITLE_ID_SYSTEM_MENU, VWII_UID_SYSTEM_MENU };
 
-        if (titleId == 0x0000000100000002ULL) {
+        if (titleId == VWII_TITLE_ID_SYSTEM_MENU) {
             FSACreateFileWithOwner(fsaClient, VWII_UID_SYS_PATH, writeBuf, sizeof(RawUidEntry), STOCK_MODE_SYSTEM_FILE, 0, 0);
             free(writeBuf);
-            return 0x1000;
+            return VWII_UID_SYSTEM_MENU;
         }
 
         // Entry 1: New Title (UID 0x1001)
-        writeBuf[1] = { titleId, 0x1001 };
+        writeBuf[1] = { titleId, VWII_UID_FIRST_USER };
         bool ok = FSACreateFileWithOwner(fsaClient, VWII_UID_SYS_PATH, writeBuf, 2 * sizeof(RawUidEntry), STOCK_MODE_SYSTEM_FILE, 0, 0);
         free(writeBuf);
 
-        WUPI_Log("UID (created): %08x/%08x -> 4097 (%s)\n",
-                 (uint32_t)(titleId >> 32), (uint32_t)(titleId & 0xFFFFFFFF), ok ? "OK" : "FAIL");
-        return 0x1001;
+        WUPI_Log("UID (created): %08x/%08x -> %u (%s)\n",
+                 (uint32_t)(titleId >> 32), (uint32_t)(titleId & 0xFFFFFFFF), VWII_UID_FIRST_USER, ok ? "OK" : "FAIL");
+        return VWII_UID_FIRST_USER;
     }
 
     if (openRes != FS_ERROR_OK) {
@@ -49,7 +49,7 @@ uint32_t UID_GetOrCreate(FSAClientHandle fsaClient, uint64_t titleId) {
     }
 
     // uid.sys exists and is open in "r+"
-    uint32_t maxUid = 0x1000;
+    uint32_t maxUid = VWII_UID_SYSTEM_MENU;
     bool found = false;
     uint32_t foundUid = 0;
     size_t entryCount = 0;
@@ -86,13 +86,13 @@ uint32_t UID_GetOrCreate(FSAClientHandle fsaClient, uint64_t titleId) {
 
     if (entryCount == 0) {
         // File was 0-bytes, write System Menu first
-        *entry = { 0x0000000100000002ULL, 0x1000 };
+        *entry = { VWII_TITLE_ID_SYSTEM_MENU, VWII_UID_SYSTEM_MENU };
         FSASetPosFile(fsaClient, fd, 0);
         FSAWriteFile(fsaClient, entry, sizeof(RawUidEntry), 1, fd, 0);
-        if (titleId == 0x0000000100000002ULL) {
+        if (titleId == VWII_TITLE_ID_SYSTEM_MENU) {
             free(entry);
             FSACloseFile(fsaClient, fd);
-            return 0x1000;
+            return VWII_UID_SYSTEM_MENU;
         }
         entryCount = 1;
     }
