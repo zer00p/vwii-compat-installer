@@ -974,7 +974,7 @@ int main() {
             "Credits"
         };
         std::vector<std::string> header = {
-            "Compat Title Installer v2.0",
+            "Compat Title Installer v2.1",
             "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair",
             "",
             "Main Menu:"
