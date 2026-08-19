@@ -189,11 +189,6 @@ FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, 
             WUPI_Log("FSAMakeDir: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
             return ownRes;
         }
-        FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
-        if (modeRes != FS_ERROR_OK) {
-            WUPI_Log("FSAMakeDir: Mode err %d: %s\n", modeRes, TruncatePathStart(path).c_str());
-            return modeRes;
-        }
     }
     return ret;
 }
@@ -248,7 +243,7 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
         }
     }
 
-    // 5. Apply requested permission mode (IOSU FSAOpenFileEx ignores mode on SFFS, leaving default 0600)
+    // 5. Apply requested permission mode on the file (e.g. 0444 for setting.txt, 0660 for system files)
     FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
     if (modeRes != FS_ERROR_OK) {
         WUPI_Log("FSACreateFile: Mode err %d: %s\n", modeRes, TruncatePathStart(path).c_str());
@@ -383,13 +378,6 @@ bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
                     FSError ownRes = FSA_ChangeOwner(fsa, d.path, 0, 0);
                     if (ownRes != FS_ERROR_OK) {
                         WUPI_Log("FSA_InitStockRootDirs: Owner err %d: %s\n", ownRes, d.path);
-                        allOk = false;
-                    }
-                }
-                if (stat.mode != d.mode) {
-                    FSError modeRes = FSAChangeMode(fsa, d.path, d.mode);
-                    if (modeRes != FS_ERROR_OK) {
-                        WUPI_Log("FSA_InitStockRootDirs: Mode err %d: %s\n", modeRes, d.path);
                         allOk = false;
                     }
                 }

@@ -474,11 +474,11 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
     std::string contentDir = titlePath + "/content";
     std::string tmdPath = contentDir + "/title.tmd";
 
-    // 1. Ensure title category and title directory modes are set
-    FSAChangeMode(fsa, "/vol/slccmpt01/title", STOCK_MODE_SYSTEM_DIR);
-    FSAChangeMode(fsa, std::format("/vol/slccmpt01/title/{:08x}", idHi).c_str(), STOCK_MODE_SYSTEM_DIR);
-    FSAChangeMode(fsa, titlePath.c_str(), STOCK_MODE_SYSTEM_DIR);
-    FSAChangeMode(fsa, contentDir.c_str(), STOCK_MODE_CONTENT_DIR);
+    // 1. Ensure title category and title directory exist
+    EnsureFSADir(fsa, "/vol/slccmpt01/title");
+    EnsureFSADir(fsa, std::format("/vol/slccmpt01/title/{:08x}", idHi));
+    EnsureFSADir(fsa, titlePath);
+    EnsureFSADir(fsa, contentDir);
 
     // 2. Fix TMD and content files permissions
     FSAChangeMode(fsa, tmdPath.c_str(), STOCK_MODE_SYSTEM_FILE);
@@ -562,7 +562,7 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
         }
     }
 
-    // 4. If System Menu (0000000100000002), ensure setting.txt exists and has correct permissions
+    // 4. If System Menu (0000000100000002), ensure setting.txt exists and has correct mode
     if (issue.titleId == VWII_TITLE_ID_SYSTEM_MENU) {
         FSStat sstat;
         if (FSAGetStat(fsa, VWII_SETTING_TXT_PATH, &sstat) == FS_ERROR_OK) {

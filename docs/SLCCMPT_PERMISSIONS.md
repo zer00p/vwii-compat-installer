@@ -65,18 +65,21 @@ Bit:   7   6   5   4   3   2   1   0
 
 ---
 
-## 4. Setting Ownership via IPC (`FSA_ChangeOwner`)
+## 4. Setting Ownership & Permissions via IPC
 
-Wii U Cafe OS does not expose a high-level `FSAChangeOwner` wrapper in `coreinit`. Ownership must be changed via raw IOS IPC ioctl `0x70` (`FSA_COMMAND_CHANGE_OWNER`):
+Ownership changes on SLCCMPT are performed via raw IOS IPC ioctl `0x70` (`FSA_COMMAND_CHANGE_OWNER`):
 
 ```cpp
-int FSA_ChangeOwner(FSAClientHandle fsaClient, const char* path, uint32_t uid, uint32_t gid);
+FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint32_t uid, uint32_t gid);
 ```
 
-### Critical Rules for `FSA_ChangeOwner`
+- **Directory Permissions**: Directory modes are set during directory creation via `FSAMakeDir(fsaClient, path, mode)`. SFFS does not support `ChangeMode` on directories (returns `FS_ERROR_INVALID_PARAM` `-196641`); never call `FSAChangeMode` on directories.
+- **File Permissions**: Files are created with `FSACreateFileWithOwner(...)` and explicitly have their final mode set via `FSAChangeMode(fsaClient, path, mode)` (e.g. `0444` for setting.txt, `0660` for system files).
+
+### Critical Rules for Ownership and Creation
 
 1. **Directory Chown Timing (Must Be Empty)**:
-   A directory can **ONLY** have its owner or group changed while it is **STILL EMPTY (0 child entries)** immediately following `FSAMakeDir`. If child files or subdirectories are created inside it first, `FSA_ChangeOwner` fails with `FS_ERROR_NOT_EMPTY` (`-196632`).
+   A directory can **ONLY** have its owner or group changed while it is **STILL EMPTY (0 child entries)** immediately following `FSAMakeDir`. If child files or subdirectories are created inside it first, `FSA_ChangeOwner` on the directory fails with `FS_ERROR_NOT_EMPTY` (`-196632`).
    
 2. **File Chown Timing (Must Be 0 Bytes / Empty)**:
    A file can **ONLY** have its owner changed while it is **0 BYTES (EMPTY)**. If payload data is written to the file first, `FSA_ChangeOwner` fails with `FS_ERROR_NOT_EMPTY` (`-196632`).
@@ -90,7 +93,7 @@ int FSA_ChangeOwner(FSAClientHandle fsaClient, const char* path, uint32_t uid, u
    ```
    This function executes the necessary 5-step sequence:
    1. `FSARemove(path)` (allocates a fresh inode).
-   2. `FSAOpenFileEx("wb", mode)` + `FSACloseFile()` (creates empty 0-byte file; note IOSU ignores `mode` on SFFS and sets default `0600`).
+   2. `FSAOpenFileEx("wb", mode)` + `FSACloseFile()` (creates empty 0-byte file).
    3. `FSA_ChangeOwner(uid, gid)` (applied while 0 bytes).
    4. `FSAOpenFileEx("r+b", mode)` + `FSAWriteAligned()` + `FSACloseFile()` (writes payload).
-   5. `FSAChangeMode(mode)` (locks final permissions like `0444` for setting.txt or `0660` for system files; required because `FSAOpenFileEx` defaults to `0600`).
+   5. `FSAChangeMode(mode)` (locks final permissions like `0444` for setting.txt or `0660` for system files).
