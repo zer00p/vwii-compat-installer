@@ -236,7 +236,7 @@ static bool ConfirmWipe(WipeMode mode) {
             "=== WARNING: WIPE (EXCLUDE USER TICKETS) ===",
             "This will wipe all titles and saves while PRESERVING user tickets!",
             "",
-            "Wipes: All channels, saves, Miis, system tickets, cIOS, & cache",
+            "Wipes: All channels, saves, Miis, system tickets, cIOS",
             "Keeps: User tickets (WiiWare, VC, homebrew, DLC, disc tickets)",
             "",
             "THIS ACTION CANNOT BE UNDONE.",
@@ -252,7 +252,7 @@ static bool ConfirmWipe(WipeMode mode) {
             "This will COMPLETELY ERASE all data on SLCCMPT (vWii)!",
             "",
             "Wipes: All channels, saves, Miis, tickets (sys+user), cIOS, & files",
-            "Next:  Prompt for target region, regenerate setting.txt, NUS install",
+            "Next: Prompt for target region, regenerate setting.txt, NUS install",
             "",
             "THIS ACTION CANNOT BE UNDONE.",
             "Are you sure you want to proceed?"
