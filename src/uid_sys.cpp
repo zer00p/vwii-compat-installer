@@ -215,8 +215,20 @@ uint32_t UID_GetOrCreate(FSAClientHandle fsaClient, uint64_t titleId) {
     // If entryCount == 0 (e.g. empty file), write System Menu first
     if (entryCount == 0) {
         *entry = { VWII_TITLE_ID_SYSTEM_MENU, VWII_UID_SYSTEM_MENU };
-        FSASetPosFile(fsaClient, fd, 0);
-        FSAWriteFile(fsaClient, entry, sizeof(RawUidEntry), 1, fd, 0);
+        FSError setPosRes = FSASetPosFile(fsaClient, fd, 0);
+        if (setPosRes != FS_ERROR_OK) {
+            WUPI_Log("UID: Failed to set pos for initial entry: %d\n", setPosRes);
+            free(entry);
+            FSACloseFile(fsaClient, fd);
+            return 0;
+        }
+        int initRes = FSAWriteFile(fsaClient, entry, sizeof(RawUidEntry), 1, fd, 0);
+        if (initRes <= 0) {
+            WUPI_Log("UID: Failed to write initial entry: %d\n", initRes);
+            free(entry);
+            FSACloseFile(fsaClient, fd);
+            return 0;
+        }
         entryCount = 1;
     }
 
@@ -240,13 +252,24 @@ uint32_t UID_GetOrCreate(FSAClientHandle fsaClient, uint64_t titleId) {
     }
 
     *entry = { titleId, newUid };
-    FSASetPosFile(fsaClient, fd, entryCount * sizeof(RawUidEntry));
+    FSError setPosRes = FSASetPosFile(fsaClient, fd, entryCount * sizeof(RawUidEntry));
+    if (setPosRes != FS_ERROR_OK) {
+        WUPI_Log("UID: Failed to seek for entry append: %d\n", setPosRes);
+        free(entry);
+        FSACloseFile(fsaClient, fd);
+        return 0;
+    }
+
     int writeRes = FSAWriteFile(fsaClient, entry, sizeof(RawUidEntry), 1, fd, 0);
     free(entry);
-    FSACloseFile(fsaClient, fd);
+    FSError closeRes = FSACloseFile(fsaClient, fd);
 
     WUPI_Log("UID (appended): %08x/%08x -> %u (%s)\n",
-             idHi, idLo, newUid, writeRes > 0 ? "OK" : "FAIL");
+             idHi, idLo, newUid, (writeRes > 0 && closeRes == FS_ERROR_OK) ? "OK" : "FAIL");
+
+    if (writeRes <= 0 || closeRes != FS_ERROR_OK) {
+        return 0;
+    }
 
     return newUid;
 }

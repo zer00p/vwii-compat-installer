@@ -84,13 +84,13 @@ int FSA_ChangeOwner(FSAClientHandle fsaClient, const char* path, uint32_t uid, u
 3. **Always Use `FSACreateFileWithOwner` for Files**:
    To guarantee correct ordering when writing files to SLCCMPT, always use [`FSACreateFileWithOwner`](../src/FSAUtils.cpp):
    ```cpp
-   bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const char* path,
+   bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path,
                                const void* buffer, size_t size,
                                FSMode mode, uint32_t uid, uint32_t gid);
    ```
    This function executes the necessary 5-step sequence:
    1. `FSARemove(path)` (allocates a fresh inode).
-   2. `FSAOpenFileEx("wb", 0x666)` + `FSACloseFile()` (creates empty 0-byte file).
+   2. `FSAOpenFileEx("wb", mode)` + `FSACloseFile()` (creates empty 0-byte file; note IOSU ignores `mode` on SFFS and sets default `0600`).
    3. `FSA_ChangeOwner(uid, gid)` (applied while 0 bytes).
-   4. `FSAOpenFileEx("r+b", 0x666)` + `FSAWriteAligned()` + `FSACloseFile()` (writes payload).
-   5. `FSAChangeMode(mode)` (locks final permissions after payload is written).
+   4. `FSAOpenFileEx("r+b", mode)` + `FSAWriteAligned()` + `FSACloseFile()` (writes payload).
+   5. `FSAChangeMode(mode)` (locks final permissions like `0444` for setting.txt or `0660` for system files; required because `FSAOpenFileEx` defaults to `0600`).

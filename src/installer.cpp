@@ -96,10 +96,10 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
             WUPI_Log("Failed to open content.map\n");
             return -1;
         }
-        FSError mRes = FSAChangeMode(fsaClient, path, STOCK_MODE_SYSTEM_FILE);
         FSError oRes = FSA_ChangeOwner(fsaClient, path, 0, 0);
-        if (mRes != FS_ERROR_OK || oRes != FS_ERROR_OK) {
-            WUPI_Log("Warning: content.map mode/owner (m=%d, o=%d)\n", mRes, oRes);
+        FSError mRes = FSAChangeMode(fsaClient, path, STOCK_MODE_SYSTEM_FILE);
+        if (oRes != FS_ERROR_OK || mRes != FS_ERROR_OK) {
+            WUPI_Log("Warning: content.map owner/mode (o=%d, m=%d)\n", oRes, mRes);
         }
     }
 

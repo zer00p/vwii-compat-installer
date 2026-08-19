@@ -189,6 +189,11 @@ FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, 
             WUPI_Log("FSAMakeDir: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
             return ownRes;
         }
+        FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
+        if (modeRes != FS_ERROR_OK) {
+            WUPI_Log("FSAMakeDir: Mode err %d: %s\n", modeRes, TruncatePathStart(path).c_str());
+            return modeRes;
+        }
     }
     return ret;
 }
@@ -197,14 +202,18 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
     // 1. Remove old file so a fresh inode is allocated
     FSARemove(fsaClient, path.c_str());
 
-    // 2. Create empty file (0 bytes) with permissive write mode initially
+    // 2. Create empty file (0 bytes) directly with target mode
     FSAFileHandle fd = 0;
-    int res = FSAOpenFileEx(fsaClient, path.c_str(), "wb", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd);
+    int res = FSAOpenFileEx(fsaClient, path.c_str(), "wb", mode, FS_OPEN_FLAG_NONE, 0, &fd);
     if (res != FS_ERROR_OK) {
         WUPI_Log("FSACreateFile: Open err %d: %s\n", res, TruncatePathStart(path).c_str());
         return false;
     }
-    FSACloseFile(fsaClient, fd);
+    FSError closeRes = FSACloseFile(fsaClient, fd);
+    if (closeRes != FS_ERROR_OK) {
+        WUPI_Log("FSACreateFile: Close err %d: %s\n", closeRes, TruncatePathStart(path).c_str());
+        return false;
+    }
     fd = 0;
 
     // 3. Set ownership while the file is 0 bytes (empty)
@@ -214,23 +223,32 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
         return false;
     }
 
-    // 4. Open in "r+b" mode to write payload (since mode is still 0x666, write is allowed for Cafe OS)
-    if (size > 0 && buffer != nullptr) {
-        res = FSAOpenFileEx(fsaClient, path.c_str(), "r+b", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd);
+    // 4. Open in "r+b" mode to write payload
+    if (size > 0) {
+        if (!buffer) {
+            WUPI_Log("FSACreateFile: Null buffer with size %zu: %s\n", size, TruncatePathStart(path).c_str());
+            return false;
+        }
+
+        res = FSAOpenFileEx(fsaClient, path.c_str(), "r+b", mode, FS_OPEN_FLAG_NONE, 0, &fd);
         if (res != FS_ERROR_OK) {
             WUPI_Log("FSACreateFile: WriteOpen err %d: %s\n", res, TruncatePathStart(path).c_str());
             return false;
         }
 
         bool writeOk = FSAWriteAligned(fsaClient, fd, buffer, size);
-        FSACloseFile(fsaClient, fd);
+        closeRes = FSACloseFile(fsaClient, fd);
         if (!writeOk) {
             WUPI_Log("FSACreateFile: Write payload failed: %s\n", TruncatePathStart(path).c_str());
             return false;
         }
+        if (closeRes != FS_ERROR_OK) {
+            WUPI_Log("FSACreateFile: WriteClose err %d: %s\n", closeRes, TruncatePathStart(path).c_str());
+            return false;
+        }
     }
 
-    // 5. Finally, set requested permission mode (e.g. 0x444 read-only or 0x660) after data is written
+    // 5. Apply requested permission mode (IOSU FSAOpenFileEx ignores mode on SFFS, leaving default 0600)
     FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
     if (modeRes != FS_ERROR_OK) {
         WUPI_Log("FSACreateFile: Mode err %d: %s\n", modeRes, TruncatePathStart(path).c_str());
