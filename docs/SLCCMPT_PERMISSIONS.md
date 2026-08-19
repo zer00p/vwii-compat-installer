@@ -41,14 +41,16 @@ Bit:   7   6   5   4   3   2   1   0
 | `/title/*/*/content/*.app` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | System and title binaries / contents. |
 | `/shared1/*.app` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Shared system content. |
 | `/shared1/content.map` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Shared content SHA-1 mapping table. |
-| `/sys/uid.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Title UID allocation table. |
-| `/sys/cert.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Central certificate trust store (`XS00000003`, `CA00000001`, `CP00000004`). |
-| `/title`, `/content`, `/shared1`, `/sys` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rwxrwxr--` | Root system directories. |
-| `/title/<idHi>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rwxrwxr--` | Title category directory (e.g. `00000001`). |
-| `/title/<idHi>/<idLo>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rwxrwxr--` | Specific title directory. |
-| `/title/<idHi>/<idLo>/content` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x660` | `rwxrwx---` | Title content directory. |
+| `/sys/uid.sys`, `/sys/space.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | System tables / metadata. |
+| `/sys/cert.sys` | File | **0** | **0** | `0xf5` | `(FSMode)0x664` | `rw-rw-r--` | Central certificate trust store (`XS00000003`, `CA00000001`, `CP00000004`). Read-access for all UIDs. |
+| `/title` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x775` | `rwxrwxr-x` | Title root directory. |
+| `/sys`, `/shared1`, `/ticket`, `/content`, `/import` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x770` | `rwxrwx---` | System root directories. |
+| `/shared2`, `/tmp` | Dir | **0** | **0** | `0xfe` | `(FSMode)0x777` | `rwxrwxrwx` | Shared system & temp directories (writable by all UIDs). |
+| `/title/<idHi>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x775` | `rwxrwxr-x` | Title category directory (e.g. `00000001`). |
+| `/title/<idHi>/<idLo>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x775` | `rwxrwxr-x` | Specific title directory. |
+| `/title/<idHi>/<idLo>/content` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x770` | `rwxrwx---` | Title content directory. |
 | `/ticket/<idHi>` | Dir | **0** | **0** | `0x02` | `(FSMode)0x000` | `---------` | Ticket category subdirectory. |
-| `/title/<idHi>/<idLo>/data` | Dir | **`Title UID`** | **`TMD GID`** | `0xc2` | `(FSMode)0x600` | `rwx------` | Title save data / configuration directory. |
+| `/title/<idHi>/<idLo>/data` | Dir | **`Title UID`** | **`TMD GID`** | `0xc2` | `(FSMode)0x700` | `rwx------` | Title save data / configuration directory. |
 
 ---
 
@@ -59,6 +61,7 @@ Bit:   7   6   5   4   3   2   1   0
 * **Allocation Sequence**: Subsequent UIDs iterate monotonically (+1) from `4097` (`0x1001`) onwards as titles are installed.
 * **Group ID (GID)**: Extracted from offset `0x98` in the TMD payload (`1` for System/IOS titles, `12337` / `'01'` for channels, `23130` / `'ZZ'` for Wii U Menu Return).
 * **Mandatory Save Directory Requirement**: Because titles run in unprivileged user mode, they cannot create directories inside `/title/<idHi>/<idLo>` or `chown` their save folder. Installers must create the `/data` directory and register the title in `/sys/uid.sys` during title installation.
+* **UID Reconstruction & Save Data Preservation**: When repairing or reconstructing `/sys/uid.sys`, the installer scans existing `/vol/slccmpt01/title/*/*/data` directories. If valid vWii UID ownership (`stat.owner >= 0x1000` and `!= 0x10050000`) is detected on an existing `/data` directory, that UID is preserved in `/sys/uid.sys`. This prevents save data access lockout in vWii mode and eliminates the need to wipe `/data` folders during repair.
 
 ---
 
@@ -85,8 +88,9 @@ int FSA_ChangeOwner(FSAClientHandle fsaClient, const char* path, uint32_t uid, u
                                const void* buffer, size_t size,
                                FSMode mode, uint32_t uid, uint32_t gid);
    ```
-   This function executes the necessary 4-step sequence:
+   This function executes the necessary 5-step sequence:
    1. `FSARemove(path)` (allocates a fresh inode).
-   2. `FSAOpenFileEx("wb")` + `FSACloseFile()` (creates empty 0-byte file).
-   3. `FSA_ChangeOwner(uid, gid)` + `FSAChangeMode(mode)` (applied while 0 bytes).
-   4. `FSAOpenFileEx("r+b")` + `FSAWriteAligned()` (writes payload).
+   2. `FSAOpenFileEx("wb", 0x666)` + `FSACloseFile()` (creates empty 0-byte file).
+   3. `FSA_ChangeOwner(uid, gid)` (applied while 0 bytes).
+   4. `FSAOpenFileEx("r+b", 0x666)` + `FSAWriteAligned()` + `FSACloseFile()` (writes payload).
+   5. `FSAChangeMode(mode)` (locks final permissions after payload is written).

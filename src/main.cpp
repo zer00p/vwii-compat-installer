@@ -980,7 +980,7 @@ int main() {
             "Main Menu:"
         };
         while (State::AppRunning()) {
-            int selected = ShowMenu(header, options);
+            int selected = ShowMenu(header, options, 0, false);
             if (selected == 0) {
                 WUPI_install();
             } else if (selected == 1) {
@@ -1005,8 +1005,6 @@ int main() {
                 WUPI_expressSetupUninstall();
             } else if (selected == 11) {
                 WUPI_showCredits();
-            } else if (selected == -1) {
-                break;
             }
         }
     }

@@ -104,8 +104,10 @@ WADContext* WAD_LoadAndDecrypt(const char* filepath) {
     ctx->contentsArray = contents;
 
     // Set titleType by parsing TMD
-    uint32_t tmdPayloadOffset = GetPayloadOffset(ctx->tmdData);
-    ctx->titleType = Read32BE(ctx->tmdData + tmdPayloadOffset + 0x48);
+    if (ctx->tmdData && ctx->tmdSize >= sizeof(TitleTmd)) {
+        const TitleTmd* tmdStruct = reinterpret_cast<const TitleTmd*>(ctx->tmdData);
+        ctx->titleType = FromBE32(tmdStruct->titleType);
+    }
 
     WUPI_Log("WAD decrypted successfully. ID: %08x-%08x\n", (uint32_t)(ctx->tmdTitleId >> 32), (uint32_t)(ctx->tmdTitleId));
     return ctx;
@@ -144,13 +146,10 @@ bool WAD_IsSafeTitle(WADContext* ctx) {
         }
 
         // Check ticket common key index to see if it's a vWii title
-        if (ctx->ticketData && ctx->ticketSize >= 4) {
-            uint32_t tikPayloadOffset = GetPayloadOffset(ctx->ticketData);
-            if (tikPayloadOffset > 0 && ctx->ticketSize >= tikPayloadOffset + 0xB2) {
-                uint8_t ckey = ctx->ticketData[tikPayloadOffset + 0xB1];
-                if (ckey == 2) {
-                    isvWiiTitle = true;
-                }
+        if (ctx->ticketData && ctx->ticketSize >= sizeof(TitleTicket)) {
+            const auto* tik = reinterpret_cast<const TitleTicket*>(ctx->ticketData);
+            if (tik->commonKeyIndex == 2) {
+                isvWiiTitle = true;
             }
         }
 
@@ -218,18 +217,13 @@ int32_t NUS_GetLatestVersion(uint64_t titleId) {
         return -1;
     }
 
-    if (tmdSize < 4) {
+    if (tmdSize < sizeof(TitleTmd)) {
         free(tmdData);
         return -1;
     }
 
-    uint32_t tmdPayloadOffset = GetPayloadOffset(tmdData);
-    if (tmdSize < tmdPayloadOffset + 0x9E) {
-        free(tmdData);
-        return -1;
-    }
-
-    uint16_t version = Read16BE(tmdData + tmdPayloadOffset + 0x9C);
+    const auto* tmd = reinterpret_cast<const TitleTmd*>(tmdData);
+    uint16_t version = FromBE16(tmd->titleVersion);
     free(tmdData);
     return version;
 }
@@ -288,27 +282,24 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     // the 00000007 prefix on NUS. We install it into the 00000001 directory via CINS_Install,
     // but we leave the actual file contents exactly as Nintendo signed them.
 
-    uint32_t tmdPayloadOffset = GetPayloadOffset(tmdData);
-    uint32_t tikPayloadOffset = GetPayloadOffset(tikData);
-
-    // Validate TMD has at least the numContents field
-    if (tmdSize < tmdPayloadOffset + 0xA0) {
+    if (tmdSize < sizeof(TitleTmd)) {
         WUPI_Log("TMD truncated.\n");
         free(tmdData); free(tikData);
         return NULL;
     }
 
-    uint16_t numContents = Read16BE(tmdData + tmdPayloadOffset + 0x9E);
+    const auto* tmd = reinterpret_cast<const TitleTmd*>(tmdData);
+    uint16_t numContents = FromBE16(tmd->numContents);
 
     // Validate and strip certificate chain from TMD and Ticket
-    size_t requiredTmdSize = tmdPayloadOffset + 0xA4 + (numContents * 0x24);
+    size_t requiredTmdSize = sizeof(TitleTmd) + (numContents * sizeof(TitleContentRecord));
     if (tmdSize < requiredTmdSize) {
         WUPI_Log("TMD truncated (content records).\n");
         free(tmdData); free(tikData);
         return NULL;
     }
 
-    size_t requiredTikSize = tikPayloadOffset + 0x164;
+    size_t requiredTikSize = sizeof(TitleTicket);
     if (tikSize < requiredTikSize) {
         WUPI_Log("Ticket truncated.\n");
         free(tmdData); free(tikData);
@@ -341,10 +332,8 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     tikSize = requiredTikSize;
 
     // Decrypt Title Key
-    uint8_t ckey_idx = 0;
-    if (tikPayloadOffset > 0 && tikSize >= tikPayloadOffset + 0xB2) {
-        ckey_idx = tikData[tikPayloadOffset + 0xB1];
-    }
+    const auto* tik = reinterpret_cast<const TitleTicket*>(tikData);
+    uint8_t ckey_idx = tik->commonKeyIndex;
 
     uint8_t dynamic_common_key[16];
     if (GetCommonKeyFromOTP(ckey_idx, dynamic_common_key)) {
@@ -367,10 +356,11 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     }
 
     for (int i = 0; i < numContents; i++) {
-        uint32_t cid = Read32BE(tmdData + tmdPayloadOffset + 0xA4 + 0x24*i);
-        uint16_t ctype = Read16BE(tmdData + tmdPayloadOffset + 0xA4 + 0x24*i + 6);
-        uint64_t expectedLen = Read64BE(tmdData + tmdPayloadOffset + 0xac + 0x24*i);
-        const uint8_t* expected_hash = tmdData + tmdPayloadOffset + 0xb4 + 0x24*i;
+        const TitleContentRecord& rec = tmd->contents[i];
+        uint32_t cid = FromBE32(rec.contentId);
+        uint16_t ctype = FromBE16(rec.type);
+        uint64_t expectedLen = FromBE64(rec.size);
+        const uint8_t* expected_hash = rec.hash.data();
 
         if ((ctype & 0x8000) != 0) {
             int32_t sharedIndex = FindSharedContentIndex(expected_hash);
@@ -408,7 +398,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         }
 
         uint8_t iv[16] = {0};
-        memcpy(iv, tmdData + tmdPayloadOffset + 0xa8 + 0x24*i, 2);
+        memcpy(iv, &rec.index, sizeof(rec.index));
 
         aes_cbc_dec(title_key, iv, encData, encSize, decData);
         free(encData);
@@ -437,7 +427,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         ctx->tmdData = tmdData;
         ctx->tmdSize = tmdSize;
         ctx->tmdTitleId = titleId;
-        ctx->titleType = Read32BE(tmdData + tmdPayloadOffset + 0x48);
+        ctx->titleType = FromBE32(tmd->titleType);
         ctx->numContents = numContents;
         ctx->contentsArray = c_arr;
 
@@ -458,8 +448,20 @@ error:
 }
 
 const NusTitle g_nusTitles[38] = {
+    // 1. System Menu (always UID 4096 / 0x1000)
     {0x0000000100000002ULL, "System Menu (vWii)", false, true},
-    {0x0000000100000009ULL, "IOS9", false, false},
+    // 2. Base System Menu IOS (UID 4097)
+    {0x0000000100000050ULL, "IOS80", false, false},
+    // 3-7. System Channels (UID 4098..4102)
+    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true, false},
+    {0x0001000248414341ULL, "Mii Channel", false, false},
+    {0x0001000848414c00ULL, "EULA", true, false},
+    {0x0001000248435641ULL, "Wii U Menu Channel", false, false},
+    {0x0001000248414241ULL, "Disc Channel", false, false},
+    // 8-9. Backward Compatibility IOSes (UID 4103..4104)
+    {0x0000000100000200ULL, "BC-NAND", false, false},
+    {0x0000000100000201ULL, "BC-WFS", false, false},
+    // 10-36. System IOSes (UID 4105..4131)
     {0x000000010000000cULL, "IOS12", false, false},
     {0x000000010000000dULL, "IOS13", false, false},
     {0x000000010000000eULL, "IOS14", false, false},
@@ -487,15 +489,10 @@ const NusTitle g_nusTitles[38] = {
     {0x000000010000003aULL, "IOS58", false, false},
     {0x000000010000003bULL, "IOS59", false, false},
     {0x000000010000003eULL, "IOS62", false, false},
-    {0x0000000100000050ULL, "IOS80", false, false},
-    {0x0000000100000200ULL, "BC-NAND", false, false},
-    {0x0000000100000201ULL, "BC-WFS", false, false},
-    {0x0001000248414241ULL, "Shopping Channel", false, false},
-    {0x0001000248414341ULL, "Mii Channel", false, false},
-    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true, false},
-    {0x0001000248435641ULL, "Wii U Menu Channel", false, false},
-    {0x0001000848414c00ULL, "Region Select", true, false},
-    {0x0001000848435a00ULL, "Wii System Transfer", true, false},
+    // 37. IOS9 (UID 4132)
+    {0x0000000100000009ULL, "IOS9", false, false},
+    // 38. Region Select Hidden Channel (UID 4133/4134)
+    {0x0001000848435a00ULL, "Region Select", true, false},
 };
 
 const size_t g_numNusTitles = sizeof(g_nusTitles) / sizeof(g_nusTitles[0]);

@@ -486,10 +486,21 @@ static void HandleCategoryDeletion(FSAClientHandle fsa, TitleCategory category, 
             "The following title(s) will be deleted:"
         };
 
-        for (int idx : selectedIndices) {
-            const auto& t = titles[idx];
-            confirmHeader.push_back(" - " + t.titleName + " (" + t.asciiId + ")");
-            if (t.isCritical) hasCritical = true;
+        if (selectedIndices.size() <= 4) {
+            for (int idx : selectedIndices) {
+                const auto& t = titles[idx];
+                confirmHeader.push_back(" - " + t.titleName + " (" + t.asciiId + ")");
+                if (t.isCritical) hasCritical = true;
+            }
+        } else {
+            for (size_t i = 0; i < 3; i++) {
+                const auto& t = titles[selectedIndices[i]];
+                confirmHeader.push_back(" - " + t.titleName + " (" + t.asciiId + ")");
+            }
+            confirmHeader.push_back(" ... and " + std::to_string(selectedIndices.size() - 3) + " more title(s)");
+            for (int idx : selectedIndices) {
+                if (titles[idx].isCritical) hasCritical = true;
+            }
         }
 
         confirmHeader.push_back("");

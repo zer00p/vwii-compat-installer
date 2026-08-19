@@ -32,16 +32,16 @@ static bool IsSystemCategory(const std::string& folderName) {
     return (folderName == "00000001" || folderName == "00010002" || folderName == "00010008");
 }
 
-static void RemoveSystemCategories(FSAClientHandle fsa, const std::string& parentPath) {
+static bool RemoveSystemCategories(FSAClientHandle fsa, const std::string& parentPath) {
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsa, parentPath.c_str(), &dir) != FS_ERROR_OK) {
-        return;
+        return true;
     }
 
     FSADirectoryEntry* entry = (FSADirectoryEntry*)memalign(0x40, sizeof(FSADirectoryEntry));
     if (!entry) {
         FSACloseDir(fsa, dir);
-        return;
+        return false;
     }
 
     std::vector<std::string> toRemove;
@@ -60,26 +60,30 @@ static void RemoveSystemCategories(FSAClientHandle fsa, const std::string& paren
     free(entry);
     FSACloseDir(fsa, dir);
 
+    bool allOk = true;
     for (const auto& p : toRemove) {
-        FSARemoveTree(fsa, p, false);
+        if (!FSARemoveTree(fsa, p, false)) {
+            WUPI_Log("RemoveSystemCategories: Failed to remove %s\n", p.c_str());
+            allOk = false;
+        }
     }
+    return allOk;
 }
 
-static void CleanSysDirectory(FSAClientHandle fsa, bool keepUidAndCert) {
+static bool CleanSysDirectory(FSAClientHandle fsa, bool keepUidAndCert) {
     if (!keepUidAndCert) {
-        FSARemoveTree(fsa, "/vol/slccmpt01/sys", true);
-        return;
+        return FSARemoveTree(fsa, "/vol/slccmpt01/sys", true);
     }
 
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsa, "/vol/slccmpt01/sys", &dir) != FS_ERROR_OK) {
-        return;
+        return true;
     }
 
     FSADirectoryEntry* entry = (FSADirectoryEntry*)memalign(0x40, sizeof(FSADirectoryEntry));
     if (!entry) {
         FSACloseDir(fsa, dir);
-        return;
+        return false;
     }
 
     std::vector<std::pair<std::string, bool>> toRemove;
@@ -95,25 +99,33 @@ static void CleanSysDirectory(FSAClientHandle fsa, bool keepUidAndCert) {
     free(entry);
     FSACloseDir(fsa, dir);
 
+    bool allOk = true;
     for (const auto& item : toRemove) {
         if (item.second) {
-            FSARemoveTree(fsa, item.first, false);
+            if (!FSARemoveTree(fsa, item.first, false)) {
+                WUPI_Log("CleanSysDirectory: Failed to remove %s\n", item.first.c_str());
+                allOk = false;
+            }
         } else {
-            FSARemove(fsa, item.first.c_str());
+            if (FSARemove(fsa, item.first.c_str()) != FS_ERROR_OK) {
+                WUPI_Log("CleanSysDirectory: Failed to remove %s\n", item.first.c_str());
+                allOk = false;
+            }
         }
     }
+    return allOk;
 }
 
-static void CleanRootUnknownEntries(FSAClientHandle fsa) {
+static bool CleanRootUnknownEntries(FSAClientHandle fsa) {
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsa, "/vol/slccmpt01", &dir) != FS_ERROR_OK) {
-        return;
+        return true;
     }
 
     FSADirectoryEntry* entry = (FSADirectoryEntry*)memalign(0x40, sizeof(FSADirectoryEntry));
     if (!entry) {
         FSACloseDir(fsa, dir);
-        return;
+        return false;
     }
 
     const std::vector<std::string> knownDirs = {
@@ -139,13 +151,21 @@ static void CleanRootUnknownEntries(FSAClientHandle fsa) {
     free(entry);
     FSACloseDir(fsa, dir);
 
+    bool allOk = true;
     for (const auto& item : toRemove) {
         if (item.second) {
-            FSARemoveTree(fsa, item.first, false);
+            if (!FSARemoveTree(fsa, item.first, false)) {
+                WUPI_Log("CleanRootUnknownEntries: Failed to remove %s\n", item.first.c_str());
+                allOk = false;
+            }
         } else {
-            FSARemove(fsa, item.first.c_str());
+            if (FSARemove(fsa, item.first.c_str()) != FS_ERROR_OK) {
+                WUPI_Log("CleanRootUnknownEntries: Failed to remove %s\n", item.first.c_str());
+                allOk = false;
+            }
         }
     }
+    return allOk;
 }
 
 static bool PerformWipe(FSAClientHandle fsa, WipeMode mode) {
@@ -153,40 +173,42 @@ static bool PerformWipe(FSAClientHandle fsa, WipeMode mode) {
         return FSARemoveTree(fsa, "/vol/slccmpt01", true);
     }
 
+    bool allOk = true;
+
     // Common staging / temp folders
-    FSARemoveTree(fsa, "/vol/slccmpt01/content", true);
-    FSARemoveTree(fsa, "/vol/slccmpt01/tmp", true);
-    FSARemoveTree(fsa, "/vol/slccmpt01/import", true);
+    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/content", true);
+    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/tmp", true);
+    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/import", true);
 
     if (mode == WipeMode::EXCLUDE_USER_TITLES_AND_TICKETS) {
         // Remove system titles only; keep user titles (00010001, 00010000, 00010004, 00010005, etc.)
-        RemoveSystemCategories(fsa, "/vol/slccmpt01/title");
+        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/title");
 
         // Remove system tickets only; keep user tickets
-        RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket");
+        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket");
 
         // Keep /shared1 and /shared2 for user title assets
         // Clean sys but preserve uid.sys and cert.sys
-        CleanSysDirectory(fsa, true);
+        allOk &= CleanSysDirectory(fsa, true);
     } else if (mode == WipeMode::EXCLUDE_USER_TICKETS) {
         // Remove ALL titles (system and user)
-        FSARemoveTree(fsa, "/vol/slccmpt01/title", true);
+        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/title", true);
 
         // Remove system tickets only; keep user tickets
-        RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket");
+        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket");
 
         // Clean shared folders
-        FSARemoveTree(fsa, "/vol/slccmpt01/shared1", true);
-        FSARemoveTree(fsa, "/vol/slccmpt01/shared2", true);
+        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/shared1", true);
+        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/shared2", true);
 
         // Clean sys completely
-        CleanSysDirectory(fsa, false);
+        allOk &= CleanSysDirectory(fsa, false);
     }
 
     // Clean any stray non-standard entries in SLCCMPT root
-    CleanRootUnknownEntries(fsa);
+    allOk &= CleanRootUnknownEntries(fsa);
 
-    return true;
+    return allOk;
 }
 
 static bool ConfirmWipe(WipeMode mode) {
@@ -197,19 +219,10 @@ static bool ConfirmWipe(WipeMode mode) {
     if (mode == WipeMode::EXCLUDE_USER_TITLES_AND_TICKETS) {
         header = {
             "=== WARNING: WIPE (EXCLUDE USER TITLES & TICKETS) ===",
-            "",
             "This will wipe system files while PRESERVING user channels & saves!",
             "",
-            "The following data will be wiped clean:",
-            " - All system titles (System Menu, IOS, BC, MIOS, system channels)",
-            " - All system tickets",
-            " - All custom IOS (d2x) and patches",
-            " - Temporary and cache files",
-            "",
-            "The following data will be PRESERVED:",
-            " - All user channels (HBC, Virtual Console, WiiWare, forwarders)",
-            " - All game save data and /sys/uid.sys mappings",
-            " - All user tickets and shared assets",
+            "Wipes: System titles & tickets, custom IOS/patches, cache files",
+            "Keeps: User channels (HBC, VC, WiiWare), game saves, user tickets",
             "",
             "THIS ACTION CANNOT BE UNDONE.",
             "Are you sure you want to proceed?"
@@ -221,18 +234,10 @@ static bool ConfirmWipe(WipeMode mode) {
     } else if (mode == WipeMode::EXCLUDE_USER_TICKETS) {
         header = {
             "=== WARNING: WIPE (EXCLUDE USER TICKETS) ===",
-            "",
             "This will wipe all titles and saves while PRESERVING user tickets!",
             "",
-            "The following data will be wiped clean:",
-            " - All installed channels, homebrew & forwarders",
-            " - All save data, Miis, and user settings",
-            " - All system tickets (IOS, System Menu, system channels)",
-            " - All custom IOS (d2x) and patches",
-            " - Shared content and cache files",
-            "",
-            "The following data will be PRESERVED:",
-            " - All user tickets (WiiWare, VC, homebrew, DLC, disc tickets)",
+            "Wipes: All channels, saves, Miis, system tickets, cIOS, & cache",
+            "Keeps: User tickets (WiiWare, VC, homebrew, DLC, disc tickets)",
             "",
             "THIS ACTION CANNOT BE UNDONE.",
             "Are you sure you want to proceed?"
@@ -244,18 +249,10 @@ static bool ConfirmWipe(WipeMode mode) {
     } else { // FULL_WIPE
         header = {
             "=== WARNING: FULL WIPE & REINSTALL ===",
-            "",
             "This will COMPLETELY ERASE all data on SLCCMPT (vWii)!",
             "",
-            "The following data will be wiped clean:",
-            " - All installed channels, homebrew & forwarders",
-            " - All save data, Miis, and user settings",
-            " - All tickets (system and user)",
-            " - All custom IOS (d2x) and patches",
-            " - All shared content and cache files",
-            "",
-            "After wiping, you will be prompted to select the target region",
-            "for setting.txt, and optionally download system titles from NUS.",
+            "Wipes: All channels, saves, Miis, tickets (sys+user), cIOS, & files",
+            "Next:  Prompt for target region, regenerate setting.txt, NUS install",
             "",
             "THIS ACTION CANNOT BE UNDONE.",
             "Are you sure you want to proceed?"
@@ -275,6 +272,12 @@ static void RunWipeWizard(WipeMode mode) {
     }
 
     if (!State::AppRunning()) return;
+
+    std::string currentVwiiRegion;
+    VwiiSettings curSettings;
+    if (Setting_ReadCurrent(curSettings) && !curSettings.area.empty()) {
+        currentVwiiRegion = curSettings.area;
+    }
 
     // 1. Step 1: Wipe Execution
     WUPI_resetScreen();
@@ -296,17 +299,24 @@ static void RunWipeWizard(WipeMode mode) {
     }
 
     WUPI_Log("Ensuring stock root directory hierarchy...\n");
-    if (FSA_InitStockRootDirs(fsaClient)) {
+    bool stockDirsOk = FSA_InitStockRootDirs(fsaClient);
+    if (stockDirsOk) {
         WUPI_Log("Stock root directories initialized successfully.\n");
     } else {
         WUPI_Log("Warning: Failed to create some stock root directories.\n");
     }
     sleep(1);
+    if (!wipeOk || !stockDirsOk) {
+        WUPI_putstr("\nErrors encountered during wipe / root directory setup.");
+        WUPI_waitButton();
+    } else {
+        sleep(1);
+    }
 
     if (!State::AppRunning()) return;
 
     // 2. Step 2: Region Selection & setting.txt Regeneration
-    std::string targetRegion = Setting_PromptRegionSelection("=== Step 2/3: Select Target vWii Region ===");
+    std::string targetRegion = Setting_PromptRegionSelection("=== Step 2/3: Select Target vWii Region ===", currentVwiiRegion);
     if (targetRegion.empty()) {
         WUPI_resetScreen();
         WUPI_Log("Region selection cancelled.\n");
@@ -321,7 +331,8 @@ static void RunWipeWizard(WipeMode mode) {
     WUPI_Log("=========================================\n");
 
     VwiiSettings newSettings;
-    if (!Setting_RegenerateFromMCP(newSettings)) {
+    bool mcpOk = Setting_RegenerateFromMCP(newSettings);
+    if (!mcpOk) {
         WUPI_Log("Warning: Could not read MCP SysProd, using defaults.\n");
     }
     Setting_ApplyPreset(newSettings, targetRegion);
@@ -333,6 +344,14 @@ static void RunWipeWizard(WipeMode mode) {
         WUPI_Log("Error: Failed to write setting.txt.\n");
     }
     sleep(1);
+    if (!settingWritten || !mcpOk) {
+        if (!settingWritten) {
+            WUPI_putstr("\nError: Failed to write setting.txt!");
+        }
+        WUPI_waitButton();
+    } else {
+        sleep(1);
+    }
 
     if (!State::AppRunning()) return;
 

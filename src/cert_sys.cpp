@@ -1,22 +1,24 @@
 #include "cert_sys.h"
 #include "EndianUtils.h"
+#include "downloader.h"
 #include "log.h"
 #include <malloc.h>
 #include <string.h>
 #include <string>
 #include <vector>
+#include <format>
 
 bool CERT_IsRetailCertificate(const ParsedCert& cert) {
     if (cert.name == "XS00000003" && cert.issuer == "Root-CA00000001" &&
-        cert.sigType == 0x00010001 && cert.size == 0x300) {
+        cert.sigType == CERT_SIG_RSA2048 && cert.size == sizeof(CertRsa2048)) {
         return true;
     }
     if (cert.name == "CA00000001" && cert.issuer == "Root" &&
-        cert.sigType == 0x00010000 && cert.size == 0x400) {
+        cert.sigType == CERT_SIG_RSA4096 && cert.size == sizeof(CertRsa4096Rsa2048)) {
         return true;
     }
     if (cert.name == "CP00000004" && cert.issuer == "Root-CA00000001" &&
-        cert.sigType == 0x00010001 && cert.size == 0x300) {
+        cert.sigType == CERT_SIG_RSA2048 && cert.size == sizeof(CertRsa2048)) {
         return true;
     }
     return false;
@@ -29,58 +31,108 @@ void CERT_ParseCertificates(const uint8_t* data, size_t size, std::vector<Parsed
     while (pos + 4 <= size) {
         uint32_t sigType = Read32BE(data + pos);
         size_t certLen = 0;
-        size_t issuerOffset = 0;
-        size_t nameOffset = 0;
+        std::string issuer;
+        std::string name;
 
-        if (sigType == 0x00010000) {
-            // RSA-4096 signature: 0x200 sig + 0x3c fill = 0x23c
-            certLen = 0x400;
-            issuerOffset = pos + 4 + 0x200 + 0x3c; // 0x240
-            nameOffset = issuerOffset + 0x40 + 4;  // 0x284
-        } else if (sigType == 0x00010001) {
-            // RSA-2048 signature: 0x100 sig + 0x3c fill = 0x13c
-            certLen = 0x300;
-            issuerOffset = pos + 4 + 0x100 + 0x3c; // 0x140
-            nameOffset = issuerOffset + 0x40 + 4;  // 0x184
+        if (sigType == CERT_SIG_RSA4096) {
+            certLen = sizeof(CertRsa4096Rsa2048);
+            if (pos + certLen > size) {
+                break;
+            }
+            const auto* cert = reinterpret_cast<const CertRsa4096Rsa2048*>(data + pos);
+            char issuerBuf[sizeof(cert->issuer) + 1] = {0};
+            char nameBuf[sizeof(cert->name) + 1] = {0};
+            memcpy(issuerBuf, cert->issuer, sizeof(cert->issuer));
+            memcpy(nameBuf, cert->name, sizeof(cert->name));
+            issuer = issuerBuf;
+            name = nameBuf;
+        } else if (sigType == CERT_SIG_RSA2048) {
+            certLen = sizeof(CertRsa2048);
+            if (pos + certLen > size) {
+                break;
+            }
+            const auto* cert = reinterpret_cast<const CertRsa2048*>(data + pos);
+            char issuerBuf[sizeof(cert->issuer) + 1] = {0};
+            char nameBuf[sizeof(cert->name) + 1] = {0};
+            memcpy(issuerBuf, cert->issuer, sizeof(cert->issuer));
+            memcpy(nameBuf, cert->name, sizeof(cert->name));
+            issuer = issuerBuf;
+            name = nameBuf;
         } else {
             // Unknown or unsupported signature type
             break;
         }
 
-        if (pos + certLen > size) {
-            break;
-        }
-
-        char issuerBuf[65] = {0};
-        char nameBuf[65] = {0};
-        memcpy(issuerBuf, data + issuerOffset, 64);
-        memcpy(nameBuf, data + nameOffset, 64);
-
         ParsedCert cert;
-        cert.name = std::string(nameBuf);
-        cert.issuer = std::string(issuerBuf);
+        cert.name = std::move(name);
+        cert.issuer = std::move(issuer);
         cert.sigType = sigType;
-        cert.data = data + pos;
+        cert.data.assign(data + pos, data + pos + certLen);
         cert.size = certLen;
 
-        outCerts.push_back(cert);
+        outCerts.push_back(std::move(cert));
         pos += certLen;
     }
 }
 
-bool CERT_ImportCerts(FSAClientHandle fsaClient, const void* certData, size_t certSize) {
-    if (!certData || certSize == 0) {
-        return true;
-    }
+bool CERT_VerifyIntegrity(FSAClientHandle fsaClient, std::vector<ParsedCert>& outCerts, std::vector<std::string>& outReasons) {
+    outCerts.clear();
+    outReasons.clear();
 
-    // Check if /vol/slccmpt01/sys/cert.sys already exists.
-    // If it exists, assume it is correct and skip.
     FSStat stat;
-    if (FSAGetStat(fsaClient, VWII_CERT_SYS_PATH, &stat) == FS_ERROR_OK && stat.size > 0) {
-        return true;
+    if (FSAGetStat(fsaClient, VWII_CERT_SYS_PATH, &stat) != FS_ERROR_OK) {
+        outReasons.push_back("File /sys/cert.sys is missing");
+        return false;
     }
 
-    WUPI_Log("CERT: %s missing, recovering from title certificates...\n", VWII_CERT_SYS_PATH);
+    if (stat.owner != 0 || stat.group != 0 || stat.mode != STOCK_MODE_CERT_SYS) {
+        outReasons.push_back("Permissions/Ownership incorrect");
+    }
+
+    constexpr size_t minCertSysSize = sizeof(CertRsa4096Rsa2048) + (2 * sizeof(CertRsa2048)); // 0x400 + 2 * 0x300 = 2560 bytes
+    if (stat.size < minCertSysSize) {
+        outReasons.push_back(std::format("File truncated (size {} < {} bytes)", (uint32_t)stat.size, minCertSysSize));
+        return false;
+    }
+
+    uint8_t* buf = nullptr;
+    uint32_t size = 0;
+    if (!ReadFileToBuffer(VWII_CERT_SYS_PATH, &buf, &size) || !buf) {
+        outReasons.push_back("Failed to read file contents");
+        return false;
+    }
+
+    std::vector<ParsedCert> parsed;
+    CERT_ParseCertificates(buf, size, parsed);
+
+    bool hasXS = false;
+    bool hasCA = false;
+    bool hasCP = false;
+
+    for (const auto& c : parsed) {
+        if (CERT_IsRetailCertificate(c)) {
+            if (c.name == "XS00000003") hasXS = true;
+            else if (c.name == "CA00000001") hasCA = true;
+            else if (c.name == "CP00000004") hasCP = true;
+        }
+    }
+
+    if (!hasXS) outReasons.push_back("Missing XS00000003 ticket signer certificate");
+    if (!hasCA) outReasons.push_back("Missing CA00000001 certification authority");
+    if (!hasCP) outReasons.push_back("Missing CP00000004 content provider certificate");
+
+    if (hasXS && hasCA && hasCP) {
+        outCerts = std::move(parsed);
+    }
+
+    free(buf);
+    return outReasons.empty();
+}
+
+bool CERT_WriteCertificates(FSAClientHandle fsaClient, const void* certData, size_t certSize) {
+    if (!certData || certSize == 0) {
+        return false;
+    }
 
     std::vector<ParsedCert> incomingCerts;
     CERT_ParseCertificates((const uint8_t*)certData, certSize, incomingCerts);
@@ -105,16 +157,13 @@ bool CERT_ImportCerts(FSAClientHandle fsaClient, const void* certData, size_t ce
         }
     }
 
-    size_t totalSize = 0;
-    if (xsCert) totalSize += xsCert->size;
-    if (caCert) totalSize += caCert->size;
-    if (cpCert) totalSize += cpCert->size;
-
-    if (totalSize == 0) {
-        WUPI_Log("CERT: No valid retail certificates found in input\n");
+    if (!xsCert || !caCert || !cpCert) {
+        WUPI_Log("CERT: Incomplete retail certificates in input (XS:%d CA:%d CP:%d)\n",
+                 xsCert != nullptr, caCert != nullptr, cpCert != nullptr);
         return false;
     }
 
+    size_t totalSize = xsCert->size + caCert->size + cpCert->size;
     uint8_t* alignBuf = (uint8_t*)memalign(0x40, totalSize);
     if (!alignBuf) {
         WUPI_Log("CERT: Failed to allocate aligned buffer\n");
@@ -122,30 +171,90 @@ bool CERT_ImportCerts(FSAClientHandle fsaClient, const void* certData, size_t ce
     }
 
     size_t outPos = 0;
-    if (xsCert) {
-        memcpy(alignBuf + outPos, xsCert->data, xsCert->size);
-        outPos += xsCert->size;
-    }
-    if (caCert) {
-        memcpy(alignBuf + outPos, caCert->data, caCert->size);
-        outPos += caCert->size;
-    }
-    if (cpCert) {
-        memcpy(alignBuf + outPos, cpCert->data, cpCert->size);
-        outPos += cpCert->size;
-    }
+    memcpy(alignBuf + outPos, xsCert->data.data(), xsCert->size);
+    outPos += xsCert->size;
+    memcpy(alignBuf + outPos, caCert->data.data(), caCert->size);
+    outPos += caCert->size;
+    memcpy(alignBuf + outPos, cpCert->data.data(), cpCert->size);
+    outPos += cpCert->size;
 
     EnsureFSADir(fsaClient, "/vol/slccmpt01/sys");
 
     bool ok = FSACreateFileWithOwner(fsaClient, VWII_CERT_SYS_PATH, alignBuf, totalSize,
-                                     STOCK_MODE_SYSTEM_FILE, 0, 0);
+                                     STOCK_MODE_CERT_SYS, 0, 0);
     free(alignBuf);
 
     if (ok) {
-        WUPI_Log("CERT: Successfully reconstructed %s (%zu bytes)\n", VWII_CERT_SYS_PATH, totalSize);
+        WUPI_Log("CERT: Successfully wrote %s (%zu bytes)\n", VWII_CERT_SYS_PATH, totalSize);
     } else {
-        WUPI_Log("CERT: Failed to create %s\n", VWII_CERT_SYS_PATH);
+        WUPI_Log("CERT: Failed to write %s\n", VWII_CERT_SYS_PATH);
     }
 
     return ok;
 }
+
+bool CERT_DownloadAndRegenerate(FSAClientHandle fsaClient) {
+    WUPI_Log("Downloading certificate chain from NUS...\n");
+
+    uint8_t* cetkData = nullptr;
+    size_t cetkSize = 0;
+    std::string cetkUrl = "http://nus.cdn.shop.wii.com/ccs/download/0000000700000002/cetk";
+    if (!DownloadToMemory(cetkUrl, &cetkData, &cetkSize) || !cetkData || cetkSize < sizeof(TitleTicket)) {
+        WUPI_Log("Failed to download cetk from NUS.\n");
+        if (cetkData) free(cetkData);
+        return false;
+    }
+
+    uint8_t* tmdData = nullptr;
+    size_t tmdSize = 0;
+    std::string tmdUrl = "http://nus.cdn.shop.wii.com/ccs/download/0000000700000002/tmd";
+    if (!DownloadToMemory(tmdUrl, &tmdData, &tmdSize) || !tmdData || tmdSize < sizeof(TitleTmd)) {
+        WUPI_Log("Failed to download tmd from NUS.\n");
+        free(cetkData);
+        if (tmdData) free(tmdData);
+        return false;
+    }
+
+    std::vector<uint8_t> combinedCerts;
+
+    // Extract certs from cetk
+    size_t requiredTikSize = sizeof(TitleTicket);
+    if (cetkSize > requiredTikSize) {
+        combinedCerts.insert(combinedCerts.end(), cetkData + requiredTikSize, cetkData + cetkSize);
+    }
+
+    // Extract certs from tmd
+    const auto* tmd = reinterpret_cast<const TitleTmd*>(tmdData);
+    uint16_t numContents = FromBE16(tmd->numContents);
+    size_t requiredTmdSize = sizeof(TitleTmd) + (numContents * sizeof(TitleContentRecord));
+    if (tmdSize > requiredTmdSize) {
+        combinedCerts.insert(combinedCerts.end(), tmdData + requiredTmdSize, tmdData + tmdSize);
+    }
+
+    free(cetkData);
+    free(tmdData);
+
+    if (combinedCerts.empty()) {
+        WUPI_Log("Failed to extract certificate stream from NUS files.\n");
+        return false;
+    }
+
+    return CERT_WriteCertificates(fsaClient, combinedCerts.data(), combinedCerts.size());
+}
+
+bool CERT_ImportCerts(FSAClientHandle fsaClient, const void* certData, size_t certSize) {
+    if (!certData || certSize == 0) {
+        return true;
+    }
+
+    // Check if /vol/slccmpt01/sys/cert.sys already exists and is healthy
+    std::vector<ParsedCert> existingCerts;
+    std::vector<std::string> reasons;
+    if (CERT_VerifyIntegrity(fsaClient, existingCerts, reasons)) {
+        return true;
+    }
+
+    WUPI_Log("CERT: %s missing/invalid, recovering from title certificates...\n", VWII_CERT_SYS_PATH);
+    return CERT_WriteCertificates(fsaClient, certData, certSize);
+}
+

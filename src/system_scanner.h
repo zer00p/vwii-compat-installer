@@ -28,7 +28,10 @@ struct SystemScanIssue {
     bool isSettingTxt = false;
     bool isCertSys = false;
     bool isUidSys = false;
+    bool isStockDirs = false;
     bool isForeignTitle = false;
+    bool isPermissionOnly = false;
+    uint16_t groupId = 0;
 
     std::string FormatOption() const;
 };

@@ -142,10 +142,32 @@ bool Setting_Write(const VwiiSettings& settings) {
     EnsureFSADir(fsaClient, "/vol/slccmpt01/title/00000001");
 
     // 2. /vol/slccmpt01/title/00000001/00000002 (System Menu Title Dir - must be chowned while empty)
-    FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002", STOCK_MODE_SYSTEM_DIR, 0, 0);
+    FSError dirRes = FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002", STOCK_MODE_SYSTEM_DIR, 0, 0);
+    if (dirRes != FS_ERROR_OK && dirRes != FS_ERROR_ALREADY_EXISTS) {
+        WUPI_Log("Failed to create System Menu title dir: %d\n", dirRes);
+        free(alignBuf);
+        return false;
+    }
 
     // 3. /vol/slccmpt01/title/00000001/00000002/data (System Menu Data Dir - MUST be owned by UID 4096, GID 1 while empty)
-    FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", STOCK_MODE_DATA_DIR, VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
+    dirRes = FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", STOCK_MODE_DATA_DIR, VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
+    if (dirRes == FS_ERROR_ALREADY_EXISTS) {
+        FSStat stat;
+        if (FSAGetStat(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", &stat) == FS_ERROR_OK) {
+            if (stat.owner != VWII_UID_SYSTEM_MENU || stat.group != VWII_GID_SYSTEM_MENU) {
+                FSError ownRes = FSA_ChangeOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
+                if (ownRes != FS_ERROR_OK) {
+                    WUPI_Log("Setting_Write: Failed to set owner on data dir: %d\n", ownRes);
+                    free(alignBuf);
+                    return false;
+                }
+            }
+        }
+    } else if (dirRes != FS_ERROR_OK) {
+        WUPI_Log("Failed to create System Menu data dir: %d\n", dirRes);
+        free(alignBuf);
+        return false;
+    }
 
     // Ensure /sys/uid.sys exists with entry 0 for System Menu (0x1000)
     UID_GetOrCreate(fsaClient, VWII_TITLE_ID_SYSTEM_MENU);
@@ -383,11 +405,12 @@ std::string Setting_PromptRegionSelection(const std::string& headerTitle, const 
         wiiuRegion = mcpSettings.area;
     }
 
-    std::vector<std::string> regions;
-    regions.push_back(wiiuRegion);
-    for (const char* r : {"EUR", "USA", "JPN"}) {
-        if (wiiuRegion != r) {
-            regions.push_back(r);
+    const std::vector<std::string> regions = {"EUR", "USA", "JPN"};
+    int defaultIdx = 0;
+    for (size_t i = 0; i < regions.size(); i++) {
+        if (regions[i] == wiiuRegion) {
+            defaultIdx = (int)i;
+            break;
         }
     }
 
@@ -413,7 +436,7 @@ std::string Setting_PromptRegionSelection(const std::string& headerTitle, const 
     selectHeader.push_back("");
     selectHeader.push_back("Select target vWii region:");
 
-    int selected = ShowMenu(selectHeader, regionOptions);
+    int selected = ShowMenu(selectHeader, regionOptions, defaultIdx);
     if (selected < 0 || selected >= (int)regions.size()) {
         return "";
     }

@@ -152,6 +152,24 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     return freeIndex;
 }
 
+/* Creates the title's /data directory with correct ownership if it does not
+ * already exist. Permission repair on an existing directory is left to the
+ * dedicated scan-and-restore tool.
+ *
+ * Returns FS_ERROR_OK on success, or a negative FSError if creation failed. */
+static FSError EnsureTitleDataDir(FSAClientHandle fsa, const std::string& titlePath, uint64_t titleId) {
+    std::string dataPath = titlePath + "/data";
+    uint16_t groupId = UID_GetTitleGid(titleId);
+    uint32_t titleUid = (titleId == VWII_TITLE_ID_SYSTEM_MENU) ? VWII_UID_SYSTEM_MENU : UID_GetOrCreate(fsa, titleId);
+
+    FSError ret = FSAMakeDirWithOwner(fsa, dataPath.c_str(), STOCK_MODE_DATA_DIR, titleUid, groupId);
+    if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
+        WUPI_Log("Failed to create the data directory, ret = %d\n", ret);
+        return ret;
+    }
+    return FS_ERROR_OK;
+}
+
 int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
                      uint32_t tmd_size, const CINS_Content *contents,
                      uint16_t numContents) {
@@ -163,8 +181,6 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
     uint32_t idHi = (uint32_t)(titleId >> 32);
     uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
-
-    uint32_t tmdPayloadOffset = GetPayloadOffset((const uint8_t*)tmd);
 
     WUPI_Log("Starting install\n");
 
@@ -210,16 +226,8 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         CINS_TRY(ret == FS_ERROR_OK); // ret == 0
 
         /* Ensure the title's data directory exists with correct Title UID and TMD Group ID */
-        uint16_t groupId = Read16BE((const uint8_t*)tmd + tmdPayloadOffset + 0x98);
-        uint32_t titleUid = UID_GetOrCreate(fsaClient, titleId);
-
-        strncpy(pathd, titlePath, CINS_PATH_LEN);
-        strncat(pathd, "/data", CINS_PATH_LEN - 1);
-        ret = FSAMakeDirWithOwner(fsaClient, pathd, STOCK_MODE_DATA_DIR, titleUid, groupId);
-        if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
-            WUPI_Log("Failed to create the data directory, ret = %d\n", ret);
-            goto error;
-        }
+        ret = EnsureTitleDataDir(fsaClient, titlePath, titleId);
+        CINS_TRY(ret == FS_ERROR_OK);
 
         strncpy(pathd, titlePath, CINS_PATH_LEN);
         strncat(pathd, "/content", CINS_PATH_LEN - 1);
@@ -242,10 +250,10 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
     WUPI_Log("Writing contents...\n");
     {
         for (uint16_t i = 0; i < numContents; i++) {
-            uint32_t recordOffset = tmdPayloadOffset + 0xA4 + (i * 36);
-            uint32_t cId = Read32BE((const uint8_t*)tmd + recordOffset);
-            uint16_t cType = Read16BE((const uint8_t*)tmd + recordOffset + 6);
-            uint64_t cSize = Read64BE((const uint8_t*)tmd + recordOffset + 8);
+            const TitleContentRecord& rec = tmd->contents[i];
+            uint32_t cId = FromBE32(rec.contentId);
+            uint16_t cType = FromBE16(rec.type);
+            uint64_t cSize = FromBE64(rec.size);
 
             if ((cType & 0x8000) != 0) {
                 // If content data is null, it was already verified intact on NAND during download check
@@ -253,7 +261,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
                     continue;
                 }
 
-                int32_t sharedIndex = GetSharedContentIndex((const uint8_t*)tmd + recordOffset + 0x10);
+                int32_t sharedIndex = GetSharedContentIndex(rec.hash.data());
                 if (sharedIndex < 0) {
                     WUPI_Log("Failed to get shared content index for content %08x\n", cId);
                     goto error;
@@ -264,7 +272,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
                 FSStat testStat;
                 if (FSAGetStat(fsaClient, path, &testStat) == FS_ERROR_OK) {
-                    const uint8_t* expectedHash = (const uint8_t*)tmd + recordOffset + 0x10;
+                    const uint8_t* expectedHash = rec.hash.data();
                     if (FSACheckFileSha1(fsaClient, path, expectedHash, cSize)) {
                         continue;
                     }

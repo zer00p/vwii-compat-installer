@@ -7,6 +7,16 @@
 #include <string>
 #include <vector>
 
+static std::string TruncatePathStart(const std::string& path, size_t maxLen = 28) {
+    if (path.length() <= maxLen) {
+        return path;
+    }
+    if (maxLen <= 3) {
+        return path.substr(path.length() - maxLen);
+    }
+    return "..." + path.substr(path.length() - (maxLen - 3));
+}
+
 bool EnsureFSADir(FSAClientHandle fsaClient, const std::string& dirPath) {
     if (dirPath.empty()) return false;
 
@@ -86,6 +96,7 @@ bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keep
         return true;
     }
 
+    bool allOk = true;
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsaClient, path.c_str(), &dir) == FS_ERROR_OK) {
         FSADirectoryEntry* entry = (FSADirectoryEntry*)memalign(0x40, sizeof(FSADirectoryEntry));
@@ -96,19 +107,30 @@ bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keep
                 }
                 std::string subPath = path + "/" + entry->name;
                 if (entry->info.flags & FS_STAT_DIRECTORY) {
-                    FSARemoveTree(fsaClient, subPath, false);
+                    if (!FSARemoveTree(fsaClient, subPath, false)) {
+                        allOk = false;
+                    }
                 } else {
-                    FSARemove(fsaClient, subPath.c_str());
+                    if (FSARemove(fsaClient, subPath.c_str()) != FS_ERROR_OK) {
+                        allOk = false;
+                    }
                 }
             }
             free(entry);
+        } else {
+            allOk = false;
         }
         FSACloseDir(fsaClient, dir);
+    } else {
+        allOk = false;
     }
     if (keepRoot) {
-        return true;
+        return allOk;
     }
-    return (FSARemove(fsaClient, path.c_str()) == FS_ERROR_OK);
+    if (FSARemove(fsaClient, path.c_str()) != FS_ERROR_OK) {
+        allOk = false;
+    }
+    return allOk;
 }
 
 UninstallResult FSARemovePathResult(FSAClientHandle fsaClient, const std::string& path, bool isDirectory) {
@@ -162,11 +184,10 @@ FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint
 FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode, uint32_t uid, uint32_t gid) {
     FSError ret = FSAMakeDir(fsaClient, path.c_str(), mode);
     if (ret == FS_ERROR_OK) {
-        FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
         FSError ownRes = FSA_ChangeOwner(fsaClient, path, uid, gid);
-        if (modeRes != FS_ERROR_OK || ownRes != FS_ERROR_OK) {
-            WUPI_Log("FSAMakeDirWithOwner: Setting mode/owner on %s failed (mode=%d, own=%d)\n",
-                     path.c_str(), modeRes, ownRes);
+        if (ownRes != FS_ERROR_OK) {
+            WUPI_Log("FSAMakeDir: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
+            return ownRes;
         }
     }
     return ret;
@@ -176,34 +197,47 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
     // 1. Remove old file so a fresh inode is allocated
     FSARemove(fsaClient, path.c_str());
 
-    // 2. Create empty file (0 bytes)
+    // 2. Create empty file (0 bytes) with permissive write mode initially
     FSAFileHandle fd = 0;
-    int res = FSAOpenFileEx(fsaClient, path.c_str(), "wb", mode, FS_OPEN_FLAG_NONE, 0, &fd);
+    int res = FSAOpenFileEx(fsaClient, path.c_str(), "wb", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd);
     if (res != FS_ERROR_OK) {
-        WUPI_Log("FSACreateFileWithOwner: Failed to create empty %s: %d\n", path.c_str(), res);
+        WUPI_Log("FSACreateFile: Open err %d: %s\n", res, TruncatePathStart(path).c_str());
         return false;
     }
     FSACloseFile(fsaClient, fd);
     fd = 0;
 
-    // 3. Set ownership and mode while the file is 0 bytes (empty)
+    // 3. Set ownership while the file is 0 bytes (empty)
     FSError ownRes = FSA_ChangeOwner(fsaClient, path, uid, gid);
-    FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
-    if (ownRes != FS_ERROR_OK || modeRes != FS_ERROR_OK) {
-        WUPI_Log("FSACreateFileWithOwner: ChangeOwner on %s returned own=%d, mode=%d\n", path.c_str(), ownRes, modeRes);
-    }
-
-    // 4. Open in "r+b" mode to write payload
-    res = FSAOpenFileEx(fsaClient, path.c_str(), "r+b", mode, FS_OPEN_FLAG_NONE, 0, &fd);
-    if (res != FS_ERROR_OK) {
-        WUPI_Log("FSACreateFileWithOwner: Failed to open %s for writing: %d\n", path.c_str(), res);
+    if (ownRes != FS_ERROR_OK) {
+        WUPI_Log("FSACreateFile: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
         return false;
     }
 
-    bool writeOk = FSAWriteAligned(fsaClient, fd, buffer, size);
-    FSACloseFile(fsaClient, fd);
+    // 4. Open in "r+b" mode to write payload (since mode is still 0x666, write is allowed for Cafe OS)
+    if (size > 0 && buffer != nullptr) {
+        res = FSAOpenFileEx(fsaClient, path.c_str(), "r+b", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd);
+        if (res != FS_ERROR_OK) {
+            WUPI_Log("FSACreateFile: WriteOpen err %d: %s\n", res, TruncatePathStart(path).c_str());
+            return false;
+        }
 
-    return writeOk;
+        bool writeOk = FSAWriteAligned(fsaClient, fd, buffer, size);
+        FSACloseFile(fsaClient, fd);
+        if (!writeOk) {
+            WUPI_Log("FSACreateFile: Write payload failed: %s\n", TruncatePathStart(path).c_str());
+            return false;
+        }
+    }
+
+    // 5. Finally, set requested permission mode (e.g. 0x444 read-only or 0x660) after data is written
+    FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
+    if (modeRes != FS_ERROR_OK) {
+        WUPI_Log("FSACreateFile: Mode err %d: %s\n", modeRes, TruncatePathStart(path).c_str());
+        return false;
+    }
+
+    return true;
 }
 
 extern FSAClientHandle fsaClient;
@@ -311,23 +345,93 @@ bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
         const char* path;
         FSMode mode;
     } rootDirs[] = {
-        {"/vol/slccmpt01/sys",     STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
-        {"/vol/slccmpt01/title",   STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
-        {"/vol/slccmpt01/ticket",  STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
-        {"/vol/slccmpt01/shared1", STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
-        {"/vol/slccmpt01/shared2", STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
-        {"/vol/slccmpt01/content", STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
-        {"/vol/slccmpt01/tmp",     STOCK_MODE_CONTENT_DIR}, // 0x660 (rwxrwx---)
-        {"/vol/slccmpt01/import",  STOCK_MODE_SYSTEM_DIR},  // 0x664 (rwxrwxr--)
+        {"/vol/slccmpt01/sys",     STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
+        {"/vol/slccmpt01/title",   STOCK_MODE_SYSTEM_DIR},  // 0x664 (SFFS 0xf6)
+        {"/vol/slccmpt01/ticket",  STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
+        {"/vol/slccmpt01/shared1", STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
+        {"/vol/slccmpt01/shared2", STOCK_MODE_SHARED2_DIR}, // 0x777 (SFFS 0xfe)
+        {"/vol/slccmpt01/content", STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
+        {"/vol/slccmpt01/tmp",     STOCK_MODE_TMP_DIR},      // 0x777 (SFFS 0xfe)
+        {"/vol/slccmpt01/import",  STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
     };
 
     bool allOk = true;
     for (const auto& d : rootDirs) {
         FSError res = FSAMakeDirWithOwner(fsa, d.path, d.mode, 0, 0);
-        if (res != FS_ERROR_OK && res != FS_ERROR_ALREADY_EXISTS) {
+        if (res == FS_ERROR_ALREADY_EXISTS) {
+            FSStat stat;
+            if (FSAGetStat(fsa, d.path, &stat) == FS_ERROR_OK) {
+                if (stat.owner != 0 || stat.group != 0) {
+                    FSError ownRes = FSA_ChangeOwner(fsa, d.path, 0, 0);
+                    if (ownRes != FS_ERROR_OK) {
+                        WUPI_Log("FSA_InitStockRootDirs: Owner err %d: %s\n", ownRes, d.path);
+                        allOk = false;
+                    }
+                }
+                if (stat.mode != d.mode) {
+                    FSError modeRes = FSAChangeMode(fsa, d.path, d.mode);
+                    if (modeRes != FS_ERROR_OK) {
+                        WUPI_Log("FSA_InitStockRootDirs: Mode err %d: %s\n", modeRes, d.path);
+                        allOk = false;
+                    }
+                }
+            }
+        } else if (res != FS_ERROR_OK) {
             WUPI_Log("FSA_InitStockRootDirs: Failed to create %s (%d)\n", d.path, res);
             allOk = false;
         }
     }
     return allOk;
+}
+
+bool FSA_IsFilePermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid, uint32_t expectedGid) {
+    // 1. Ownership matches expected
+    if (stat.owner == expectedUid && stat.group == expectedGid) {
+        if (stat.mode == stockMode) {
+            return true;
+        }
+        // Match both execute-bit and non-execute-bit variants
+        uint32_t statRW = stat.mode & 0x666;
+        uint32_t stockRW = stockMode & 0x666;
+        if (statRW == stockRW) {
+            return true;
+        }
+    }
+    // 2. Permissive 0x666 / 0x777 (or Other has read & write, e.g. restored via vWii NAND Restorer)
+    if (stat.mode == 0x666 || stat.mode == 0x777 || (stat.mode & 0x006) == 0x006) {
+        return true;
+    }
+    // 3. For files where Other only needs read access (e.g. cert.sys 0x664, setting.txt 0x444)
+    if ((stockMode & 0x004) != 0 && (stat.mode & 0x004) != 0) {
+        if (stat.owner == expectedUid && stat.group == expectedGid) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool FSA_IsDirPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid, uint32_t expectedGid) {
+    // 1. Ownership matches expected
+    if (stat.owner == expectedUid && stat.group == expectedGid) {
+        if (stat.mode == stockMode) {
+            return true;
+        }
+        // Match both execute-bit and non-execute-bit variants (0x700 vs 0x600, 0x770 vs 0x660, 0x775/0x774 vs 0x664)
+        uint32_t statRW = stat.mode & 0x666;
+        uint32_t stockRW = stockMode & 0x666;
+        if (statRW == stockRW) {
+            return true;
+        }
+    }
+    // 2. Permissive 0x777 / 0x666 (or Other has rwx / rw, e.g. restored via vWii NAND Restorer)
+    if (stat.mode == 0x777 || stat.mode == 0x666 || (stat.mode & 0x007) == 0x007 || (stat.mode & 0x006) == 0x006) {
+        return true;
+    }
+    // 3. For directories where Other only needs read access (e.g. 0x775, 0x774, 0x664)
+    if ((stockMode & 0x004) != 0 && (stat.mode & 0x004) != 0) {
+        if (stat.owner == expectedUid && stat.group == expectedGid) {
+            return true;
+        }
+    }
+    return false;
 }

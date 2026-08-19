@@ -383,10 +383,11 @@ void RegionChange_RunWizard() {
     if (Setting_Write(newSettings)) {
         WUPI_Log("setting.txt updated to %s successfully!\n", targetRegion.c_str());
         settingUpdated = true;
+        sleep(1);
     } else {
-        WUPI_Log("Warning: Failed to save setting.txt.\n");
+        WUPI_Log("Error: Failed to save setting.txt.\n");
+        WUPI_waitButton();
     }
-    sleep(1);
 
     // STEP 2: Download and install target region titles
     WUPI_Log("\n--- Step 2/4: Installing %s System Titles ---", targetRegion.c_str());
@@ -425,8 +426,16 @@ void RegionChange_RunWizard() {
             "Old Region Channels Found:",
             "The following channels from other regions were detected:"
         };
-        for (const auto& ot : oldTitles) {
-            oldHeader.push_back(std::format(" - {} [{}] ({:08x})", ot.name, ot.region, (uint32_t)ot.titleId));
+        if (oldTitles.size() <= 4) {
+            for (const auto& ot : oldTitles) {
+                oldHeader.push_back(std::format(" - {} [{}] ({:08x})", ot.name, ot.region, (uint32_t)ot.titleId));
+            }
+        } else {
+            for (size_t i = 0; i < 3; i++) {
+                const auto& ot = oldTitles[i];
+                oldHeader.push_back(std::format(" - {} [{}] ({:08x})", ot.name, ot.region, (uint32_t)ot.titleId));
+            }
+            oldHeader.push_back(std::format(" ... and {} more channel(s)", oldTitles.size() - 3));
         }
         oldHeader.push_back("");
         oldHeader.push_back("Would you like to uninstall these old region channels?");
@@ -465,10 +474,23 @@ void RegionChange_RunWizard() {
             "Unreferenced Region Shared Content Found:",
             "These shared assets from other regions are no longer referenced:"
         };
-        for (const auto& o : orphans) {
-            totalOrphanBytes += o.fileSize;
-            orphanHeader.push_back(std::format(" - {} [{}] ({:.1f} KB)",
-                                   o.description, o.region, (double)o.fileSize / 1024.0));
+        if (orphans.size() <= 4) {
+            for (const auto& o : orphans) {
+                totalOrphanBytes += o.fileSize;
+                orphanHeader.push_back(std::format(" - {} [{}] ({:.1f} KB)",
+                                       o.description, o.region, (double)o.fileSize / 1024.0));
+            }
+        } else {
+            for (size_t i = 0; i < 3; i++) {
+                const auto& o = orphans[i];
+                totalOrphanBytes += o.fileSize;
+                orphanHeader.push_back(std::format(" - {} [{}] ({:.1f} KB)",
+                                       o.description, o.region, (double)o.fileSize / 1024.0));
+            }
+            for (size_t i = 3; i < orphans.size(); i++) {
+                totalOrphanBytes += orphans[i].fileSize;
+            }
+            orphanHeader.push_back(std::format(" ... and {} more file(s)", orphans.size() - 3));
         }
         orphanHeader.push_back("");
         orphanHeader.push_back(std::format("Total space to reclaim: {:.2f} MB", (double)totalOrphanBytes / (1024.0 * 1024.0)));
