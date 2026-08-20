@@ -187,15 +187,16 @@ bool WAD_InstallSafe(WADContext* ctx) {
     return WAD_InstallToVWii(ctx, 0);
 }
 
-bool NUS_DownloadAndInstall(uint64_t titleId, int32_t version) {
-    WADContext* ctx = NUS_DownloadTitle(titleId, version);
-    if (!ctx) {
+DownloadResult NUS_DownloadAndInstall(uint64_t titleId, int32_t version) {
+    WADContext* ctx = nullptr;
+    DownloadResult res = NUS_DownloadTitle(titleId, version, &ctx);
+    if (res != DownloadResult::SUCCESS || !ctx) {
         WUPI_Log("Error: Failed to download title from NUS.\n");
-        return false;
+        return res;
     }
     bool result = WAD_InstallSafe(ctx);
     WAD_Free(ctx);
-    return result;
+    return result ? DownloadResult::SUCCESS : DownloadResult::FAILED;
 }
 
 int32_t NUS_GetLatestVersion(uint64_t titleId) {
@@ -213,7 +214,7 @@ int32_t NUS_GetLatestVersion(uint64_t titleId) {
 
     uint8_t* tmdData = NULL;
     size_t tmdSize = 0;
-    if (!DownloadToMemory(url, &tmdData, &tmdSize)) {
+    if (DownloadToMemory(url, &tmdData, &tmdSize) != DownloadResult::SUCCESS || !tmdData) {
         return -1;
     }
 
@@ -228,7 +229,10 @@ int32_t NUS_GetLatestVersion(uint64_t titleId) {
     return version;
 }
 
-WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
+DownloadResult NUS_DownloadTitle(uint64_t titleId, int32_t version, WADContext** outCtx) {
+    if (!outCtx) return DownloadResult::FAILED;
+    *outCtx = nullptr;
+    if (!State::AppRunning()) return DownloadResult::CANCELLED;
     uint64_t fetchTitleId = titleId;
 
     // Shenanigans: Use 00000007 prefix for vWii system titles and 0007xxxx for vWii channels on NUS
@@ -249,44 +253,29 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     uint8_t* tmdData = NULL;
     size_t tmdSize = 0;
     WUPI_Log("Fetching TMD from NUS...\n");
-    if (!DownloadToMemory(url, &tmdData, &tmdSize)) {
+    DownloadResult dlRes = DownloadToMemory(url, &tmdData, &tmdSize);
+    if (dlRes != DownloadResult::SUCCESS || !tmdData || tmdSize < sizeof(TitleTmd)) {
         WUPI_Log("Failed to download TMD.\n");
-        return NULL;
-    }
-
-    if (tmdSize < 4) {
-        WUPI_Log("TMD too small.\n");
-        free(tmdData);
-        return NULL;
+        if (tmdData) free(tmdData);
+        return (dlRes == DownloadResult::CANCELLED) ? DownloadResult::CANCELLED : DownloadResult::FAILED;
     }
 
     url = std::format("http://nus.cdn.shop.wii.com/ccs/download/{:016x}/cetk", fetchTitleId);
     uint8_t* tikData = NULL;
     size_t tikSize = 0;
     WUPI_Log("Fetching Ticket from NUS...\n");
-    if (!DownloadToMemory(url, &tikData, &tikSize)) {
+    dlRes = DownloadToMemory(url, &tikData, &tikSize);
+    if (dlRes != DownloadResult::SUCCESS || !tikData || tikSize < sizeof(TitleTicket)) {
         WUPI_Log("Failed to download Ticket.\n");
         free(tmdData);
-        return NULL;
-    }
-
-    if (tikSize < 4) {
-        WUPI_Log("Ticket too small.\n");
-        free(tmdData);
-        free(tikData);
-        return NULL;
+        if (tikData) free(tikData);
+        return (dlRes == DownloadResult::CANCELLED) ? DownloadResult::CANCELLED : DownloadResult::FAILED;
     }
 
     // Do NOT patch the Title ID in the TMD or Ticket back to 00000001!
     // Doing so breaks the signature. The vWii System Menu is signed by Nintendo with
     // the 00000007 prefix on NUS. We install it into the 00000001 directory via CINS_Install,
     // but we leave the actual file contents exactly as Nintendo signed them.
-
-    if (tmdSize < sizeof(TitleTmd)) {
-        WUPI_Log("TMD truncated.\n");
-        free(tmdData); free(tikData);
-        return NULL;
-    }
 
     const auto* tmd = reinterpret_cast<const TitleTmd*>(tmdData);
     uint16_t numContents = FromBE16(tmd->numContents);
@@ -296,14 +285,14 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     if (tmdSize < requiredTmdSize) {
         WUPI_Log("TMD truncated (content records).\n");
         free(tmdData); free(tikData);
-        return NULL;
+        return DownloadResult::FAILED;
     }
 
     size_t requiredTikSize = sizeof(TitleTicket);
     if (tikSize < requiredTikSize) {
         WUPI_Log("Ticket truncated.\n");
         free(tmdData); free(tikData);
-        return NULL;
+        return DownloadResult::FAILED;
     }
 
     uint8_t* certData = NULL;
@@ -342,7 +331,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         WUPI_Log("Failed to get common key (idx %d)\n", ckey_idx);
         if (certData) free(certData);
         free(tmdData); free(tikData);
-        return NULL;
+        return DownloadResult::FAILED;
     }
 
     uint8_t title_key[16];
@@ -352,8 +341,10 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
     if (!c_arr) {
         if (certData) free(certData);
         free(tmdData); free(tikData);
-        return NULL;
+        return DownloadResult::FAILED;
     }
+
+    DownloadResult contentResult = DownloadResult::SUCCESS;
 
     for (int i = 0; i < numContents; i++) {
         const TitleContentRecord& rec = tmd->contents[i];
@@ -380,20 +371,24 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
 
         uint8_t* encData = NULL;
         size_t encSize = 0;
-        if (!DownloadToMemory(url, &encData, &encSize)) {
+        dlRes = DownloadToMemory(url, &encData, &encSize);
+        if (dlRes != DownloadResult::SUCCESS || !encData) {
             WUPI_Log("Failed to download content %d.\n", i);
+            contentResult = dlRes;
             goto error;
         }
 
         if (expectedLen > encSize) {
             WUPI_Log("Content %d: expected size exceeds download.\n", i);
             free(encData);
+            contentResult = DownloadResult::FAILED;
             goto error;
         }
 
         uint8_t* decData = (uint8_t*)memalign(0x40, encSize);
         if (!decData) {
             free(encData);
+            contentResult = DownloadResult::FAILED;
             goto error;
         }
 
@@ -409,6 +404,7 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         if (memcmp(expected_hash, actual_hash, 20) != 0) {
             WUPI_Log("Hash mismatch for content %d\n", i);
             free(decData);
+            contentResult = DownloadResult::FAILED;
             goto error;
         }
 
@@ -418,7 +414,10 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
 
     {
         WADContext* ctx = (WADContext*)calloc(1, sizeof(WADContext));
-        if (!ctx) goto error;
+        if (!ctx) {
+            contentResult = DownloadResult::FAILED;
+            goto error;
+        }
 
         ctx->certData = certData;
         ctx->certSize = certSize;
@@ -431,7 +430,8 @@ WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version) {
         ctx->numContents = numContents;
         ctx->contentsArray = c_arr;
 
-        return ctx;
+        *outCtx = ctx;
+        return DownloadResult::SUCCESS;
     }
 
 error:
@@ -444,7 +444,7 @@ error:
     }
     if (tmdData) free(tmdData);
     if (tikData) free(tikData);
-    return NULL;
+    return contentResult;
 }
 
 const NusTitle g_nusTitles[38] = {
@@ -526,13 +526,13 @@ int32_t NUS_ResolveTitleVersion(const NusTitle* title, uint64_t resolvedTitleId,
     return latestVersion;
 }
 
-bool NUS_InstallSystemTitle(const NusTitle* title, int32_t regionCode) {
-    if (!title) return false;
+DownloadResult NUS_InstallSystemTitle(const NusTitle* title, int32_t regionCode) {
+    if (!title || !State::AppRunning()) return DownloadResult::FAILED;
     uint64_t titleId = NUS_ResolveTitleId(title, regionCode);
     int32_t version = NUS_ResolveTitleVersion(title, titleId, regionCode);
     if (version < 0) {
         WUPI_Log("Error: Failed to fetch latest version from NUS for %s.\n", title->name);
-        return false;
+        return DownloadResult::FAILED;
     }
     WUPI_Log("Version: %d\n", version);
     return NUS_DownloadAndInstall(titleId, version);
@@ -550,16 +550,16 @@ bool NUS_InstallTitlesBatch(const std::vector<const NusTitle*>& titles, int32_t 
 
         WUPI_Log("--- Processing %s (%d/%d) ---", t->name, i + 1, total);
 
-        if (NUS_InstallSystemTitle(t, regionCode)) {
+        DownloadResult res = NUS_InstallSystemTitle(t, regionCode);
+        if (res == DownloadResult::SUCCESS) {
             WUPI_Log("Installation complete!\n");
             outSuccess++;
             sleep(1);
+        } else if (res == DownloadResult::CANCELLED) {
+            outFailed++;
+            return false;
         } else {
             outFailed++;
-            WUPI_putstr("Press A to continue with next title, B to abort.");
-            if (!WaitPrompt()) {
-                return false;
-            }
         }
     }
     return (outFailed == 0);

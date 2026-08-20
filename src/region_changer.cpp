@@ -6,6 +6,7 @@
 #include "settingtxt_manager.h"
 #include "installer.h"
 #include "wad.h"
+#include "downloader.h"
 #include "FSAUtils.h"
 #include "log.h"
 #include "MenuUtils.h"
@@ -408,9 +409,14 @@ void RegionChange_RunWizard() {
             }
         }
 
-        if (NUS_DownloadAndInstall(t.titleId, verToFetch)) {
+        DownloadResult res = NUS_DownloadAndInstall(t.titleId, verToFetch);
+        if (res == DownloadResult::SUCCESS) {
             WUPI_Log("Installed successfully!\n");
             titlesInstalled++;
+        } else if (res == DownloadResult::CANCELLED) {
+            WUPI_Log("Installation cancelled.\n");
+            titlesFailed++;
+            break;
         } else {
             WUPI_Log("Installation failed for %s.\n", t.name.c_str());
             titlesFailed++;

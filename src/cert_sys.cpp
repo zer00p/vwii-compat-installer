@@ -199,7 +199,7 @@ bool CERT_DownloadAndRegenerate(FSAClientHandle fsaClient) {
     uint8_t* cetkData = nullptr;
     size_t cetkSize = 0;
     std::string cetkUrl = "http://nus.cdn.shop.wii.com/ccs/download/0000000700000002/cetk";
-    if (!DownloadToMemory(cetkUrl, &cetkData, &cetkSize) || !cetkData || cetkSize < sizeof(TitleTicket)) {
+    if (DownloadToMemory(cetkUrl, &cetkData, &cetkSize) != DownloadResult::SUCCESS || !cetkData || cetkSize < sizeof(TitleTicket)) {
         WUPI_Log("Failed to download cetk from NUS.\n");
         if (cetkData) free(cetkData);
         return false;
@@ -208,7 +208,7 @@ bool CERT_DownloadAndRegenerate(FSAClientHandle fsaClient) {
     uint8_t* tmdData = nullptr;
     size_t tmdSize = 0;
     std::string tmdUrl = "http://nus.cdn.shop.wii.com/ccs/download/0000000700000002/tmd";
-    if (!DownloadToMemory(tmdUrl, &tmdData, &tmdSize) || !tmdData || tmdSize < sizeof(TitleTmd)) {
+    if (DownloadToMemory(tmdUrl, &tmdData, &tmdSize) != DownloadResult::SUCCESS || !tmdData || tmdSize < sizeof(TitleTmd)) {
         WUPI_Log("Failed to download tmd from NUS.\n");
         free(cetkData);
         if (tmdData) free(tmdData);

@@ -115,7 +115,7 @@ bool RestoreIOSFromNUS(uint32_t ios_ver) {
         return false;
     }
 
-    if (NUS_DownloadAndInstall(titleId, latestVersion)) {
+    if (NUS_DownloadAndInstall(titleId, latestVersion) == DownloadResult::SUCCESS) {
         Patcher_Log("Successfully restored original IOS" + std::to_string(ios_ver) + " from NUS!");
         RemoveBackupFiles(ios_ver);
         return true;

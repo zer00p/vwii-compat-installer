@@ -280,15 +280,14 @@ void WUPI_openShopChannelMenu() {
         WUPI_Log("Downloading (%d/%d):", successCount + failCount + 1, (int)selected.size());
         WUPI_Log("%s\n", options[idx].c_str());
 
-        if (DownloadAndExtractApp(appIds[idx])) {
+        DownloadResult res = DownloadAndExtractApp(appIds[idx]);
+        if (res == DownloadResult::SUCCESS) {
             successCount++;
+        } else if (res == DownloadResult::CANCELLED) {
+            failCount++;
+            break;
         } else {
             failCount++;
-
-            WUPI_putstr("Press A to continue with next app, B to abort.");
-            if (!WaitPrompt()) {
-                break;
-            }
         }
     }
 
@@ -337,7 +336,7 @@ void WUPI_cIOSMenu() {
         } else if (selected == 6) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
-            if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
+            if (DownloadAndExtractApp("d2x-cios-installer-vwii") == DownloadResult::SUCCESS) {
                 WUPI_Log("Download complete!\n");
             } else {
                 WUPI_Log("Download failed.\n");
@@ -371,21 +370,24 @@ void WUPI_usbLoaderGXMenu() {
     int failCount = 0;
 
     for (int idx : selected) {
+        if (!State::AppRunning()) break;
         WUPI_Log("Processing (%d/%d):", successCount + failCount + 1, (int)selected.size());
         WUPI_Log("%s\n", options[idx].c_str());
 
-        bool success = false;
+        DownloadResult res = DownloadResult::FAILED;
         if (idx == 0) {
-            success = DownloadAndExtractApp("usbloader_gx");
+            res = DownloadAndExtractApp("usbloader_gx");
         } else if (idx == 1) {
             std::string wadUrl = "https://github.com/wiidev/usbloadergx/raw/refs/heads/updates/USBLoaderGX_forwarder%5BUNEO%5D.wad";
             std::string wadPath = "/vol/external01/wad/USBLoaderGX_forwarder_UNEO.wad";
-            if (DownloadFile(wadUrl, wadPath)) {
+            res = DownloadFile(wadUrl, wadPath);
+            if (res == DownloadResult::SUCCESS) {
                 WUPI_putstr("Loading and decrypting WAD...\n");
                 WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
                 if (WAD_InstallSafe(ctx)) {
                     WUPI_putstr("WAD Installation complete!\n");
-                    success = true;
+                } else {
+                    res = DownloadResult::FAILED;
                 }
                 if (ctx) {
                     WAD_Free(ctx);
@@ -394,12 +396,15 @@ void WUPI_usbLoaderGXMenu() {
         } else if (idx == 2) {
             std::string wuhbUrl = "https://github.com/WiiDatabase/Boot2vWii/releases/latest/download/USB-Loader-GX-UNEO.wuhb";
             std::string wuhbPath = "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb";
-            success = DownloadFile(wuhbUrl, wuhbPath);
+            res = DownloadFile(wuhbUrl, wuhbPath);
         }
 
-        if (success) {
+        if (res == DownloadResult::SUCCESS) {
             successCount++;
             sleep(1);
+        } else if (res == DownloadResult::CANCELLED) {
+            failCount++;
+            break;
         } else {
             failCount++;
 
@@ -472,7 +477,7 @@ static std::string GetAutoD2XVersionPath() {
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsaClient, baseDir.c_str(), &dir) != FS_ERROR_OK) {
         WUPI_Log("d2x installer not found on SD. Downloading from OSC...\n");
-        if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
+        if (DownloadAndExtractApp("d2x-cios-installer-vwii") == DownloadResult::SUCCESS) {
             if (FSAOpenDir(fsaClient, baseDir.c_str(), &dir) != FS_ERROR_OK) {
                 return "";
             }
@@ -577,12 +582,16 @@ void WUPI_expressSetupInstall() {
             ulgxDone = true;
             WUPI_Log("--- Installing USB Loader GX ---");
             WUPI_Log("Downloading USB Loader GX App...");
-            ulgxAppSuccess = DownloadAndExtractApp("usbloader_gx");
+            DownloadResult rApp = DownloadAndExtractApp("usbloader_gx");
+            if (rApp == DownloadResult::CANCELLED) break;
+            ulgxAppSuccess = (rApp == DownloadResult::SUCCESS);
 
             WUPI_Log("Downloading & Installing vWii Forwarder Channel...");
             std::string wadUrl = "https://github.com/wiidev/usbloadergx/raw/refs/heads/updates/USBLoaderGX_forwarder%5BUNEO%5D.wad";
             std::string wadPath = "/vol/external01/wad/USBLoaderGX_forwarder_UNEO.wad";
-            if (DownloadFile(wadUrl, wadPath)) {
+            DownloadResult rWad = DownloadFile(wadUrl, wadPath);
+            if (rWad == DownloadResult::CANCELLED) break;
+            if (rWad == DownloadResult::SUCCESS) {
                 WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
                 if (WAD_InstallSafe(ctx)) {
                     ulgxWadSuccess = true;
@@ -593,7 +602,9 @@ void WUPI_expressSetupInstall() {
             WUPI_Log("Downloading Aroma Forwarder (Boot2vWii)...");
             std::string wuhbUrl = "https://github.com/WiiDatabase/Boot2vWii/releases/latest/download/USB-Loader-GX-UNEO.wuhb";
             std::string wuhbPath = "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb";
-            ulgxWuhbSuccess = DownloadFile(wuhbUrl, wuhbPath);
+            DownloadResult rWuhb = DownloadFile(wuhbUrl, wuhbPath);
+            if (rWuhb == DownloadResult::CANCELLED) break;
+            ulgxWuhbSuccess = (rWuhb == DownloadResult::SUCCESS);
 
             if (!ulgxAppSuccess || !ulgxWadSuccess || !ulgxWuhbSuccess) {
                 stepFailed = true;
@@ -602,9 +613,14 @@ void WUPI_expressSetupInstall() {
             oscDone = true;
             WUPI_Log("--- Installing Open Shop Channel Apps ---");
             WUPI_Log("Downloading LibreShop...");
-            oscLibreshopSuccess = DownloadAndExtractApp("libreshop");
+            DownloadResult rLibre = DownloadAndExtractApp("libreshop");
+            if (rLibre == DownloadResult::CANCELLED) break;
+            oscLibreshopSuccess = (rLibre == DownloadResult::SUCCESS);
+
             WUPI_Log("Downloading Homebrew Browser...");
-            oscHbbSuccess = DownloadAndExtractApp("homebrew_browser");
+            DownloadResult rHbb = DownloadAndExtractApp("homebrew_browser");
+            if (rHbb == DownloadResult::CANCELLED) break;
+            oscHbbSuccess = (rHbb == DownloadResult::SUCCESS);
 
             if (!oscLibreshopSuccess || !oscHbbSuccess) {
                 stepFailed = true;

@@ -1,10 +1,12 @@
 #include "downloader.h"
 #include "FSAUtils.h"
 #include "StateUtils.h"
+#include "InputUtils.h"
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <malloc.h>
 #include <string.h>
+#include <unistd.h>
 #include "miniz.h"
 #include "ScreenUtils.h"
 #include "log.h"
@@ -27,6 +29,19 @@ static void SetCurlCACert(CURL *curl_handle) {
 }
 
 extern FSAClientHandle fsaClient;
+
+DownloadAction PromptDownloadRetry() {
+    WUPI_putstr("Press (A) to Retry, (B) to Skip, (X) to Cancel.");
+    Input input;
+    while (State::AppRunning()) {
+        input.read();
+        if (input.get(TRIGGER, PAD_BUTTON_A)) return DownloadAction::RETRY;
+        if (input.get(TRIGGER, PAD_BUTTON_B)) return DownloadAction::SKIP;
+        if (input.get(TRIGGER, PAD_BUTTON_X)) return DownloadAction::CANCEL;
+        usleep(16000);
+    }
+    return DownloadAction::CANCEL;
+}
 
 struct MemoryStruct {
     char *memory;
@@ -71,56 +86,76 @@ void DeinitCurl() {
     }
 }
 
-bool DownloadAndExtractApp(const std::string& appId) {
+DownloadResult DownloadToMemory(const std::string& url, uint8_t** outData, size_t* outSize) {
     InitCurl();
 
-    ShowDownloadStatus("Initializing connection...");
-    
-    CURL *curl_handle = curl_easy_init();
-    if(!curl_handle) {
-        WUPI_Log("Download failed: Could not initialize cURL.\n");
-        return false;
+    while (State::AppRunning()) {
+        CURL *curl_handle = curl_easy_init();
+        if(!curl_handle) {
+            WUPI_Log("Download failed: Could not initialize cURL.\n");
+            return DownloadResult::FAILED;
+        }
+
+        struct MemoryStruct chunk;
+        chunk.memory = (char*)malloc(1);
+        chunk.size = 0;
+
+        curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
+        curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
+        curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
+        curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
+        SetCurlCACert(curl_handle);
+
+        CURLcode res = curl_easy_perform(curl_handle);
+        long httpCode = 0;
+        curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpCode);
+        curl_easy_cleanup(curl_handle);
+
+        bool fetchOk = true;
+        if (res != CURLE_OK) {
+            WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
+            fetchOk = false;
+        } else if (httpCode >= 400) {
+            WUPI_Log("Download failed: HTTP Error %ld\n", httpCode);
+            fetchOk = false;
+        } else if (chunk.size == 0) {
+            WUPI_Log("Download failed: Empty response received.\n");
+            fetchOk = false;
+        }
+
+        if (!fetchOk) {
+            free(chunk.memory);
+            DownloadAction action = PromptDownloadRetry();
+            if (action == DownloadAction::RETRY) {
+                continue;
+            }
+            if (action == DownloadAction::CANCEL) {
+                return DownloadResult::CANCELLED;
+            }
+            return DownloadResult::FAILED;
+        }
+
+        *outData = (uint8_t*)chunk.memory;
+        *outSize = chunk.size;
+        return DownloadResult::SUCCESS;
     }
+    return DownloadResult::CANCELLED;
+}
 
-    std::string url = "https://hbb1.oscwii.org/api/contents/" + appId + "/" + appId + ".zip";
-
-    struct MemoryStruct chunk;
-    chunk.memory = (char*)malloc(1);
-    chunk.size = 0;
-
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
-    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
-    curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
-    SetCurlCACert(curl_handle);
-
+DownloadResult DownloadAndExtractApp(const std::string& appId) {
     std::string fetchMsg = "Fetching " + appId + ".zip...";
     ShowDownloadStatus(fetchMsg.c_str());
 
-    CURLcode res = curl_easy_perform(curl_handle);
-    long httpCode = 0;
-    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpCode);
-    curl_easy_cleanup(curl_handle);
+    std::string url = "https://hbb1.oscwii.org/api/contents/" + appId + "/" + appId + ".zip";
 
-    if (res != CURLE_OK) {
-        WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
-        free(chunk.memory);
-        return false;
-    }
-
-    if (httpCode >= 400) {
-        WUPI_Log("Download failed: HTTP Error %ld\n", httpCode);
-        free(chunk.memory);
-        return false;
-    }
-
-    if (chunk.size == 0) {
-        WUPI_Log("Download failed: Empty response received.\n");
-        free(chunk.memory);
-        return false;
+    uint8_t* zipData = nullptr;
+    size_t zipSize = 0;
+    DownloadResult dlRes = DownloadToMemory(url, &zipData, &zipSize);
+    if (dlRes != DownloadResult::SUCCESS || !zipData) {
+        return dlRes;
     }
 
     ShowDownloadStatus("Extracting ZIP archive...");
@@ -128,10 +163,10 @@ bool DownloadAndExtractApp(const std::string& appId) {
     mz_zip_archive zip_archive;
     memset(&zip_archive, 0, sizeof(zip_archive));
 
-    if (!mz_zip_reader_init_mem(&zip_archive, chunk.memory, chunk.size, 0)) {
+    if (!mz_zip_reader_init_mem(&zip_archive, zipData, zipSize, 0)) {
         WUPI_Log("Download failed: Invalid ZIP archive.\n");
-        free(chunk.memory);
-        return false;
+        free(zipData);
+        return DownloadResult::FAILED;
     }
 
     bool success = true;
@@ -171,109 +206,23 @@ bool DownloadAndExtractApp(const std::string& appId) {
     }
 
     mz_zip_reader_end(&zip_archive);
-    free(chunk.memory);
+    free(zipData);
     if (!success) {
         WUPI_Log("Download failed: File extraction failed.\n");
+        return DownloadResult::FAILED;
     }
-    return success;
+    return DownloadResult::SUCCESS;
 }
 
-bool DownloadToMemory(const std::string& url, uint8_t** outData, size_t* outSize) {
-    InitCurl();
-
-    CURL *curl_handle = curl_easy_init();
-    if(!curl_handle) {
-        WUPI_Log("Download failed: Could not initialize cURL.\n");
-        return false;
-    }
-
-    struct MemoryStruct chunk;
-    chunk.memory = (char*)malloc(1);
-    chunk.size = 0;
-
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
-    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
-    curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
-    SetCurlCACert(curl_handle);
-
-    CURLcode res = curl_easy_perform(curl_handle);
-    long httpCode = 0;
-    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpCode);
-    curl_easy_cleanup(curl_handle);
-
-    if (res != CURLE_OK) {
-        WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
-        free(chunk.memory);
-        return false;
-    }
-
-    if (httpCode >= 400) {
-        WUPI_Log("Download failed: HTTP Error %ld\n", httpCode);
-        free(chunk.memory);
-        return false;
-    }
-
-    if (chunk.size == 0) {
-        WUPI_Log("Download failed: Empty response received.\n");
-        free(chunk.memory);
-        return false;
-    }
-
-    *outData = (uint8_t*)chunk.memory;
-    *outSize = chunk.size;
-    return true;
-}
-
-bool DownloadFile(const std::string& url, const std::string& outPath) {
-    InitCurl();
-
+DownloadResult DownloadFile(const std::string& url, const std::string& outPath) {
     std::string msg = "Downloading to " + outPath;
     ShowDownloadStatus(msg.c_str());
 
-    CURL *curl_handle = curl_easy_init();
-    if(!curl_handle) {
-        WUPI_Log("Download failed: Could not initialize cURL.\n");
-        return false;
-    }
-
-    struct MemoryStruct chunk;
-    chunk.memory = (char*)malloc(1);
-    chunk.size = 0;
-
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "vWii-Compat-Installer/1.0");
-    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
-    curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
-    SetCurlCACert(curl_handle);
-
-    CURLcode res = curl_easy_perform(curl_handle);
-    long httpCode = 0;
-    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpCode);
-    curl_easy_cleanup(curl_handle);
-
-    if (res != CURLE_OK) {
-        WUPI_Log("Download failed: %s (%d)\n", curl_easy_strerror(res), res);
-        free(chunk.memory);
-        return false;
-    }
-
-    if (httpCode >= 400) {
-        WUPI_Log("Download failed: HTTP Error %ld\n", httpCode);
-        free(chunk.memory);
-        return false;
-    }
-
-    if (chunk.size == 0) {
-        WUPI_Log("Download failed: Empty response received.\n");
-        free(chunk.memory);
-        return false;
+    uint8_t* data = nullptr;
+    size_t size = 0;
+    DownloadResult dlRes = DownloadToMemory(url, &data, &size);
+    if (dlRes != DownloadResult::SUCCESS || !data) {
+        return dlRes;
     }
 
     ShowDownloadStatus("Saving file...");
@@ -282,7 +231,7 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
     FSAFileHandle fd = 0;
     bool success = false;
     if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {
-        if (FSAWriteAligned(fsaClient, fd, chunk.memory, chunk.size)) {
+        if (FSAWriteAligned(fsaClient, fd, data, size)) {
             success = true;
         } else {
             WUPI_Log("Failed to write aligned data to file: %s\n", outPath.c_str());
@@ -292,6 +241,6 @@ bool DownloadFile(const std::string& url, const std::string& outPath) {
         WUPI_Log("Failed to open file for writing: %s\n", outPath.c_str());
     }
 
-    free(chunk.memory);
-    return success;
+    free(data);
+    return success ? DownloadResult::SUCCESS : DownloadResult::FAILED;
 }

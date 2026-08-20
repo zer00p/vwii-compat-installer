@@ -4,6 +4,7 @@
 #include "FSAUtils.h"
 #include "cert_sys.h"
 #include "uid_sys.h"
+#include "downloader.h"
 #include "log.h"
 #include "MenuUtils.h"
 #include "ScreenUtils.h"
@@ -653,7 +654,12 @@ bool SCAN_RestoreSelectedIssues(const std::vector<SystemScanIssue>& selectedIssu
                 WUPI_Log("Warning: Could not repair all permissions.\n");
             }
         } else if (issue.nusTitle != nullptr) {
-            itemOk = NUS_InstallSystemTitle(issue.nusTitle, targetRegionCode);
+            DownloadResult res = NUS_InstallSystemTitle(issue.nusTitle, targetRegionCode);
+            if (res == DownloadResult::CANCELLED) {
+                failCount++;
+                break;
+            }
+            itemOk = (res == DownloadResult::SUCCESS);
             if (itemOk) {
                 WUPI_Log("Installation complete!\n");
             }
@@ -666,6 +672,7 @@ bool SCAN_RestoreSelectedIssues(const std::vector<SystemScanIssue>& selectedIssu
             successCount++;
         } else {
             failCount++;
+            if (!State::AppRunning()) break;
             WUPI_putstr("\nOperation failed.\nPress A to continue, B to abort.\n");
             if (!WaitPrompt()) break;
         }

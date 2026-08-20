@@ -51,7 +51,7 @@ std::string BrowseD2XVersions() {
         if (dlChoice == 0) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
-            if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
+            if (DownloadAndExtractApp("d2x-cios-installer-vwii") == DownloadResult::SUCCESS) {
                 ClearDirList();
                 PopulateDirList("/vol/external01/apps/d2x-cios-installer-vwii");
             } else {
