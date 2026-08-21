@@ -44,7 +44,7 @@ Bit:   7   6   5   4   3   2   1   0
 | `/sys/uid.sys`, `/sys/space.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | System tables / metadata. |
 | `/sys/cert.sys` | File | **0** | **0** | `0xf5` | `(FSMode)0x664` | `rw-rw-r--` | Central certificate trust store (`XS00000003`, `CA00000001`, `CP00000004`). Read-access for all UIDs. |
 | `/title` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x775` | `rwxrwxr-x` | Title root directory. |
-| `/sys`, `/shared1`, `/ticket`, `/content`, `/import` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x770` | `rwxrwx---` | System root directories. |
+| `/sys`, `/shared1`, `/ticket`, `/import` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x770` | `rwxrwx---` | System root directories. |
 | `/shared2`, `/tmp` | Dir | **0** | **0** | `0xfe` | `(FSMode)0x777` | `rwxrwxrwx` | Shared system & temp directories (writable by all UIDs). |
 | `/title/<idHi>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x775` | `rwxrwxr-x` | Title category directory (e.g. `00000001`). |
 | `/title/<idHi>/<idLo>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x775` | `rwxrwxr-x` | Specific title directory. |

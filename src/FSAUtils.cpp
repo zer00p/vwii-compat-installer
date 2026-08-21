@@ -353,29 +353,15 @@ bool FSACheckFileSha1(FSAClientHandle fsa, const std::string& path, const uint8_
 }
 
 bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
-    // Stock root directories with stock modes and UID 0, GID 0
-    const struct {
-        const char* path;
-        FSMode mode;
-    } rootDirs[] = {
-        {"/vol/slccmpt01/sys",     STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
-        {"/vol/slccmpt01/title",   STOCK_MODE_SYSTEM_DIR},  // 0x664 (SFFS 0xf6)
-        {"/vol/slccmpt01/ticket",  STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
-        {"/vol/slccmpt01/shared1", STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
-        {"/vol/slccmpt01/shared2", STOCK_MODE_SHARED2_DIR}, // 0x777 (SFFS 0xfe)
-        {"/vol/slccmpt01/content", STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
-        {"/vol/slccmpt01/tmp",     STOCK_MODE_TMP_DIR},      // 0x777 (SFFS 0xfe)
-        {"/vol/slccmpt01/import",  STOCK_MODE_CONTENT_DIR}, // 0x660 (SFFS 0xf2)
-    };
-
     bool allOk = true;
-    for (const auto& d : rootDirs) {
-        FSError res = FSAMakeDirWithOwner(fsa, d.path, d.mode, 0, 0);
+    for (const auto& d : STOCK_ROOT_DIRS) {
+        std::string fullPath = VwiiFsaPath(d.path);
+        FSError res = FSAMakeDirWithOwner(fsa, fullPath, d.mode, 0, 0);
         if (res == FS_ERROR_ALREADY_EXISTS) {
             FSStat stat;
-            if (FSAGetStat(fsa, d.path, &stat) == FS_ERROR_OK) {
+            if (FSAGetStat(fsa, fullPath.c_str(), &stat) == FS_ERROR_OK) {
                 if (stat.owner != 0 || stat.group != 0) {
-                    FSError ownRes = FSA_ChangeOwner(fsa, d.path, 0, 0);
+                    FSError ownRes = FSA_ChangeOwner(fsa, fullPath, 0, 0);
                     if (ownRes != FS_ERROR_OK) {
                         WUPI_Log("FSA_InitStockRootDirs: Owner err %d: %s\n", ownRes, d.path);
                         allOk = false;
@@ -390,54 +376,12 @@ bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
     return allOk;
 }
 
-bool FSA_IsFilePermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid, uint32_t expectedGid) {
-    // 1. Ownership matches expected
-    if (stat.owner == expectedUid && stat.group == expectedGid) {
-        if (stat.mode == stockMode) {
-            return true;
-        }
-        // Match both execute-bit and non-execute-bit variants
-        uint32_t statRW = stat.mode & 0x666;
-        uint32_t stockRW = stockMode & 0x666;
-        if (statRW == stockRW) {
-            return true;
-        }
-    }
-    // 2. Permissive 0x666 / 0x777 (or Other has read & write, e.g. restored via vWii NAND Restorer)
-    if (stat.mode == 0x666 || stat.mode == 0x777 || (stat.mode & 0x006) == 0x006) {
+bool FSA_IsPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid, uint32_t expectedGid) {
+    if (stat.owner == expectedUid && stat.group == expectedGid && (stat.mode & stockMode) == stockMode) {
         return true;
     }
-    // 3. For files where Other only needs read access (e.g. cert.sys 0x664, setting.txt 0x444)
-    if ((stockMode & 0x004) != 0 && (stat.mode & 0x004) != 0) {
-        if (stat.owner == expectedUid && stat.group == expectedGid) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool FSA_IsDirPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid, uint32_t expectedGid) {
-    // 1. Ownership matches expected
-    if (stat.owner == expectedUid && stat.group == expectedGid) {
-        if (stat.mode == stockMode) {
-            return true;
-        }
-        // Match both execute-bit and non-execute-bit variants (0x700 vs 0x600, 0x770 vs 0x660, 0x775/0x774 vs 0x664)
-        uint32_t statRW = stat.mode & 0x666;
-        uint32_t stockRW = stockMode & 0x666;
-        if (statRW == stockRW) {
-            return true;
-        }
-    }
-    // 2. Permissive 0x777 / 0x666 (or Other has rwx / rw, e.g. restored via vWii NAND Restorer)
-    if (stat.mode == 0x777 || stat.mode == 0x666 || (stat.mode & 0x007) == 0x007 || (stat.mode & 0x006) == 0x006) {
+    if ((stat.mode & 0x666) == 0x666) {
         return true;
-    }
-    // 3. For directories where Other only needs read access (e.g. 0x775, 0x774, 0x664)
-    if ((stockMode & 0x004) != 0 && (stat.mode & 0x004) != 0) {
-        if (stat.owner == expectedUid && stat.group == expectedGid) {
-            return true;
-        }
     }
     return false;
 }

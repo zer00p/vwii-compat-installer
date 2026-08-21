@@ -3,17 +3,60 @@
 #include <coreinit/filesystem_fsa.h>
 #include <stddef.h>
 #include <string>
+#include <string_view>
 
-// Stock SFFS permission modes (Wii U FSMode representation)
+// vWii SLCCMPT mount point prefix
+inline constexpr std::string_view VWII_MOUNT_POINT = "/vol/slccmpt01";
+
+// Returns the full FSA path by prepending /vol/slccmpt01 if not already present
+inline std::string VwiiFsaPath(std::string_view relPath) {
+    if (relPath.starts_with(VWII_MOUNT_POINT)) {
+        return std::string(relPath);
+    }
+    if (relPath.empty()) {
+        return std::string(VWII_MOUNT_POINT);
+    }
+    if (relPath.front() == '/') {
+        return std::string(VWII_MOUNT_POINT) + std::string(relPath);
+    }
+    return std::string(VWII_MOUNT_POINT) + "/" + std::string(relPath);
+}
+
+// Strips /vol/slccmpt01 prefix for display/logging if present
+inline std::string_view VwiiCleanPath(std::string_view fullPath) {
+    if (fullPath.starts_with(VWII_MOUNT_POINT)) {
+        std::string_view stripped = fullPath.substr(VWII_MOUNT_POINT.size());
+        return stripped.empty() ? "/" : stripped;
+    }
+    return fullPath;
+}
+
+// Stock SFFS permission modes (Wii U FSMode representation - pure read/write, no execute bits)
 #define STOCK_MODE_SETTING_TXT    ((FSMode)0x444) // SFFS mode 0x55 (r--r--r--)
 #define STOCK_MODE_SYSTEM_FILE    ((FSMode)0x660) // SFFS mode 0xf1 (rw-rw----)
 #define STOCK_MODE_CERT_SYS       ((FSMode)0x664) // SFFS mode 0xf5 (rw-rw-r--)
-#define STOCK_MODE_SYSTEM_DIR     ((FSMode)0x775) // SFFS mode 0xf6 (rwxrwxr-x)
-#define STOCK_MODE_CONTENT_DIR    ((FSMode)0x770) // SFFS mode 0xf2 (rwxrwx---)
-#define STOCK_MODE_DATA_DIR       ((FSMode)0x700) // SFFS mode 0xc2 (rwx------)
+#define STOCK_MODE_SYSTEM_DIR     ((FSMode)0x664) // SFFS mode 0xf6 (rw-rw-r--)
+#define STOCK_MODE_CONTENT_DIR    ((FSMode)0x660) // SFFS mode 0xf2 (rw-rw----)
+#define STOCK_MODE_DATA_DIR       ((FSMode)0x600) // SFFS mode 0xc2 (rw-------)
 #define STOCK_MODE_TICKET_SUBDIR  ((FSMode)0x000) // SFFS mode 0x02 (---------)
-#define STOCK_MODE_SHARED2_DIR    ((FSMode)0x777) // SFFS mode 0xfe (rwxrwxrwx)
-#define STOCK_MODE_TMP_DIR        ((FSMode)0x777) // SFFS mode 0xfe (rwxrwxrwx)
+#define STOCK_MODE_SHARED2_DIR    ((FSMode)0x666) // SFFS mode 0xfe (rw-rw-rw-)
+#define STOCK_MODE_TMP_DIR        ((FSMode)0x666) // SFFS mode 0xfe (rw-rw-rw-)
+
+// Stock root directory definition
+struct StockRootDir {
+    const char* path; // Stored without mount prefix, e.g. "/sys"
+    FSMode mode;      // Expected permission mode
+};
+
+inline constexpr StockRootDir STOCK_ROOT_DIRS[] = {
+    {"/sys",     STOCK_MODE_CONTENT_DIR},
+    {"/title",   STOCK_MODE_SYSTEM_DIR},
+    {"/ticket",  STOCK_MODE_CONTENT_DIR},
+    {"/shared1", STOCK_MODE_CONTENT_DIR},
+    {"/shared2", STOCK_MODE_SHARED2_DIR},
+    {"/tmp",     STOCK_MODE_TMP_DIR},
+    {"/import",  STOCK_MODE_CONTENT_DIR},
+};
 
 // Writes a buffer to an FSA file handle using a 0x40 aligned internal buffer
 bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, size_t size);
@@ -60,8 +103,5 @@ bool FSACheckFileSha1(FSAClientHandle fsa, const std::string& path, const uint8_
 // Re-creates standard stock SLCCMPT root directories with correct ownership and permission modes
 bool FSA_InitStockRootDirs(FSAClientHandle fsa);
 
-// Evaluates whether a file's permissions are acceptable (stock or permissive like 0x666 from vWii NAND Restorer)
-bool FSA_IsFilePermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid = 0, uint32_t expectedGid = 0);
-
-// Evaluates whether a directory's permissions are acceptable (stock or permissive like 0x777/0x666 from vWii NAND Restorer)
-bool FSA_IsDirPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid = 0, uint32_t expectedGid = 0);
+// Evaluates whether permissions are acceptable (stock or permissive like 0x666 from vWii NAND Restorer)
+bool FSA_IsPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid = 0, uint32_t expectedGid = 0);

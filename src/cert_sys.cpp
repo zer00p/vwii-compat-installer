@@ -85,8 +85,9 @@ bool CERT_VerifyIntegrity(FSAClientHandle fsaClient, std::vector<ParsedCert>& ou
         return false;
     }
 
-    if (stat.owner != 0 || stat.group != 0 || stat.mode != STOCK_MODE_CERT_SYS) {
-        outReasons.push_back("Permissions/Ownership incorrect");
+    if (!FSA_IsPermissionAcceptable(stat, STOCK_MODE_CERT_SYS, 0, 0)) {
+        outReasons.push_back(std::format("Perms {}/{}/{:x} incorrect on /sys/cert.sys",
+                                         (uint32_t)stat.owner, (uint32_t)stat.group, (uint32_t)(stat.mode & 0x666)));
     }
 
     constexpr size_t minCertSysSize = sizeof(CertRsa4096Rsa2048) + (2 * sizeof(CertRsa2048)); // 0x400 + 2 * 0x300 = 2560 bytes
@@ -240,6 +241,22 @@ bool CERT_DownloadAndRegenerate(FSAClientHandle fsaClient) {
     }
 
     return CERT_WriteCertificates(fsaClient, combinedCerts.data(), combinedCerts.size());
+}
+
+bool CERT_RestoreOrRegenerate(FSAClientHandle fsaClient) {
+    // 1. Try local repair: if valid certificates exist on disk, rewrite with correct ownership and permissions
+    uint8_t* existingBuf = nullptr;
+    uint32_t existingSize = 0;
+    if (ReadFileToBuffer(VWII_CERT_SYS_PATH, &existingBuf, &existingSize) && existingBuf) {
+        bool ok = CERT_WriteCertificates(fsaClient, existingBuf, existingSize);
+        free(existingBuf);
+        if (ok) {
+            return true;
+        }
+    }
+
+    // 2. Fall back to downloading and regenerating from NUS
+    return CERT_DownloadAndRegenerate(fsaClient);
 }
 
 bool CERT_ImportCerts(FSAClientHandle fsaClient, const void* certData, size_t certSize) {

@@ -148,6 +148,12 @@ int32_t SCAN_DetermineTargetRegion(bool& outIsAmbiguous) {
     return settingRegion;
 }
 
+static std::string format_permission_error(FSStat stat, std::string_view path) {
+    return std::format("Perms {}/{}/{:x} incorrect on {}",
+                       (uint32_t)stat.owner, (uint32_t)stat.group,
+                       (uint32_t)(stat.mode & 0x666), VwiiCleanPath(path));
+}
+
 SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<void(const std::string&)> progressCb) {
     SystemScanReport report;
     report.targetRegionCode = targetRegionCode;
@@ -169,12 +175,8 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
             settingIssue.reasons.push_back("File missing");
             report.settingTxtDamaged = true;
         } else {
-            uint32_t owner = stat.owner;
-            uint32_t group = stat.group;
-            uint32_t mode = (uint32_t)stat.mode;
-
-            if (!FSA_IsFilePermissionAcceptable(stat, STOCK_MODE_SETTING_TXT, 4096, 1)) {
-                settingIssue.reasons.push_back(std::format("Ownership/Mode: UID {}, GID {}, Mode 0x{:x} (expected 4096, 1, 0x444)", owner, group, mode));
+            if (!FSA_IsPermissionAcceptable(stat, STOCK_MODE_SETTING_TXT, 4096, 1)) {
+                settingIssue.reasons.push_back(format_permission_error(stat, settingIssue.titleName));
                 report.settingTxtDamaged = true;
             }
 
@@ -215,17 +217,17 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         uidIssue.isUidSys = true;
 
         FSStat stat;
-        if (FSAGetStat(fsaClient, "/vol/slccmpt01/sys/uid.sys", &stat) != FS_ERROR_OK || stat.size < 12 || (stat.size % 12) != 0) {
+        if (FSAGetStat(fsaClient, VWII_UID_SYS_PATH, &stat) != FS_ERROR_OK || stat.size < 12 || (stat.size % 12) != 0) {
             uidIssue.reasons.push_back("Missing or corrupted");
             report.uidSysDamaged = true;
         } else {
-            if (!FSA_IsFilePermissionAcceptable(stat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-                uidIssue.reasons.push_back("Permissions/Ownership incorrect");
+            if (!FSA_IsPermissionAcceptable(stat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
+                uidIssue.reasons.push_back(format_permission_error(stat, uidIssue.titleName));
                 report.uidSysDamaged = true;
             } else {
                 // Check if entry 0 is System Menu (0000000100000002 -> 4096)
                 FSAFileHandle fd = 0;
-                if (FSAOpenFileEx(fsaClient, "/vol/slccmpt01/sys/uid.sys", "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK) {
+                if (FSAOpenFileEx(fsaClient, VWII_UID_SYS_PATH, "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) == FS_ERROR_OK) {
                     RawUidEntry* entry0 = (RawUidEntry*)memalign(0x40, 0x40);
                     if (entry0) {
                         int readRes = FSAReadFile(fsaClient, entry0, sizeof(RawUidEntry), 1, fd, 0);
@@ -248,31 +250,18 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
     // 4. Audit root directories and shared permissions
     LogProgress("Auditing root system directories...");
     {
-        const struct {
-            const char* path;
-            FSMode mode;
-        } rootDirAudit[] = {
-            {"/vol/slccmpt01/sys",     STOCK_MODE_CONTENT_DIR},
-            {"/vol/slccmpt01/title",   STOCK_MODE_SYSTEM_DIR},
-            {"/vol/slccmpt01/ticket",  STOCK_MODE_CONTENT_DIR},
-            {"/vol/slccmpt01/shared1", STOCK_MODE_CONTENT_DIR},
-            {"/vol/slccmpt01/shared2", STOCK_MODE_SHARED2_DIR},
-            {"/vol/slccmpt01/content", STOCK_MODE_CONTENT_DIR},
-            {"/vol/slccmpt01/tmp",     STOCK_MODE_TMP_DIR},
-            {"/vol/slccmpt01/import",  STOCK_MODE_CONTENT_DIR},
-        };
-
         SystemScanIssue dirIssue;
         dirIssue.titleName = "Root System Directories";
         dirIssue.isStockDirs = true;
 
-        for (const auto& d : rootDirAudit) {
+        for (const auto& d : STOCK_ROOT_DIRS) {
+            std::string fullPath = VwiiFsaPath(d.path);
             FSStat stat;
-            if (FSAGetStat(fsaClient, d.path, &stat) != FS_ERROR_OK) {
+            if (FSAGetStat(fsaClient, fullPath.c_str(), &stat) != FS_ERROR_OK) {
                 dirIssue.reasons.push_back(std::format("Missing: {}", d.path));
                 report.permissionErrorsCount++;
-            } else if (!FSA_IsDirPermissionAcceptable(stat, d.mode, 0, 0)) {
-                dirIssue.reasons.push_back(std::format("Permissions/Ownership incorrect on {}", d.path));
+            } else if (!FSA_IsPermissionAcceptable(stat, d.mode, 0, 0)) {
+                dirIssue.reasons.push_back(format_permission_error(stat, d.path));
                 report.permissionErrorsCount++;
             }
         }
@@ -292,11 +281,17 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         uint32_t idHi = (uint32_t)(titleId >> 32);
         uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
 
-        std::string titleDir = std::format("/vol/slccmpt01/title/{:08x}/{:08x}", idHi, idLo);
-        std::string contentDir = titleDir + "/content";
-        std::string dataDir = titleDir + "/data";
-        std::string tmdPath = contentDir + "/title.tmd";
-        std::string tikPath = std::format("/vol/slccmpt01/ticket/{:08x}/{:08x}.tik", idHi, idLo);
+        std::string relTitleDir = std::format("/title/{:08x}/{:08x}", idHi, idLo);
+        std::string relContentDir = relTitleDir + "/content";
+        std::string relDataDir = relTitleDir + "/data";
+        std::string relTmdPath = relContentDir + "/title.tmd";
+        std::string relTikPath = std::format("/ticket/{:08x}/{:08x}.tik", idHi, idLo);
+
+        std::string titleDir = VwiiFsaPath(relTitleDir);
+        std::string contentDir = VwiiFsaPath(relContentDir);
+        std::string dataDir = VwiiFsaPath(relDataDir);
+        std::string tmdPath = VwiiFsaPath(relTmdPath);
+        std::string tikPath = VwiiFsaPath(relTikPath);
 
         LogProgress(std::format("Auditing {} ({}/{})...", t.name, i + 1, g_numNusTitles));
 
@@ -314,15 +309,15 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         }
 
         // Check directory permissions
-        if (!FSA_IsDirPermissionAcceptable(titleStat, STOCK_MODE_SYSTEM_DIR, 0, 0)) {
-            issue.reasons.push_back("Title dir permissions incorrect");
+        if (!FSA_IsPermissionAcceptable(titleStat, STOCK_MODE_SYSTEM_DIR, 0, 0)) {
+            issue.reasons.push_back(format_permission_error(titleStat, relTitleDir));
             report.permissionErrorsCount++;
         }
 
         FSStat contentStat;
         if (FSAGetStat(fsaClient, contentDir.c_str(), &contentStat) != FS_ERROR_OK ||
-            !FSA_IsDirPermissionAcceptable(contentStat, STOCK_MODE_CONTENT_DIR, 0, 0)) {
-            issue.reasons.push_back("Content dir permissions incorrect");
+            !FSA_IsPermissionAcceptable(contentStat, STOCK_MODE_CONTENT_DIR, 0, 0)) {
+            issue.reasons.push_back(format_permission_error(contentStat, relContentDir));
             report.permissionErrorsCount++;
         }
 
@@ -330,8 +325,8 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         if (FSAGetStat(fsaClient, tikPath.c_str(), &tikStat) != FS_ERROR_OK) {
             issue.reasons.push_back("Missing ticket (.tik)");
             report.modifiedTitlesCount++;
-        } else if (!FSA_IsFilePermissionAcceptable(tikStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-            issue.reasons.push_back("Ticket permissions incorrect");
+        } else if (!FSA_IsPermissionAcceptable(tikStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
+            issue.reasons.push_back(format_permission_error(tikStat, relTikPath));
             report.permissionErrorsCount++;
         }
 
@@ -348,8 +343,8 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
 
         FSStat tmdStat;
         if (FSAGetStat(fsaClient, tmdPath.c_str(), &tmdStat) == FS_ERROR_OK) {
-            if (!FSA_IsFilePermissionAcceptable(tmdStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-                issue.reasons.push_back("TMD permissions incorrect");
+            if (!FSA_IsPermissionAcceptable(tmdStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
+                issue.reasons.push_back(format_permission_error(tmdStat, relTmdPath));
                 report.permissionErrorsCount++;
             }
         }
@@ -383,8 +378,8 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         if (FSAGetStat(fsaClient, dataDir.c_str(), &dataStat) == FS_ERROR_OK) {
             uint32_t expectedUid = (titleId == VWII_TITLE_ID_SYSTEM_MENU) ? VWII_UID_SYSTEM_MENU : UID_GetOrCreate(fsaClient, titleId);
             uint16_t expectedGid = groupId;
-            if (!FSA_IsDirPermissionAcceptable(dataStat, STOCK_MODE_DATA_DIR, expectedUid, expectedGid)) {
-                issue.reasons.push_back("Data dir permissions incorrect");
+            if (!FSA_IsPermissionAcceptable(dataStat, STOCK_MODE_DATA_DIR, expectedUid, expectedGid)) {
+                issue.reasons.push_back(format_permission_error(dataStat, relDataDir));
                 report.permissionErrorsCount++;
             }
         }
@@ -400,28 +395,29 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
             uint64_t csize = FromBE64(rec.size);
             const uint8_t* expHash = rec.hash.data();
 
-            std::string contentPath;
+            std::string relContentPath;
             if ((ctype & 0x8000) != 0) {
                 // Shared content
                 int32_t sharedIdx = FindSharedContentIndex(expHash);
                 if (sharedIdx >= 0) {
-                    contentPath = std::format("/vol/slccmpt01/shared1/{:08x}.app", sharedIdx);
+                    relContentPath = std::format("/shared1/{:08x}.app", sharedIdx);
                 } else {
                     issue.reasons.push_back(std::format("Shared content missing: {:08x}", cid));
                     contentIssueFound = true;
                     continue;
                 }
             } else {
-                contentPath = std::format("{}/{:08x}.app", contentDir, cid);
+                relContentPath = std::format("{}/{:08x}.app", relContentDir, cid);
             }
+            std::string contentPath = VwiiFsaPath(relContentPath);
 
             FSStat cStat;
             if (FSAGetStat(fsaClient, contentPath.c_str(), &cStat) != FS_ERROR_OK) {
                 issue.reasons.push_back(std::format("Missing content: {:08x}.app", cid));
                 contentIssueFound = true;
             } else {
-                if (!FSA_IsFilePermissionAcceptable(cStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-                    issue.reasons.push_back(std::format("Content permissions incorrect: {:08x}.app", cid));
+                if (!FSA_IsPermissionAcceptable(cStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
+                    issue.reasons.push_back(format_permission_error(cStat, relContentPath));
                     report.permissionErrorsCount++;
                 }
 
@@ -618,10 +614,12 @@ bool SCAN_RestoreSelectedIssues(const std::vector<SystemScanIssue>& selectedIssu
                 WUPI_Log("Error: Failed to write setting.txt.\n");
             }
         } else if (issue.isCertSys) {
-            WUPI_Log("Regenerating /sys/cert.sys from NUS...\n");
-            itemOk = CERT_DownloadAndRegenerate(fsaClient);
-            if (!itemOk) {
-                WUPI_Log("Warning: cert.sys could not be downloaded from NUS.\n");
+            WUPI_Log("Restoring /sys/cert.sys...\n");
+            itemOk = CERT_RestoreOrRegenerate(fsaClient);
+            if (itemOk) {
+                WUPI_Log("/sys/cert.sys restored successfully.\n");
+            } else {
+                WUPI_Log("Warning: Failed to restore /sys/cert.sys.\n");
             }
         } else if (issue.isUidSys) {
             WUPI_Log("Repairing /sys/uid.sys...\n");
@@ -739,12 +737,12 @@ void WUPI_ScanAndRestoreMenu() {
         if (choice == 0) {
             WUPI_resetScreen();
             WUPI_Log("=========================================");
-            WUPI_Log("     Regenerating /sys/cert.sys          ");
+            WUPI_Log("     Restoring /sys/cert.sys             ");
             WUPI_Log("=========================================\n");
-            if (CERT_DownloadAndRegenerate(fsaClient)) {
+            if (CERT_RestoreOrRegenerate(fsaClient)) {
                 WUPI_Log("\n/sys/cert.sys restored successfully!\n");
             } else {
-                WUPI_Log("\nFailed to regenerate cert.sys from NUS.\n");
+                WUPI_Log("\nFailed to restore /sys/cert.sys.\n");
             }
             sleep(2);
         }
@@ -753,7 +751,7 @@ void WUPI_ScanAndRestoreMenu() {
     // Run Full System Scan with live on-screen progress
     WUPI_resetScreen();
     WUPI_Log("=========================================");
-    WUPI_Log("   Scanning System Environment (%s)   ", Setting_GetRegionName(targetRegion).c_str());
+    WUPI_Log("   Scanning vWii Environment (%s)   ", Setting_GetRegionName(targetRegion).c_str());
     WUPI_Log("=========================================");
     WUPI_Log("Initializing scan...\n");
 

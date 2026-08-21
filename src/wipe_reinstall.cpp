@@ -129,7 +129,7 @@ static bool CleanRootUnknownEntries(FSAClientHandle fsa) {
     }
 
     const std::vector<std::string> knownDirs = {
-        "sys", "title", "ticket", "shared1", "shared2", "content", "tmp", "import"
+        "sys", "title", "ticket", "shared1", "shared2", "tmp", "import", "meta", "wfs"
     };
 
     std::vector<std::pair<std::string, bool>> toRemove;
@@ -176,7 +176,6 @@ static bool PerformWipe(FSAClientHandle fsa, WipeMode mode) {
     bool allOk = true;
 
     // Common staging / temp folders
-    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/content", true);
     allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/tmp", true);
     allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/import", true);
 

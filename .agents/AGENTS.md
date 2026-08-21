@@ -5,6 +5,7 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 ## Building the App
 - The application is built using `make`. It relies on the devkitPPC, devkitARM, and `wut` toolchains, as well as the `libmocha` library.
 - For compilation verification during development, use standard incremental `make` without `make clean` (do not run `make clean` before building as incremental builds are much faster). Only run `make release` when explicitly packaging release zip bundles (`compat_installer-HBL.zip` and `compat_installer-Aroma.zip`).
+- **Background Tasks & Waiting**: When running build commands, set `WaitMsBeforeAsync` appropriately (up to 10000ms). If a command runs in the background, never poll `manage_task` with `status` in a loop; stop calling tools and rely on the automatic completion message/wakeup to avoid wasting tokens.
 - You can also build it using the provided `Dockerfile` which defines the necessary build environment.
 
 ## Licenses and Crediting
@@ -38,7 +39,7 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
     - System tickets (`/ticket/00000001/*.tik`), system TMDs, system `.app` files, shared `.app` files (`/shared1/*.app`), `content.map`, `/sys/uid.sys`, and `/sys/space.sys` are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf1` (`rw-rw----`).
     - `/sys/cert.sys` is owned by **`UID = 0`**, **`GID = 0`** with mode `0xf5` (`rw-rw-r--`, `STOCK_MODE_CERT_SYS`).
     - Directories (`/title`, `/title/<idHi>`, `/title/<idHi>/<idLo>`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf6` (`rwxrwxr-x`, `STOCK_MODE_SYSTEM_DIR` = `(FSMode)0x775`).
-    - Directories (`/sys`, `/shared1`, `/ticket`, `/content`, `/import`, `/title/<idHi>/<idLo>/content`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf2` (`rwxrwx---`, `STOCK_MODE_CONTENT_DIR` = `(FSMode)0x770`).
+    - Directories (`/sys`, `/shared1`, `/ticket`, `/import`, `/title/<idHi>/<idLo>/content`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf2` (`rwxrwx---`, `STOCK_MODE_CONTENT_DIR` = `(FSMode)0x770`).
     - `/shared2` and `/tmp` directories are owned by **`UID = 0`**, **`GID = 0`** with mode `0xfe` (`rwxrwxrwx`, `STOCK_MODE_SHARED2_DIR` / `STOCK_MODE_TMP_DIR` = `(FSMode)0x777`).
     - Title data directories (`/title/<idHi>/<idLo>/data`) are owned by the title's allocated Title UID and TMD Group ID (`0xc2` mode, `STOCK_MODE_DATA_DIR` = `(FSMode)0x700`, `rwx------`).
     - `setting.txt` (`/title/00000001/00000002/data/setting.txt`) is owned by **`UID = 4096`**, **`GID = 1`** with mode `0x55` (read-only for all, `STOCK_MODE_SETTING_TXT` = `(FSMode)0x444`).

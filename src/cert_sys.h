@@ -25,6 +25,7 @@ bool CERT_IsRetailCertificate(const ParsedCert& cert);
 bool CERT_VerifyIntegrity(FSAClientHandle fsaClient, std::vector<ParsedCert>& outCerts, std::vector<std::string>& outReasons);
 bool CERT_WriteCertificates(FSAClientHandle fsaClient, const void* certData, size_t certSize);
 bool CERT_DownloadAndRegenerate(FSAClientHandle fsaClient);
+bool CERT_RestoreOrRegenerate(FSAClientHandle fsaClient);
 
 extern "C" {
 #endif
