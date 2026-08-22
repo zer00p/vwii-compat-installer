@@ -776,7 +776,7 @@ void WUPI_ScanAndRestoreMenu() {
         WUPI_Log("System Titles: 38/38 Verified & Authentic\n");
         WUPI_Log("TMD Signatures: All Nintendo-Signed\n");
         WUPI_Log("Content SHA-1: All Hashes Matched\n");
-        WUPI_Log("Permissions: All Stock SFFS Permissions\n");
+        WUPI_Log("Permissions: OK\n");
         WUPI_Log("setting.txt: Valid & Authentic\n");
         WUPI_Log("cert.sys & uid.sys: Intact\n\n");
         WUPI_Log("No issues detected! Your vWii system is clean.\n");
