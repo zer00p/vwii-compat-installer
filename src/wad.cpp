@@ -347,6 +347,11 @@ DownloadResult NUS_DownloadTitle(uint64_t titleId, int32_t version, WADContext**
     DownloadResult contentResult = DownloadResult::SUCCESS;
 
     for (int i = 0; i < numContents; i++) {
+        if (!State::AppRunning()) {
+            contentResult = DownloadResult::CANCELLED;
+            goto error;
+        }
+
         const TitleContentRecord& rec = tmd->contents[i];
         uint32_t cid = FromBE32(rec.contentId);
         uint16_t ctype = FromBE16(rec.type);
@@ -358,7 +363,6 @@ DownloadResult NUS_DownloadTitle(uint64_t titleId, int32_t version, WADContext**
             if (sharedIndex >= 0) {
                 std::string sharedPath = std::format("/vol/slccmpt01/shared1/{:08x}.app", sharedIndex);
                 if (FSACheckFileSha1(fsaClient, sharedPath, expected_hash, expectedLen)) {
-                    WUPI_Log_Overwrite("Fetching Content %d/%d (Shared: on NAND, skipped)\n", i + 1, numContents);
                     c_arr[i].data = nullptr;
                     c_arr[i].length = expectedLen;
                     continue;
