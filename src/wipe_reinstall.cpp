@@ -1,6 +1,7 @@
 #include "wipe_reinstall.h"
 #include "system_scanner.h"
 #include "settingtxt_manager.h"
+#include "title_deleter.h"
 #include "FSAUtils.h"
 #include "wad.h"
 #include "log.h"
@@ -442,12 +443,13 @@ void WUPI_fullWipeAndReinstall() {
 
 void WUPI_reinstallWipeMenu() {
     std::vector<std::string> header = {
-        "Reinstall & Wipe Menu:",
+        "Decaf Menu (Reinstall & Wipe):",
         "Select an operation:"
     };
     std::vector<std::string> options = {
         "Scan and Restore System",
         "Reinstall System Titles (NUS)",
+        "Delete Titles",
         "Full Wipe (Exclude User Titles & Tickets)",
         "Full Wipe (Exclude User Tickets)",
         "Full Wipe & Reinstall"
@@ -460,10 +462,12 @@ void WUPI_reinstallWipeMenu() {
         } else if (selected == 1) {
             WUPI_NusMenu();
         } else if (selected == 2) {
-            WUPI_wipeExcludeTitlesAndTickets();
+            WUPI_DeleteTitlesMenu();
         } else if (selected == 3) {
-            WUPI_wipeExcludeTickets();
+            WUPI_wipeExcludeTitlesAndTickets();
         } else if (selected == 4) {
+            WUPI_wipeExcludeTickets();
+        } else if (selected == 5) {
             WUPI_fullWipeAndReinstall();
         } else if (selected == -1) {
             break;

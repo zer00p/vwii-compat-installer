@@ -2,7 +2,7 @@
 
 All-in-one homebrew setup tool that lets you fully homebrew your vWii directly from the Wii U menu. It features an express installer to quickly get your vWii ready with the Homebrew Channel, USB Loader GX, d2x cIOS, WADs, and the Open Shop Channel (Homebrew Browser / LibreShop). 
 
-It doubles as a recovery tool, featuring a **Reinstall & Wipe** menu that lets you reinstall system titles directly from NUS without worrying about update blocks, perform granular wipes (preserving user tickets or user titles, saves, and shared assets), perform full factory wipes of SLCCMPT (vWii), and regenerate or modify the vWii `setting.txt` directly from Wii U mode.
+It doubles as a recovery tool, featuring a **Decaf Menu (Reinstall & Wipe)** that lets you reinstall system titles directly from NUS without worrying about update blocks, perform granular wipes (preserving user tickets or user titles, saves, and shared assets), delete specific titles, perform full factory wipes of SLCCMPT (vWii), and regenerate or modify the vWii `setting.txt` directly from Wii U mode.
 
 Additionally, it includes optional experimental patches so you can use your vWii even if your console's disc drive is broken.
 

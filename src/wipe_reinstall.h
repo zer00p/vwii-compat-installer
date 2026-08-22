@@ -1,6 +1,6 @@
 #pragma once
 
-// Displays the Reinstall & Wipe submenu
+// Displays the Decaf Menu (Reinstall & Wipe) submenu
 void WUPI_reinstallWipeMenu();
 
 // Scan and restore vWii system environment
