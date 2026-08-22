@@ -1,5 +1,6 @@
 #include "FSAUtils.h"
 #include "log.h"
+#include "StateUtils.h"
 #include <coreinit/ios.h>
 #include <mbedtls/sha1.h>
 #include <malloc.h>
@@ -121,42 +122,56 @@ bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, 
     return true;
 }
 
-bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keepRoot) {
+bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keepRoot, FSARemoveCallback onRemove) {
+    if (!State::AppRunning()) return false;
+
     FSStat stat;
     if (FSAGetStat(fsaClient, path.c_str(), &stat) != FS_ERROR_OK) {
         return true;
     }
 
     bool allOk = true;
-    FSADirectoryHandle dir;
-    if (FSAOpenDir(fsaClient, path.c_str(), &dir) == FS_ERROR_OK) {
-        FSADirectoryEntry* entry = (FSADirectoryEntry*)memalign(0x40, sizeof(FSADirectoryEntry));
-        if (entry) {
-            while (FSAReadDir(fsaClient, dir, entry) == FS_ERROR_OK) {
-                if (strcmp(entry->name, ".") == 0 || strcmp(entry->name, "..") == 0) {
-                    continue;
-                }
-                std::string subPath = path + "/" + entry->name;
-                if (entry->info.flags & FS_STAT_DIRECTORY) {
-                    if (!FSARemoveTree(fsaClient, subPath, false)) {
-                        allOk = false;
+    if (stat.flags & FS_STAT_DIRECTORY) {
+        FSADirectoryHandle dir;
+        if (FSAOpenDir(fsaClient, path.c_str(), &dir) == FS_ERROR_OK) {
+            FSADirectoryEntry* entry = (FSADirectoryEntry*)memalign(0x40, sizeof(FSADirectoryEntry));
+            if (entry) {
+                while (State::AppRunning() && FSAReadDir(fsaClient, dir, entry) == FS_ERROR_OK) {
+                    if (strcmp(entry->name, ".") == 0 || strcmp(entry->name, "..") == 0) {
+                        continue;
                     }
-                } else {
-                    if (FSARemove(fsaClient, subPath.c_str()) != FS_ERROR_OK) {
-                        allOk = false;
+                    std::string subPath = path + "/" + entry->name;
+                    if (entry->info.flags & FS_STAT_DIRECTORY) {
+                        if (!FSARemoveTree(fsaClient, subPath, false, onRemove)) {
+                            allOk = false;
+                        }
+                    } else {
+                        if (onRemove) {
+                            onRemove(subPath);
+                        }
+                        if (FSARemove(fsaClient, subPath.c_str()) != FS_ERROR_OK) {
+                            allOk = false;
+                        }
                     }
                 }
+                free(entry);
+            } else {
+                allOk = false;
             }
-            free(entry);
+            FSACloseDir(fsaClient, dir);
         } else {
             allOk = false;
         }
-        FSACloseDir(fsaClient, dir);
-    } else {
-        allOk = false;
+
+        if (keepRoot) {
+            return allOk;
+        }
     }
-    if (keepRoot) {
-        return allOk;
+
+    if (!State::AppRunning()) return false;
+
+    if (onRemove) {
+        onRemove(path);
     }
     if (FSARemove(fsaClient, path.c_str()) != FS_ERROR_OK) {
         allOk = false;

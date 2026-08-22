@@ -3,11 +3,15 @@
 #include <coreinit/filesystem_fsa.h>
 #include "PathRules.h"
 #include <stddef.h>
+#include <functional>
 #include <string>
 #include <string_view>
 
 // vWii SLCCMPT mount point prefix
 inline constexpr std::string_view VWII_MOUNT_POINT = "/vol/slccmpt01";
+
+// Callback for filesystem removal events (e.g. progress logging)
+using FSARemoveCallback = std::function<void(const std::string& path)>;
 
 // Returns the full FSA path by prepending /vol/slccmpt01 if not already present
 inline std::string VwiiFsaPath(std::string_view relPath) {
@@ -36,7 +40,7 @@ inline std::string_view VwiiCleanPath(std::string_view fullPath) {
 bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, size_t size);
 
 // Recursively removes a directory tree or file using FSA. Set keepRoot=true to keep the root directory itself.
-bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keepRoot = false);
+bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keepRoot = false, FSARemoveCallback onRemove = nullptr);
 
 enum class UninstallResult {
     SUCCESS,

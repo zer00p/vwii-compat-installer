@@ -32,7 +32,7 @@ static bool IsSystemCategory(const std::string& folderName) {
     return (folderName == "00000001" || folderName == "00010002" || folderName == "00010008");
 }
 
-static bool RemoveSystemCategories(FSAClientHandle fsa, const std::string& parentPath) {
+static bool RemoveSystemCategories(FSAClientHandle fsa, const std::string& parentPath, FSARemoveCallback onRemove = nullptr) {
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsa, parentPath.c_str(), &dir) != FS_ERROR_OK) {
         return true;
@@ -62,7 +62,7 @@ static bool RemoveSystemCategories(FSAClientHandle fsa, const std::string& paren
 
     bool allOk = true;
     for (const auto& p : toRemove) {
-        if (!FSARemoveTree(fsa, p, false)) {
+        if (!FSARemoveTree(fsa, p, false, onRemove)) {
             WUPI_Log("RemoveSystemCategories: Failed to remove %s\n", p.c_str());
             allOk = false;
         }
@@ -70,9 +70,9 @@ static bool RemoveSystemCategories(FSAClientHandle fsa, const std::string& paren
     return allOk;
 }
 
-static bool CleanSysDirectory(FSAClientHandle fsa, bool keepUidAndCert) {
+static bool CleanSysDirectory(FSAClientHandle fsa, bool keepUidAndCert, FSARemoveCallback onRemove = nullptr) {
     if (!keepUidAndCert) {
-        return FSARemoveTree(fsa, "/vol/slccmpt01/sys", true);
+        return FSARemoveTree(fsa, "/vol/slccmpt01/sys", true, onRemove);
     }
 
     FSADirectoryHandle dir;
@@ -102,11 +102,14 @@ static bool CleanSysDirectory(FSAClientHandle fsa, bool keepUidAndCert) {
     bool allOk = true;
     for (const auto& item : toRemove) {
         if (item.second) {
-            if (!FSARemoveTree(fsa, item.first, false)) {
+            if (!FSARemoveTree(fsa, item.first, false, onRemove)) {
                 WUPI_Log("CleanSysDirectory: Failed to remove %s\n", item.first.c_str());
                 allOk = false;
             }
         } else {
+            if (onRemove) {
+                onRemove(item.first);
+            }
             if (FSARemove(fsa, item.first.c_str()) != FS_ERROR_OK) {
                 WUPI_Log("CleanSysDirectory: Failed to remove %s\n", item.first.c_str());
                 allOk = false;
@@ -116,7 +119,7 @@ static bool CleanSysDirectory(FSAClientHandle fsa, bool keepUidAndCert) {
     return allOk;
 }
 
-static bool CleanRootUnknownEntries(FSAClientHandle fsa) {
+static bool CleanRootUnknownEntries(FSAClientHandle fsa, FSARemoveCallback onRemove = nullptr) {
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsa, "/vol/slccmpt01", &dir) != FS_ERROR_OK) {
         return true;
@@ -154,11 +157,14 @@ static bool CleanRootUnknownEntries(FSAClientHandle fsa) {
     bool allOk = true;
     for (const auto& item : toRemove) {
         if (item.second) {
-            if (!FSARemoveTree(fsa, item.first, false)) {
+            if (!FSARemoveTree(fsa, item.first, false, onRemove)) {
                 WUPI_Log("CleanRootUnknownEntries: Failed to remove %s\n", item.first.c_str());
                 allOk = false;
             }
         } else {
+            if (onRemove) {
+                onRemove(item.first);
+            }
             if (FSARemove(fsa, item.first.c_str()) != FS_ERROR_OK) {
                 WUPI_Log("CleanRootUnknownEntries: Failed to remove %s\n", item.first.c_str());
                 allOk = false;
@@ -168,44 +174,44 @@ static bool CleanRootUnknownEntries(FSAClientHandle fsa) {
     return allOk;
 }
 
-static bool PerformWipe(FSAClientHandle fsa, WipeMode mode) {
+static bool PerformWipe(FSAClientHandle fsa, WipeMode mode, FSARemoveCallback onRemove = nullptr) {
     if (mode == WipeMode::FULL_WIPE) {
-        return FSARemoveTree(fsa, "/vol/slccmpt01", true);
+        return FSARemoveTree(fsa, "/vol/slccmpt01", true, onRemove);
     }
 
     bool allOk = true;
 
     // Common staging / temp folders
-    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/tmp", true);
-    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/import", true);
+    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/tmp", true, onRemove);
+    allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/import", true, onRemove);
 
     if (mode == WipeMode::EXCLUDE_USER_TITLES_AND_TICKETS) {
         // Remove system titles only; keep user titles (00010001, 00010000, 00010004, 00010005, etc.)
-        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/title");
+        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/title", onRemove);
 
         // Remove system tickets only; keep user tickets
-        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket");
+        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket", onRemove);
 
         // Keep /shared1 and /shared2 for user title assets
         // Clean sys but preserve uid.sys and cert.sys
-        allOk &= CleanSysDirectory(fsa, true);
+        allOk &= CleanSysDirectory(fsa, true, onRemove);
     } else if (mode == WipeMode::EXCLUDE_USER_TICKETS) {
         // Remove ALL titles (system and user)
-        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/title", true);
+        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/title", true, onRemove);
 
         // Remove system tickets only; keep user tickets
-        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket");
+        allOk &= RemoveSystemCategories(fsa, "/vol/slccmpt01/ticket", onRemove);
 
         // Clean shared folders
-        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/shared1", true);
-        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/shared2", true);
+        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/shared1", true, onRemove);
+        allOk &= FSARemoveTree(fsa, "/vol/slccmpt01/shared2", true, onRemove);
 
         // Clean sys completely
-        allOk &= CleanSysDirectory(fsa, false);
+        allOk &= CleanSysDirectory(fsa, false, onRemove);
     }
 
     // Clean any stray non-standard entries in SLCCMPT root
-    allOk &= CleanRootUnknownEntries(fsa);
+    allOk &= CleanRootUnknownEntries(fsa, onRemove);
 
     return allOk;
 }
@@ -290,11 +296,16 @@ static void RunWipeWizard(WipeMode mode) {
     WUPI_Log("   %s   ", stepTitle);
     WUPI_Log("=========================================\n");
 
-    bool wipeOk = PerformWipe(fsaClient, mode);
+    auto logDeletion = [](const std::string& path) {
+        std::string_view clean = VwiiCleanPath(path);
+        WUPI_Log("Deleting %.*s\n", (int)clean.size(), clean.data());
+    };
+
+    bool wipeOk = PerformWipe(fsaClient, mode, logDeletion);
     if (wipeOk) {
-        WUPI_Log("Wipe operation completed successfully!\n");
+        WUPI_Log("\nWipe operation completed successfully!\n");
     } else {
-        WUPI_Log("Warning: Some items could not be removed during wipe.\n");
+        WUPI_Log("\nWarning: Some items could not be removed during wipe.\n");
     }
 
     WUPI_Log("Ensuring stock root directory hierarchy...\n");
