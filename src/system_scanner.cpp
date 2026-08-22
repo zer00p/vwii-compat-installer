@@ -935,7 +935,7 @@ void WUPI_ScanAndRestoreMenu() {
         "Select items to restore, then press (+) to confirm:"
     };
 
-    std::vector<int> selectedIndices = ShowMultiSelectMenu(header, options, true);
+    std::vector<int> selectedIndices = ShowMultiSelectMenu(header, options, false);
     if (selectedIndices.empty()) {
         return;
     }
