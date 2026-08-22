@@ -1,5 +1,5 @@
 /* Compat Title Installer main source file
- *   Copyright (C) 2021  TheLordScruffy
+ *   Copyright (C) 2021-2026  TheLordScruffy, DaThinkingChair, zer00p
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -989,7 +989,7 @@ int main() {
         };
         std::vector<std::string> header = {
             "Compat Title Installer v2.1",
-            "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair",
+            "COPYRIGHT (c) 2021-2026 TheLordScruffy, DaThinkingChair, zer00p",
             "",
             "Main Menu:"
         };

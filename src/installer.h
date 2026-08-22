@@ -1,5 +1,5 @@
 /* installer.h
- *   Copyright (C) 2021  TheLordScruffy
+ *   Copyright (C) 2021-2026  TheLordScruffy, DaThinkingChair, zer00p
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

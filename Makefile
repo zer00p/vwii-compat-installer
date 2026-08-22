@@ -15,7 +15,7 @@ TOPDIR ?= $(CURDIR)
 #-------------------------------------------------------------------------------
 APP_NAME	    := vWii Compat Installer
 APP_SHORTNAME	:= vWii Compat Title Installer
-APP_AUTHOR	    := TheLordScruffy, DaThinkingChair
+APP_AUTHOR	    := TheLordScruffy, DaThinkingChair, zer00p
 
 include $(DEVKITPRO)/wut/share/wut_rules
 
