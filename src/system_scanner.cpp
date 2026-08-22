@@ -514,9 +514,7 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
             return false;
         }
     } else {
-        if (dstat.owner == dataRule.uid && dstat.group == dataRule.gid) {
-            // Ownership is already correct, nothing needed
-        } else {
+        if (!FSA_IsPermissionAcceptable(dstat, dataRule.mode, dataRule.uid, dataRule.gid)) {
             // Ownership is wrong. Check if directory contains files
             bool hasFiles = false;
             FSADirectoryHandle dDir;

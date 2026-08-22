@@ -12,23 +12,6 @@ inline constexpr uint32_t VWII_UID_SYSTEM_MENU      = 0x1000; // 4096
 inline constexpr uint32_t VWII_UID_FIRST_USER       = 0x1001; // 4097
 inline constexpr uint16_t VWII_GID_SYSTEM_MENU      = 1;
 inline constexpr uint16_t VWII_GID_SYSTEM_TITLE     = 1;
-inline constexpr uint16_t VWII_GID_CHANNEL          = 12337; // 0x3031 ('01')
-inline constexpr uint16_t VWII_GID_HCVA             = 23130; // 0x5a5a ('ZZ') - Return to Wii U Menu
-
-// Returns the expected Group ID (GID) for a vWii title:
-// - 0x0001000248435641 (HCVA - Return to Wii U Menu): 23130 (0x5a5a, 'ZZ')
-// - 0x00000001xxxxxxxx (System Menu, IOSes, BC, MIOS): 1
-// - All other channels, hidden channels, and disc titles: 12337 (0x3031, '01')
-inline constexpr uint16_t UID_GetTitleGid(uint64_t titleId) {
-    if (titleId == 0x0001000248435641ULL) {
-        return VWII_GID_HCVA;
-    }
-    uint32_t idHi = (uint32_t)(titleId >> 32);
-    if (idHi == 0x00000001) {
-        return VWII_GID_SYSTEM_TITLE;
-    }
-    return VWII_GID_CHANNEL;
-}
 
 struct __attribute__((packed)) RawUidEntry {
     uint64_t titleId;

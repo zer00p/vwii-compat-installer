@@ -1,12 +1,15 @@
 #include "PathRules.h"
 #include "FSAUtils.h"
 #include "uid_sys.h"
+#include "title.h"
+#include "EndianUtils.h"
 #include "log.h"
 
 #include <memory>
 #include <unordered_map>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 
 static const PathRuleDef GLOBAL_PATH_RULES[] = {
     // Root and system directories
@@ -154,6 +157,28 @@ static const PathRuleDef* FindRule(const TrieNode* node, size_t segIdx,
     return nullptr;
 }
 
+static uint16_t ReadTmdGroupIdFromDisk(FSAClientHandle fsaClient, uint64_t titleId) {
+    if (!fsaClient || !titleId) return 0;
+    uint32_t idHi = (uint32_t)(titleId >> 32);
+    uint32_t idLo = (uint32_t)(titleId & 0xFFFFFFFF);
+    char path[128];
+    snprintf(path, sizeof(path), "/vol/slccmpt01/title/%08x/%08x/content/title.tmd", idHi, idLo);
+
+    FSAFileHandle fd = 0;
+    if (FSAOpenFileEx(fsaClient, path, "rb", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        return 0;
+    }
+
+    alignas(0x40) TitleTmd tmdHeader;
+    int readRes = FSAReadFile(fsaClient, &tmdHeader, sizeof(TitleTmd), 1, fd, 0);
+    FSACloseFile(fsaClient, fd);
+
+    if (readRes > 0) {
+        return FromBE16(tmdHeader.groupId);
+    }
+    return 0;
+}
+
 ResolvedPathRule PathRules_Resolve(FSAClientHandle fsaClient, std::string_view path, uint16_t tmdGroupId) {
     PathRules_Init();
 
@@ -188,8 +213,8 @@ ResolvedPathRule PathRules_Resolve(FSAClientHandle fsaClient, std::string_view p
                 resolved.gid = tmdGroupId;
             } else if (titleId == VWII_TITLE_ID_SYSTEM_MENU) {
                 resolved.gid = (uint16_t)RuleGid::SYSTEM_MENU;
-            } else if (titleId != 0) {
-                resolved.gid = UID_GetTitleGid(titleId);
+            } else if (fsaClient != 0 && titleId != 0) {
+                resolved.gid = ReadTmdGroupIdFromDisk(fsaClient, titleId);
             } else {
                 resolved.gid = 0;
             }
