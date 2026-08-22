@@ -229,42 +229,15 @@ std::vector<OrphanSharedContent> SharedContent_ScanRegionOrphans(FSAClientHandle
 bool SharedContent_CleanRegionOrphans(FSAClientHandle fsa, const std::vector<OrphanSharedContent>& orphans) {
     if (orphans.empty()) return true;
 
-    FSAFileHandle fd = 0;
-    const char* mapPath = "/vol/slccmpt01/shared1/content.map";
-    if (FSAOpenFileEx(fsa, mapPath, "r+", (FSMode)0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        WUPI_Log("Failed to open content.map for writing.\n");
-        return false;
-    }
-
-    ContentMapEntry* zeroEntry = (ContentMapEntry*)memalign(0x40, sizeof(ContentMapEntry));
-    if (!zeroEntry) {
-        FSACloseFile(fsa, fd);
-        return false;
-    }
-    memset(zeroEntry, 0, sizeof(ContentMapEntry));
-
-    bool allOk = true;
+    std::vector<uint32_t> slotsToZero;
     for (const auto& orphan : orphans) {
         // 1. Delete .app file
         FSARemove(fsa, orphan.filePath.c_str());
-
-        // 2. Zero out content.map entry slot
-        FSError setRes = FSASetPosFile(fsa, fd, orphan.mapIndex * sizeof(ContentMapEntry));
-        if (setRes == FS_ERROR_OK) {
-            int writeRes = FSAWriteFile(fsa, zeroEntry, sizeof(ContentMapEntry), 1, fd, FSA_WRITE_FLAG_NONE);
-            if (writeRes != 1) {
-                WUPI_Log("Failed to zero map entry for %s\n", orphan.name.c_str());
-                allOk = false;
-            }
-        } else {
-            WUPI_Log("Failed to seek map entry for %s\n", orphan.name.c_str());
-            allOk = false;
-        }
+        slotsToZero.push_back(orphan.mapIndex);
     }
 
-    free(zeroEntry);
-    FSACloseFile(fsa, fd);
-    return allOk;
+    // 2. Zero out content.map entry slots
+    return CONTENTMAP_RemoveEntries(fsa, slotsToZero);
 }
 
 struct RegionTitleInfo {

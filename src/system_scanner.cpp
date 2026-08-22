@@ -156,6 +156,112 @@ static std::string format_permission_error(FSStat stat, std::string_view path, c
                        rule.uid, rule.gid, (uint32_t)rule.mode);
 }
 
+static bool HandleContentMapAudit(FSAClientHandle fsa, ContentMapReport& mapReport) {
+    if (CONTENTMAP_CheckConsistency(fsa, mapReport)) {
+        return true;
+    }
+
+    // 1. Missing, damaged, or empty content.map: offer to regenerate it
+    if (mapReport.mapFileMissing || mapReport.mapFileDamaged || mapReport.totalSlots == 0 || mapReport.activeEntries == 0) {
+        if (!State::AppRunning()) return false;
+        WUPI_Log("\n--- /shared1/content.map Consistency Issue ---\n");
+        if (mapReport.mapFileMissing) {
+            WUPI_Log("content.map is missing.\n");
+        } else if (mapReport.mapFileDamaged) {
+            WUPI_Log("content.map is damaged or invalid.\n");
+        } else {
+            WUPI_Log("content.map is empty (0 active entries).\n");
+        }
+        WUPI_Log("Press A to regenerate content.map from on-disk files,\nPress B to skip.\n");
+        if (WaitPrompt()) {
+            size_t recovered = 0;
+            size_t duplicatesCleaned = 0;
+            if (CONTENTMAP_Reconstruct(fsa, &recovered, &duplicatesCleaned)) {
+                WUPI_Log("content.map regenerated (%zu active entries, %zu duplicates cleaned).\n", recovered, duplicatesCleaned);
+                CONTENTMAP_CheckConsistency(fsa, mapReport);
+            } else {
+                WUPI_Log("Failed to regenerate content.map.\n");
+            }
+        }
+    }
+
+    // 2. Hash mismatches
+    if (mapReport.hashMismatchCount > 0) {
+        if (!State::AppRunning()) return false;
+        size_t totalChecked = mapReport.verifiedEntries + mapReport.hashMismatchCount;
+        WUPI_Log("\n--- Shared Content Hash Mismatch ---\n");
+        WUPI_Log("%zu of %zu shared files differ from content.map.\n",
+                 mapReport.hashMismatchCount, totalChecked);
+
+        if (mapReport.hashMismatchCount * 2 > totalChecked) {
+            // More than half differ: offer to regenerate content.map
+            WUPI_Log("More than half of shared files differ from content.map.\n");
+            WUPI_Log("Press A to regenerate content.map from existing disk files,\nPress B to keep content.map as-is.\n");
+            if (WaitPrompt()) {
+                size_t recovered = 0;
+                size_t duplicatesCleaned = 0;
+                if (CONTENTMAP_Reconstruct(fsa, &recovered, &duplicatesCleaned)) {
+                    WUPI_Log("content.map regenerated (%zu active entries, %zu duplicates cleaned).\n", recovered, duplicatesCleaned);
+                    CONTENTMAP_CheckConsistency(fsa, mapReport);
+                } else {
+                    WUPI_Log("Failed to regenerate content.map.\n");
+                }
+            }
+        } else {
+            // Less than or equal to half differ: ask if mismatching files should be deleted or left
+            WUPI_Log("Less than half of shared files differ from content.map.\n");
+            WUPI_Log("Press A to delete %zu mismatching file(s) and remove from content.map,\nPress B to leave them (keep existing files without changing content.map).\n",
+                     mapReport.hashMismatchCount);
+            if (WaitPrompt()) {
+                for (uint32_t slot : mapReport.mismatchSlots) {
+                    std::string path = std::format("/vol/slccmpt01/shared1/{:08x}.app", slot);
+                    FSARemove(fsa, path.c_str());
+                    CONTENTMAP_RemoveEntry(fsa, slot);
+                    WUPI_Log("Deleted bad shared file & removed from content.map: %08x.app\n", slot);
+                }
+                CONTENTMAP_CheckConsistency(fsa, mapReport);
+            }
+        }
+    }
+
+    // 3. Missing content files registered in content.map
+    if (mapReport.missingFilesCount > 0 && !mapReport.mapFileMissing && !mapReport.mapFileDamaged) {
+        if (!State::AppRunning()) return false;
+        WUPI_Log("\n--- Missing Shared Content in content.map ---\n");
+        WUPI_Log("Found %zu entries in content.map pointing to missing files.\n",
+                 mapReport.missingFilesCount);
+        WUPI_Log("Press A to remove missing entries from content.map,\nPress B to skip.\n");
+        if (WaitPrompt()) {
+            for (uint32_t slot : mapReport.missingSlots) {
+                CONTENTMAP_RemoveEntry(fsa, slot);
+                WUPI_Log("Removed missing entry from content.map: slot %08x\n", slot);
+            }
+            CONTENTMAP_CheckConsistency(fsa, mapReport);
+        }
+    }
+
+    // 4. Content files on disk that are not in the content map: offer to add them
+    if (mapReport.unindexedFilesCount > 0) {
+        if (!State::AppRunning()) return false;
+        WUPI_Log("\n--- Unindexed Shared Content ---\n");
+        WUPI_Log("Found %zu shared content file(s) on disk not in content.map.\n",
+                 mapReport.unindexedFilesCount);
+        WUPI_Log("Press A to add unindexed files to content.map,\nPress B to skip.\n");
+        if (WaitPrompt()) {
+            size_t recovered = 0;
+            size_t duplicatesCleaned = 0;
+            if (CONTENTMAP_Reconstruct(fsa, &recovered, &duplicatesCleaned)) {
+                WUPI_Log("content.map updated (%zu active entries, %zu duplicates cleaned).\n", recovered, duplicatesCleaned);
+                CONTENTMAP_CheckConsistency(fsa, mapReport);
+            } else {
+                WUPI_Log("Failed to update content.map.\n");
+            }
+        }
+    }
+
+    return mapReport.IsClean();
+}
+
 SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<void(const std::string&)> progressCb) {
     SystemScanReport report;
     report.targetRegionCode = targetRegionCode;
@@ -280,15 +386,7 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
     LogProgress("Auditing /shared1/content.map and shared assets...");
     {
         ContentMapReport mapReport;
-        if (!CONTENTMAP_CheckConsistency(fsaClient, mapReport)) {
-            SystemScanIssue mapIssue;
-            mapIssue.titleName = "/shared1/content.map";
-            mapIssue.isContentMap = true;
-            mapIssue.reasons = mapReport.issues;
-            report.contentMapDamaged = true;
-            report.permissionErrorsCount += mapReport.filePermissionErrorsCount + (mapReport.mapPermissionsInvalid ? 1 : 0);
-            report.issues.push_back(mapIssue);
-        }
+        HandleContentMapAudit(fsaClient, mapReport);
     }
 
     // 6. Audit all 38 official system titles for target region
@@ -418,8 +516,9 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
             uint64_t csize = FromBE64(rec.size);
             const uint8_t* expHash = rec.hash.data();
 
+            bool isShared = ((ctype & 0x8000) != 0);
             std::string relContentPath;
-            if ((ctype & 0x8000) != 0) {
+            if (isShared) {
                 // Shared content
                 int32_t sharedIdx = FindSharedContentIndex(expHash);
                 if (sharedIdx >= 0) {
@@ -448,7 +547,7 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
                 if (cStat.size != csize) {
                     issue.reasons.push_back(std::format("Content size mismatch: {:08x}.app", cid));
                     contentIssueFound = true;
-                } else if (!FSACheckFileSha1(fsaClient, contentPath, expHash, csize)) {
+                } else if (!isShared && !FSACheckFileSha1(fsaClient, contentPath, expHash, csize)) {
                     issue.reasons.push_back(std::format("Content modified / corrupted: {:08x}.app", cid));
                     contentIssueFound = true;
                 }
@@ -679,20 +778,6 @@ bool SCAN_RestoreSelectedIssues(const std::vector<SystemScanIssue>& selectedIssu
             itemOk = FSA_InitStockRootDirs(fsaClient);
             if (itemOk) {
                 WUPI_Log("Root directories repaired successfully.\n");
-            }
-        } else if (issue.isContentMap) {
-            WUPI_Log("Reconstructing /shared1/content.map & repairing shared assets...\n");
-            size_t recovered = 0;
-            size_t duplicatesCleaned = 0;
-            itemOk = CONTENTMAP_Reconstruct(fsaClient, &recovered, &duplicatesCleaned);
-            if (itemOk) {
-                if (duplicatesCleaned > 0) {
-                    WUPI_Log("content.map reconstructed (%zu active entries, %zu duplicates cleaned).\n", recovered, duplicatesCleaned);
-                } else {
-                    WUPI_Log("content.map reconstructed successfully (%zu active entries).\n", recovered);
-                }
-            } else {
-                WUPI_Log("Error: Failed to reconstruct content.map.\n");
             }
         } else if (issue.isForeignTitle) {
             WUPI_Log("Removing foreign region title %016llx...\n", (unsigned long long)issue.titleId);

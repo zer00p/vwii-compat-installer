@@ -133,6 +133,41 @@ int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     return freeIndex;
 }
 
+bool CONTENTMAP_RemoveEntries(FSAClientHandle fsa, const std::vector<uint32_t>& slotIndices) {
+    if (slotIndices.empty()) return true;
+
+    FSAFileHandle fd = 0;
+    if (FSAOpenFileEx(fsa, VWII_SHARED_CONTENT_MAP_PATH, "r+", (FSMode)0x660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        return false;
+    }
+
+    ContentMapEntry* zeroEntry = (ContentMapEntry*)memalign(0x40, sizeof(ContentMapEntry));
+    if (!zeroEntry) {
+        FSACloseFile(fsa, fd);
+        return false;
+    }
+    memset(zeroEntry, 0, sizeof(ContentMapEntry));
+
+    bool allOk = true;
+    for (uint32_t slot : slotIndices) {
+        if (FSASetPosFile(fsa, fd, slot * sizeof(ContentMapEntry)) == FS_ERROR_OK) {
+            if (FSAWriteFile(fsa, zeroEntry, sizeof(ContentMapEntry), 1, fd, 0) != 1) {
+                allOk = false;
+            }
+        } else {
+            allOk = false;
+        }
+    }
+
+    free(zeroEntry);
+    FSACloseFile(fsa, fd);
+    return allOk;
+}
+
+bool CONTENTMAP_RemoveEntry(FSAClientHandle fsa, uint32_t slotIndex) {
+    return CONTENTMAP_RemoveEntries(fsa, {slotIndex});
+}
+
 bool CONTENTMAP_CheckConsistency(FSAClientHandle fsa, ContentMapReport& outReport) {
     outReport = ContentMapReport();
 
@@ -186,10 +221,12 @@ bool CONTENTMAP_CheckConsistency(FSAClientHandle fsa, ContentMapReport& outRepor
                         FSStat appStat;
                         if (FSAGetStat(fsa, appPath.c_str(), &appStat) != FS_ERROR_OK) {
                             outReport.missingFilesCount++;
+                            outReport.missingSlots.push_back(slot);
                             outReport.issues.push_back(std::format("Shared content missing from disk: {:08x}.app", slot));
                         } else {
                             if (!FSACheckFileSha1(fsa, appPath, entry->hash.data(), appStat.size)) {
                                 outReport.hashMismatchCount++;
+                                outReport.mismatchSlots.push_back(slot);
                                 outReport.issues.push_back(std::format("Shared content hash mismatch: {:08x}.app", slot));
                             } else {
                                 outReport.verifiedEntries++;

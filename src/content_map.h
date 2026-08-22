@@ -23,6 +23,8 @@ struct ContentMapReport {
     size_t duplicateEntriesCount = 0;
     size_t duplicateFilesCount = 0;
     size_t titleMissingSharedAssetsCount = 0;
+    std::vector<uint32_t> mismatchSlots;
+    std::vector<uint32_t> missingSlots;
     std::vector<std::string> issues;
 
     bool IsClean() const {
@@ -43,6 +45,10 @@ int32_t FindSharedContentIndex(const Sha1Hash& expectedHash);
 
 // Returns an existing shared index if present, or allocates a new slot in content.map.
 int32_t GetSharedContentIndex(const uint8_t* expectedHash);
+
+// Zeroes out an entry in content.map by slot index.
+bool CONTENTMAP_RemoveEntry(FSAClientHandle fsa, uint32_t slotIndex);
+bool CONTENTMAP_RemoveEntries(FSAClientHandle fsa, const std::vector<uint32_t>& slotIndices);
 
 // Performs a full consistency audit of /shared1/content.map and /shared1/*.app files.
 bool CONTENTMAP_CheckConsistency(FSAClientHandle fsa, ContentMapReport& outReport);
