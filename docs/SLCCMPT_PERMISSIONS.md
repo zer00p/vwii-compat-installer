@@ -49,6 +49,8 @@ Bit:   7   6   5   4   3   2   1   0
 | `/title` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rw-rw-r--` | Title root directory. |
 | `/sys`, `/shared1`, `/ticket`, `/import` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x660` | `rw-rw----` | System root directories. |
 | `/shared2`, `/tmp` | Dir | **0** | **0** | `0xfe` | `(FSMode)0x666` | `rw-rw-rw-` | Shared system & temp directories (writable by all UIDs). |
+| `/meta` | Dir | **4096** | **1** | `0xfe` | `(FSMode)0x666` | `rw-rw-rw-` | System Menu meta directory. |
+| `/wfs` | Dir | **19** | **19** | `0xc2` | `(FSMode)0x600` | `rw-------` | WFS / Cafe OS bridge directory. |
 | `/title/<idHi>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rw-rw-r--` | Title category directory (e.g. `00000001`). |
 | `/title/<idHi>/<idLo>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rw-rw-r--` | Specific title directory. |
 | `/title/<idHi>/<idLo>/content` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x660` | `rw-rw----` | Title content directory. |

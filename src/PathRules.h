@@ -9,12 +9,14 @@
 enum class RuleUid : uint32_t {
     ROOT        = 0,
     SYSTEM_MENU = 4096,
+    WFS         = 19,
     DYNAMIC     = 0xFFFFFFFF,
 };
 
 enum class RuleGid : uint32_t {
     ROOT        = 0,
     SYSTEM_MENU = 1,
+    WFS         = 19,
     DYNAMIC     = 0xFFFFFFFF,
 };
 

@@ -22,8 +22,9 @@ static const PathRuleDef GLOBAL_PATH_RULES[] = {
     {"/shared1",                                  0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Shared1 content directory"},
     {"/shared2",                                  0x666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 directory"},
     {"/tmp",                                      0x666, RuleUid::ROOT,        RuleGid::ROOT,    "Temp directory"},
-    {"/import",                                   0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Import directory"},
-    {"/meta",                                     0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Meta directory"},
+    {"/import",                                   0x660, RuleUid::ROOT,        RuleGid::ROOT,        "Import directory"},
+    {"/meta",                                     0x666, RuleUid::SYSTEM_MENU, RuleGid::SYSTEM_MENU, "Meta directory"},
+    {"/wfs",                                      0x600, RuleUid::WFS,         RuleGid::WFS,         "WFS directory"},
 
     // /sys files
     {"/sys/cert.sys",                             0x664, RuleUid::ROOT,        RuleGid::ROOT,    "Certificate trust store"},
@@ -250,7 +251,7 @@ bool PathRules_CheckPermissions(FSAClientHandle fsaClient, std::string_view path
 
 std::vector<ResolvedPathRule> PathRules_GetStockRootDirs() {
     static const char* const rootDirs[] = {
-        "/sys", "/title", "/ticket", "/shared1", "/shared2", "/tmp", "/import"
+        "/sys", "/title", "/ticket", "/shared1", "/shared2", "/tmp", "/import", "/meta", "/wfs"
     };
     std::vector<ResolvedPathRule> result;
     for (const char* r : rootDirs) {

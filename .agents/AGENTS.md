@@ -43,6 +43,8 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
     - Directories (`/sys`, `/shared1`, `/ticket`, `/import`, `/title/<idHi>/<idLo>/content`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf2` (`rw-rw----`, `(FSMode)0x660`).
     - `/shared2` and `/tmp` directories are owned by **`UID = 0`**, **`GID = 0`** with mode `0xfe` (`rw-rw-rw-`, `(FSMode)0x666`).
     - Title data directories (`/title/<idHi>/<idLo>/data`) are owned by the title's allocated Title UID and TMD Group ID (`0xc2` mode, `rw-------`, `(FSMode)0x600`).
+    - `/meta` is owned by **`UID = 4096`**, **`GID = 1`** with mode `0xfe` (`rw-rw-rw-`, `(FSMode)0x666`).
+    - `/wfs` is owned by **`UID = 19`**, **`GID = 19`** with mode `0xc2` (`rw-------`, `(FSMode)0x600`).
     - `setting.txt` (`/title/00000001/00000002/data/setting.txt`) is owned by **`UID = 4096`**, **`GID = 1`** with mode `0x55` (read-only for all, `(FSMode)0x444`, `r--r--r--`).
 - **Changing Ownership via IPC (`FSA_ChangeOwner`) & Permissions**:
   - `FSA_ChangeOwner` sends raw IOSU ioctl `0x70` (`FSA_COMMAND_CHANGE_OWNER`) with `FSARequest` / `FSAResponse` (`0x40` aligned).
