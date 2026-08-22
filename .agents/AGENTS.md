@@ -33,16 +33,17 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 ## vWii SLCCMPT Filesystem (SFFS / ISFS) Ownership and Permissions
 > **Full Reference Documentation**: See [docs/SLCCMPT_PERMISSIONS.md](docs/SLCCMPT_PERMISSIONS.md) for the complete permission matrix, SFFS mode byte layout, and architecture details.
 
+- **No Execute (`x`) Permissions**: SFFS / SLCCMPT does not support execute (`x`) permissions. Permissions on SLCCMPT are strictly read (`r`) and write (`w`) for owner, group, and other. All modes across the codebase are read/write octal values without execute bits (e.g. `0660`, `0664`, `0666`, `0600`, `0444`, `0000`).
 - **Cafe OS Process Default Ownership**: When files/directories are created via Cafe OS FSA over `/dev/fsa`, the IOSU kernel stamps them with Cafe OS process credentials (`UID 0x10050000` / `268755456`, `GID 1024`) and default umask `mode = 0xc1` (`rw-------`, Owner only).
 - **vWii Access Lockout**: In vWii mode, the System Menu runs with `UID = 4096` (`0x1000`) and IOS runs with `UID = 0`. If files have `0xc1` mode and `UID 0x10050000`, vWii treats them as "Other", gets `ACCESS_DENIED` (`-102`), and black-screens.
   - Stock Ownership and Modes:
-    - System tickets (`/ticket/00000001/*.tik`), system TMDs, system `.app` files, shared `.app` files (`/shared1/*.app`), `content.map`, `/sys/uid.sys`, and `/sys/space.sys` are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf1` (`rw-rw----`).
-    - `/sys/cert.sys` is owned by **`UID = 0`**, **`GID = 0`** with mode `0xf5` (`rw-rw-r--`, `STOCK_MODE_CERT_SYS`).
-    - Directories (`/title`, `/title/<idHi>`, `/title/<idHi>/<idLo>`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf6` (`rwxrwxr-x`, `STOCK_MODE_SYSTEM_DIR` = `(FSMode)0x775`).
-    - Directories (`/sys`, `/shared1`, `/ticket`, `/import`, `/title/<idHi>/<idLo>/content`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf2` (`rwxrwx---`, `STOCK_MODE_CONTENT_DIR` = `(FSMode)0x770`).
-    - `/shared2` and `/tmp` directories are owned by **`UID = 0`**, **`GID = 0`** with mode `0xfe` (`rwxrwxrwx`, `STOCK_MODE_SHARED2_DIR` / `STOCK_MODE_TMP_DIR` = `(FSMode)0x777`).
-    - Title data directories (`/title/<idHi>/<idLo>/data`) are owned by the title's allocated Title UID and TMD Group ID (`0xc2` mode, `STOCK_MODE_DATA_DIR` = `(FSMode)0x700`, `rwx------`).
-    - `setting.txt` (`/title/00000001/00000002/data/setting.txt`) is owned by **`UID = 4096`**, **`GID = 1`** with mode `0x55` (read-only for all, `STOCK_MODE_SETTING_TXT` = `(FSMode)0x444`).
+    - System tickets (`/ticket/00000001/*.tik`), system TMDs, system `.app` files, shared `.app` files (`/shared1/*.app`), `content.map`, `/sys/uid.sys`, and `/sys/space.sys` are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf1` (`rw-rw----`, `(FSMode)0660`).
+    - `/sys/cert.sys` is owned by **`UID = 0`**, **`GID = 0`** with mode `0xf5` (`rw-rw-r--`, `(FSMode)0664`).
+    - Directories (`/title`, `/title/<idHi>`, `/title/<idHi>/<idLo>`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf6` (`rw-rw-r--`, `(FSMode)0664`).
+    - Directories (`/sys`, `/shared1`, `/ticket`, `/import`, `/title/<idHi>/<idLo>/content`) are owned by **`UID = 0`**, **`GID = 0`** with mode `0xf2` (`rw-rw----`, `(FSMode)0660`).
+    - `/shared2` and `/tmp` directories are owned by **`UID = 0`**, **`GID = 0`** with mode `0xfe` (`rw-rw-rw-`, `(FSMode)0666`).
+    - Title data directories (`/title/<idHi>/<idLo>/data`) are owned by the title's allocated Title UID and TMD Group ID (`0xc2` mode, `rw-------`, `(FSMode)0600`).
+    - `setting.txt` (`/title/00000001/00000002/data/setting.txt`) is owned by **`UID = 4096`**, **`GID = 1`** with mode `0x55` (read-only for all, `(FSMode)0444`, `r--r--r--`).
 - **Changing Ownership via IPC (`FSA_ChangeOwner`) & Permissions**:
   - `FSA_ChangeOwner` sends raw IOSU ioctl `0x70` (`FSA_COMMAND_CHANGE_OWNER`) with `FSARequest` / `FSAResponse` (`0x40` aligned).
   - **Directory Permissions**: Directory modes are set during directory creation via `FSAMakeDir(fsa, path, mode)`. SFFS does not support `ChangeMode` on directories (returns `FS_ERROR_INVALID_PARAM` `-196641`); never call `FSAChangeMode` on directories.
@@ -53,8 +54,8 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 - **Title UID and Group Allocation (`/sys/uid.sys` & TMD `groupId`)**:
   - `/sys/uid.sys` stores a packed binary table of 12-byte entries (`struct __attribute__((packed)) RawUidEntry { uint64_t titleId; uint32_t uid; };`).
   - **GID Resolution**: Title Group IDs cannot generally be derived from Title IDs. GID must come directly from the title's TMD (`tmd->groupId`). During installation, it is extracted from the in-memory TMD; during scanning or repair operations, it is read directly from `/vol/slccmpt01/title/<idHi>/<idLo>/content/title.tmd` on disk.
-  - **System Menu Data Directory**: Uses GID `1` (`RuleGid::SYSTEM_MENU`). (On some stock systems GID is 0; since mode is `0600`/`0700`, group mismatch has no access impact).
-  - **Access & Permission Tolerance (`FSA_IsPermissionAcceptable`)**: If the group mode bits and other mode bits are 0 (`(stat.mode & 077) == 0`, e.g. mode `0600` or `0700`), group membership grants no access anyway; therefore, a group mismatch is ignored if the owner UID and mode bits match.
+  - **System Menu Data Directory**: Uses GID `1` (`RuleGid::SYSTEM_MENU`). (On some stock systems GID is 0; since mode is `0600`, group mismatch has no access impact).
+  - **Access & Permission Tolerance (`FSA_IsPermissionAcceptable`)**: If the group mode bits and other mode bits are 0 (`(stat.mode & 077) == 0`, e.g. mode `0600`), group membership grants no access anyway; therefore, a group mismatch is ignored if the owner UID and mode bits match.
   - Titles run unprivileged in user mode and cannot create `/data` or chown directories themselves; installers MUST create the `/data` directory and register the title in `/sys/uid.sys` during title installation for save data persistence.
   - `UID_Reconstruct` recovers `/sys/uid.sys` by scanning all `/vol/slccmpt01/title/*/*/data` directories for existing valid UIDs, preserving save data permissions without clearing data.
 
