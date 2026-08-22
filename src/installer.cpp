@@ -27,7 +27,9 @@
 #include <sys/stat.h>
 #include <malloc.h>
 #include "EndianUtils.h"
+#include "content_map.h"
 #include "MenuUtils.h"
+#include "PathRules.h"
 
 #define IOS_SUCCESS             FS_ERROR_OK
 
@@ -40,122 +42,6 @@
     } } while (0)
 
 extern FSAClientHandle fsaClient;
-
-int32_t FindSharedContentIndex(const Sha1Hash& expectedHash) {
-    FSAFileHandle fd = 0;
-    char path[] = "/vol/slccmpt01/shared1/content.map";
-
-    if (FSAOpenFileEx(fsaClient, path, "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        return -1;
-    }
-
-    ContentMapEntry* entry = (ContentMapEntry*)memalign(0x40, sizeof(ContentMapEntry));
-    if (!entry) {
-        FSACloseFile(fsaClient, fd);
-        return -1;
-    }
-
-    int32_t currentIndex = 0;
-    while (true) {
-        int readRes = FSAReadFile(fsaClient, entry, sizeof(ContentMapEntry), 1, fd, 0);
-        if (readRes != 1) {
-            break;
-        }
-
-        if (entry->hash == expectedHash) {
-            FSACloseFile(fsaClient, fd);
-            free(entry);
-            return currentIndex;
-        }
-        currentIndex++;
-    }
-
-    FSACloseFile(fsaClient, fd);
-    free(entry);
-    return -1;
-}
-
-int32_t FindSharedContentIndex(const uint8_t* expectedHash) {
-    if (!expectedHash) return -1;
-    return FindSharedContentIndex(*reinterpret_cast<const Sha1Hash*>(expectedHash));
-}
-
-static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
-    int32_t existingIndex = FindSharedContentIndex(expectedHash);
-    if (existingIndex >= 0) {
-        return existingIndex;
-    }
-
-    FSAFileHandle fd = 0;
-    char path[] = "/vol/slccmpt01/shared1/content.map";
-
-    SlcMakeDir(fsaClient, "/vol/slccmpt01/shared1");
-
-    FSError openRes = FSAOpenFileEx(fsaClient, path, "r+", (FSMode)0x660, FS_OPEN_FLAG_NONE, 0, &fd);
-    if (openRes != FS_ERROR_OK) {
-        if (openRes != FS_ERROR_NOT_FOUND) {
-            WUPI_Log("Failed to open content.map: %d\n", openRes);
-            return -1;
-        }
-        // File doesn't exist — create it empty with correct ownership via PathRules
-        if (!SlcCreateFile(fsaClient, path, nullptr, 0)) {
-            WUPI_Log("Failed to create content.map\n");
-            return -1;
-        }
-        if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode)0x660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-            WUPI_Log("Failed to open new content.map\n");
-            return -1;
-        }
-    }
-
-    ContentMapEntry* entry = (ContentMapEntry*)memalign(0x40, sizeof(ContentMapEntry));
-    if (!entry) {
-        FSACloseFile(fsaClient, fd);
-        return -1;
-    }
-
-    int32_t freeIndex = -1;
-    int32_t currentIndex = 0;
-
-    while (true) {
-        int readRes = FSAReadFile(fsaClient, entry, sizeof(ContentMapEntry), 1, fd, 0);
-        if (readRes <= 0) {
-            break;
-        }
-
-        if (freeIndex < 0 && entry->name[0] == '\0') {
-            freeIndex = currentIndex;
-        }
-
-        currentIndex++;
-    }
-
-    if (freeIndex < 0) {
-        freeIndex = currentIndex;
-    }
-
-    std::format_to_n(entry->name, sizeof(entry->name), "{:08x}", freeIndex);
-    memcpy(entry->hash.data(), expectedHash, 20);
-
-    FSError setPosRes = FSASetPosFile(fsaClient, fd, freeIndex * sizeof(ContentMapEntry));
-    if (setPosRes != FS_ERROR_OK) {
-        WUPI_Log("Failed to set pos in content.map\n");
-        free(entry);
-        FSACloseFile(fsaClient, fd);
-        return -1;
-    }
-
-    int writeRes = FSAWriteFile(fsaClient, entry, sizeof(ContentMapEntry), 1, fd, 0);
-    free(entry);
-    FSACloseFile(fsaClient, fd);
-
-    if (writeRes <= 0) {
-        WUPI_Log("Failed to write to content.map\n");
-        return -1;
-    }
-
-    return freeIndex;
-}
 
 /* Creates the title's /data directory with correct ownership if it does not
  * already exist. Permission repair on an existing directory is left to the
@@ -241,11 +127,6 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
             uint64_t cSize = FromBE64(rec.size);
 
             if ((cType & 0x8000) != 0) {
-                // If content data is null, it was already verified intact on NAND during download check
-                if (!contents[i].data) {
-                    continue;
-                }
-
                 int32_t sharedIndex = GetSharedContentIndex(rec.hash.data());
                 if (sharedIndex < 0) {
                     WUPI_Log("Failed to get shared content index for content %08x\n", cId);
@@ -259,6 +140,15 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
                 if (FSAGetStat(fsaClient, path, &testStat) == FS_ERROR_OK) {
                     const uint8_t* expectedHash = rec.hash.data();
                     if (FSACheckFileSha1(fsaClient, path, expectedHash, cSize)) {
+                        // Shared content exists and hash is verified intact on NAND.
+                        // Check if permissions need to be corrected.
+                        if (!PathRules_CheckPermissions(fsaClient, path, testStat)) {
+                            if (contents[i].data) {
+                                CINS_TRY(SlcCreateFile(fsaClient, path, contents[i].data, cSize));
+                            } else {
+                                CINS_TRY(SlcRepairFilePermissions(fsaClient, path));
+                            }
+                        }
                         continue;
                     }
 

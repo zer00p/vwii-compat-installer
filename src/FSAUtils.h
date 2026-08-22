@@ -78,6 +78,9 @@ bool SlcCreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
 // Writes a buffer to an SLC file setting proper ownership and permission mode.
 bool SlcWriteFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = (FSMode)0x660, uint32_t uid = 0, uint32_t gid = 0);
 
+// Checks if an existing file on SLC has acceptable permissions, updating mode in-place or recreating with correct ownership if needed.
+bool SlcRepairFilePermissions(FSAClientHandle fsaClient, const std::string& path, uint16_t tmdGroupId = 0);
+
 // ---------------------------------------------------------------------------
 // SD card (FAT32) helpers
 // FAT32 has no ownership or permission concepts — never call FSA_ChangeOwner

@@ -1,6 +1,7 @@
 #include "system_scanner.h"
 #include "settingtxt_manager.h"
 #include "region_changer.h"
+#include "content_map.h"
 #include "FSAUtils.h"
 #include "cert_sys.h"
 #include "uid_sys.h"
@@ -275,7 +276,22 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         }
     }
 
-    // 5. Audit all 38 official system titles for target region
+    // 5. Audit /shared1/content.map and shared assets consistency
+    LogProgress("Auditing /shared1/content.map and shared assets...");
+    {
+        ContentMapReport mapReport;
+        if (!CONTENTMAP_CheckConsistency(fsaClient, mapReport)) {
+            SystemScanIssue mapIssue;
+            mapIssue.titleName = "/shared1/content.map";
+            mapIssue.isContentMap = true;
+            mapIssue.reasons = mapReport.issues;
+            report.contentMapDamaged = true;
+            report.permissionErrorsCount += mapReport.filePermissionErrorsCount + (mapReport.mapPermissionsInvalid ? 1 : 0);
+            report.issues.push_back(mapIssue);
+        }
+    }
+
+    // 6. Audit all 38 official system titles for target region
     for (size_t i = 0; i < g_numNusTitles; i++) {
         if (!State::AppRunning()) break;
         const auto& t = g_nusTitles[i];
@@ -483,9 +499,8 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
     SlcEnsureDir(fsa, titlePath);
     SlcEnsureDir(fsa, contentDir);
 
-    // 2. Fix TMD and content files permissions
-    ResolvedPathRule tmdRule = PathRules_Resolve(tmdPath);
-    FSAChangeMode(fsa, tmdPath.c_str(), tmdRule.mode);
+    // 2. Fix TMD and private content files permissions
+    SlcRepairFilePermissions(fsa, tmdPath);
 
     FSADirectoryHandle cDir;
     if (FSAOpenDir(fsa, contentDir.c_str(), &cDir) == FS_ERROR_OK) {
@@ -494,12 +509,34 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
             while (FSAReadDir(fsa, cDir, entry) == FS_ERROR_OK) {
                 if (strcmp(entry->name, ".") == 0 || strcmp(entry->name, "..") == 0) continue;
                 std::string cFilePath = contentDir + "/" + entry->name;
-                ResolvedPathRule cRule = PathRules_Resolve(cFilePath);
-                FSAChangeMode(fsa, cFilePath.c_str(), cRule.mode);
+                SlcRepairFilePermissions(fsa, cFilePath);
             }
             free(entry);
         }
         FSACloseDir(fsa, cDir);
+    }
+
+    // 2b. Fix shared content files referenced by this title's TMD
+    uint8_t* tmdBuf = nullptr;
+    uint32_t tmdSize = 0;
+    if (ReadFileToBuffer(tmdPath, &tmdBuf, &tmdSize)) {
+        if (tmdSize >= sizeof(TitleTmd)) {
+            const TitleTmd* tmd = (const TitleTmd*)tmdBuf;
+            uint16_t numContents = FromBE16(tmd->numContents);
+            for (uint16_t c = 0; c < numContents; c++) {
+                if (tmdSize < sizeof(TitleTmd) + ((c + 1) * sizeof(TitleContentRecord))) break;
+                const TitleContentRecord& rec = tmd->contents[c];
+                uint16_t ctype = FromBE16(rec.type);
+                if ((ctype & 0x8000) != 0) {
+                    int32_t sharedIdx = FindSharedContentIndex(rec.hash.data());
+                    if (sharedIdx >= 0) {
+                        std::string sharedPath = std::format("/vol/slccmpt01/shared1/{:08x}.app", sharedIdx);
+                        SlcRepairFilePermissions(fsa, sharedPath);
+                    }
+                }
+            }
+        }
+        free(tmdBuf);
     }
 
     // 3. Fix /data directory ownership & permissions
@@ -642,6 +679,20 @@ bool SCAN_RestoreSelectedIssues(const std::vector<SystemScanIssue>& selectedIssu
             itemOk = FSA_InitStockRootDirs(fsaClient);
             if (itemOk) {
                 WUPI_Log("Root directories repaired successfully.\n");
+            }
+        } else if (issue.isContentMap) {
+            WUPI_Log("Reconstructing /shared1/content.map & repairing shared assets...\n");
+            size_t recovered = 0;
+            size_t duplicatesCleaned = 0;
+            itemOk = CONTENTMAP_Reconstruct(fsaClient, &recovered, &duplicatesCleaned);
+            if (itemOk) {
+                if (duplicatesCleaned > 0) {
+                    WUPI_Log("content.map reconstructed (%zu active entries, %zu duplicates cleaned).\n", recovered, duplicatesCleaned);
+                } else {
+                    WUPI_Log("content.map reconstructed successfully (%zu active entries).\n", recovered);
+                }
+            } else {
+                WUPI_Log("Error: Failed to reconstruct content.map.\n");
             }
         } else if (issue.isForeignTitle) {
             WUPI_Log("Removing foreign region title %016llx...\n", (unsigned long long)issue.titleId);

@@ -29,6 +29,7 @@ struct SystemScanIssue {
     bool isCertSys = false;
     bool isUidSys = false;
     bool isStockDirs = false;
+    bool isContentMap = false;
     bool isForeignTitle = false;
     bool isPermissionOnly = false;
     uint16_t groupId = 0;
@@ -47,6 +48,7 @@ struct SystemScanReport {
     bool settingTxtDamaged = false;
     bool certSysDamaged = false;
     bool uidSysDamaged = false;
+    bool contentMapDamaged = false;
     std::vector<SystemScanIssue> issues;
 };
 

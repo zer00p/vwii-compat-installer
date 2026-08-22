@@ -1,5 +1,6 @@
 #include "ios_common.h"
 #include "installer.h"
+#include "content_map.h"
 #include "FSAUtils.h"
 #include "log.h"
 #include "EndianUtils.h"

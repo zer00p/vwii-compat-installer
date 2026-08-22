@@ -23,6 +23,8 @@
 #include "StateUtils.h"
 #include "log.h"
 #include "EndianUtils.h"
+#include "PathRules.h"
+#include "content_map.h"
 #include <mocha/mocha.h>
 #include <coreinit/filesystem_fsa.h>
 #include <coreinit/memory.h>
@@ -362,7 +364,10 @@ DownloadResult NUS_DownloadTitle(uint64_t titleId, int32_t version, WADContext**
             int32_t sharedIndex = FindSharedContentIndex(expected_hash);
             if (sharedIndex >= 0) {
                 std::string sharedPath = std::format("/vol/slccmpt01/shared1/{:08x}.app", sharedIndex);
-                if (FSACheckFileSha1(fsaClient, sharedPath, expected_hash, expectedLen)) {
+                FSStat stat;
+                if (FSAGetStat(fsaClient, sharedPath.c_str(), &stat) == FS_ERROR_OK &&
+                    PathRules_CheckPermissions(fsaClient, sharedPath, stat) &&
+                    FSACheckFileSha1(fsaClient, sharedPath, expected_hash, expectedLen)) {
                     c_arr[i].data = nullptr;
                     c_arr[i].length = expectedLen;
                     continue;

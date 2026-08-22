@@ -447,3 +447,37 @@ bool FSA_IsPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t e
 
     return false;
 }
+
+bool SlcRepairFilePermissions(FSAClientHandle fsa, const std::string& path, uint16_t tmdGroupId) {
+    FSStat stat;
+    if (FSAGetStat(fsa, path.c_str(), &stat) != FS_ERROR_OK) {
+        return false;
+    }
+
+    ResolvedPathRule rule = PathRules_Resolve(fsa, path, tmdGroupId);
+    if (FSA_IsPermissionAcceptable(stat, rule.mode, rule.uid, rule.gid)) {
+        return true;
+    }
+
+    // If owner and group already match, updating mode bits via FSAChangeMode is sufficient
+    if (stat.owner == rule.uid && stat.group == rule.gid) {
+        return (FSAChangeMode(fsa, path.c_str(), rule.mode) == FS_ERROR_OK);
+    }
+
+    // Owner or group mismatch: SFFS requires recreating the file from 0-bytes to change ownership
+    uint8_t* buf = nullptr;
+    uint32_t size = 0;
+    if (!ReadFileToBuffer(path, &buf, &size)) {
+        WUPI_Log("SlcRepairFilePermissions: Failed to read %s\n", TruncatePathStart(path).c_str());
+        return false;
+    }
+
+    bool createOk = SlcCreateFileWithOwner(fsa, path, buf, size, rule.mode, rule.uid, rule.gid);
+    if (buf) free(buf);
+    if (!createOk) {
+        WUPI_Log("SlcRepairFilePermissions: Failed to rewrite %s with correct ownership\n", TruncatePathStart(path).c_str());
+        return false;
+    }
+
+    return true;
+}

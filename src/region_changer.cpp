@@ -5,6 +5,7 @@
 #include "region_changer.h"
 #include "settingtxt_manager.h"
 #include "installer.h"
+#include "content_map.h"
 #include "wad.h"
 #include "downloader.h"
 #include "FSAUtils.h"
