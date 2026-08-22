@@ -461,7 +461,10 @@ bool CONTENTMAP_Reconstruct(FSAClientHandle fsa, size_t* outRecoveredCount, size
     for (uint32_t dupSlot : duplicateSlotsToDelete) {
         std::string dupPath = std::format("{}/{:08x}.app", VWII_SHARED1_DIR_PATH, dupSlot);
         WUPI_Log("CONTENTMAP_Reconstruct: Deleting duplicate file %s...\n", dupPath.c_str());
-        FSARemove(fsa, dupPath.c_str());
+        FSError rmRes = FSARemove(fsa, dupPath.c_str());
+        if (rmRes != FS_ERROR_OK && rmRes != FS_ERROR_NOT_FOUND) {
+            WUPI_Log("Warning: Failed to delete duplicate file %s (error %d)\n", dupPath.c_str(), rmRes);
+        }
     }
 
     // 5. Construct contiguous ContentMapEntry buffer up to maxSlot

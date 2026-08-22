@@ -229,15 +229,23 @@ std::vector<OrphanSharedContent> SharedContent_ScanRegionOrphans(FSAClientHandle
 bool SharedContent_CleanRegionOrphans(FSAClientHandle fsa, const std::vector<OrphanSharedContent>& orphans) {
     if (orphans.empty()) return true;
 
+    bool allOk = true;
     std::vector<uint32_t> slotsToZero;
     for (const auto& orphan : orphans) {
         // 1. Delete .app file
-        FSARemove(fsa, orphan.filePath.c_str());
+        FSError rmRes = FSARemove(fsa, orphan.filePath.c_str());
+        if (rmRes != FS_ERROR_OK && rmRes != FS_ERROR_NOT_FOUND) {
+            WUPI_Log("Warning: Failed to remove orphan shared file %s (error %d)\n", orphan.filePath.c_str(), rmRes);
+            allOk = false;
+        }
         slotsToZero.push_back(orphan.mapIndex);
     }
 
     // 2. Zero out content.map entry slots
-    return CONTENTMAP_RemoveEntries(fsa, slotsToZero);
+    if (!CONTENTMAP_RemoveEntries(fsa, slotsToZero)) {
+        allOk = false;
+    }
+    return allOk;
 }
 
 struct RegionTitleInfo {

@@ -17,7 +17,10 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
 
 ## Wii U Filesystem (FSA) Rules
 - **Memory Alignment**: FSA operations (like `FSAWriteFile` or `FSAReadFile`) strictly require data buffers to be 64-byte aligned (`0x40`). Always use `memalign(0x40, size)` instead of `malloc(size)` for any buffer that will be passed into FSA functions. Failing to do this can result in silent failures or 0-byte files, particularly when memory becomes fragmented during batch operations.
-- **Error Checking**: Never ignore the return value of FSA operations. For example, `FSAWriteFile` returns the number of elements written or a negative error code. Always explicitly check that the return value matches the expected write size, and correctly handle the failure by propagating the error or aborting the operation.
+- **No Silent Errors & Mandatory Return Value Checking**: Never ignore or discard the return value of filesystem, IPC, or IO operations (e.g. `FSARemove`, `FSARemoveTree`, `FSAOpenFileEx`, `FSAWriteFile`, `FSAReadFile`, `FSAMakeDir`, `FSAChangeMode`, `FSA_ChangeOwner`).
+  - Always check return values explicitly. For example, `FSAWriteFile` returns the number of elements written or a negative error code; `FSARemove` returns `FS_ERROR_OK` or a negative error code (e.g. `FS_ERROR_NOT_EMPTY`, `FS_ERROR_NOT_FOUND`).
+  - Never allow silent failures. If an operation fails, log the error with full context (including target path and returned error code) and either abort the operation, propagate the error, or take corrective action.
+  - **Directory vs. File Removal**: `FSARemove` only deletes single files or *empty* directories. Attempting `FSARemove` on a non-empty directory (like `/content`) will fail. Always use `FSARemoveTree` when removing directory trees and verify its return value.
 
 ## Workspace Clutter and Temporary Files
 - Any test scripts, investigation scripts, or temporary data generated during problem-solving should be placed inside `testdata/scripts/` or `testdata/tmp/` to avoid cluttering the project root.

@@ -245,8 +245,14 @@ std::string GetTikBackupPath(uint32_t ios_ver) {
 void RemoveBackupFiles(uint32_t ios) {
     std::string tmdBackup = GetTmdBackupPath(ios);
     std::string tikBackup = GetTikBackupPath(ios);
-    FSARemove(fsaClient, tmdBackup.c_str());
-    FSARemove(fsaClient, tikBackup.c_str());
+    FSError res = FSARemove(fsaClient, tmdBackup.c_str());
+    if (res != FS_ERROR_OK && res != FS_ERROR_NOT_FOUND) {
+        Patcher_Log("Warning: Failed to remove TMD backup " + tmdBackup + "\n");
+    }
+    res = FSARemove(fsaClient, tikBackup.c_str());
+    if (res != FS_ERROR_OK && res != FS_ERROR_NOT_FOUND) {
+        Patcher_Log("Warning: Failed to remove Ticket backup " + tikBackup + "\n");
+    }
 }
 
 std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {

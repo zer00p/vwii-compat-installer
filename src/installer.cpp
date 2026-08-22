@@ -89,10 +89,12 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
          * word (type) should exist, but the second one (the unique title)
          * shouldn't unless there is save data. */
         SlcEnsureDir(fsaClient, titlePath);
-        if (FSAGetStat(fsaClient, titlePath, nullptr) == FS_ERROR_OK) {
-            /* If the title content exists already, delete content but preserve data */
-            snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
-            FSARemove(fsaClient, path);
+
+        /* If the title content exists already, delete content but preserve data */
+        snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
+        if (!FSARemoveTree(fsaClient, path)) {
+            WUPI_Log("Failed to remove old content directory, path = %s\n", path);
+            goto error;
         }
 
         /* Ensure the title's data directory exists with correct Title UID and TMD Group ID */
@@ -178,8 +180,13 @@ error:
          * partial installations, preserving the data directory and save data. */
         char contentPath[CINS_PATH_LEN];
         snprintf(contentPath, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
-        FSARemove(fsaClient, contentPath);
-        FSARemove(fsaClient, ticketPath);
+        if (!FSARemoveTree(fsaClient, contentPath)) {
+            WUPI_Log("Warning: Failed to clean up partial content directory %s\n", contentPath);
+        }
+        FSError rmTikRes = FSARemove(fsaClient, ticketPath);
+        if (rmTikRes != FS_ERROR_OK && rmTikRes != FS_ERROR_NOT_FOUND) {
+            WUPI_Log("Warning: Failed to remove ticket %s (error %d)\n", ticketPath, rmTikRes);
+        }
     }
 
     return ret > 0 ? 0 : ret;
@@ -221,11 +228,14 @@ bool CINS_UninstallTitle(uint64_t titleId) {
     bool ok = true;
     if (titleExists) {
         if (!FSARemoveTree(fsaClient, titlePath)) {
+            WUPI_Log("Failed to remove title directory: %s\n", titlePath);
             ok = false;
         }
     }
     if (ticketExists) {
-        if (FSARemove(fsaClient, ticketPath) != FS_ERROR_OK) {
+        FSError rmTikRes = FSARemove(fsaClient, ticketPath);
+        if (rmTikRes != FS_ERROR_OK && rmTikRes != FS_ERROR_NOT_FOUND) {
+            WUPI_Log("Failed to remove ticket %s (error %d)\n", ticketPath, rmTikRes);
             ok = false;
         }
     }

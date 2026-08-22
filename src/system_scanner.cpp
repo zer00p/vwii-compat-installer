@@ -215,7 +215,10 @@ static bool HandleContentMapAudit(FSAClientHandle fsa, ContentMapReport& mapRepo
             if (WaitPrompt()) {
                 for (uint32_t slot : mapReport.mismatchSlots) {
                     std::string path = std::format("/vol/slccmpt01/shared1/{:08x}.app", slot);
-                    FSARemove(fsa, path.c_str());
+                    FSError rmRes = FSARemove(fsa, path.c_str());
+                    if (rmRes != FS_ERROR_OK && rmRes != FS_ERROR_NOT_FOUND) {
+                        WUPI_Log("Warning: Failed to delete bad shared file %s (error %d)\n", path.c_str(), rmRes);
+                    }
                     CONTENTMAP_RemoveEntry(fsa, slot);
                     WUPI_Log("Deleted bad shared file & removed from content.map: %08x.app\n", slot);
                 }
