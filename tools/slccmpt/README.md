@@ -16,7 +16,7 @@ This directory contains diagnostic and verification tools for analyzing, inspect
 
 ## 1. Inspect Permissions (`inspect_permissions.py`)
 
-Inspects all SFFS nodes and decodes raw SFFS permission mode bytes into human-readable descriptions and POSIX permission bits.
+Inspects all SFFS nodes and decodes raw SFFS permission mode bytes into Unix-like permission bits (read and write bits per Owner, Group, and Other).
 
 ### Usage
 ```bash
@@ -33,12 +33,12 @@ python3 tools/slccmpt/inspect_permissions.py <image.raw> [options]
 
 ### Example Output
 ```text
-Type  | Mode   | UID    | GID    | Size (B)  | Path (Mode Description)
+Type  | Mode   | Permissions | UID        | GID    | Size (B)   | Path
 ---------------------------------------------------------------------------------------------------------
-DIR   | 0xc2   | 4096   | 1      | -         | /title/00000001/00000002/data  [rwx------ (0700 title data dir)]
-FILE  | 0x55   | 4096   | 1      | 256       | /title/00000001/00000002/data/setting.txt  [r--r--r-- (0444 setting.txt)]
-DIR   | 0xc2   | 4101   | 23130  | -         | /title/00010002/48435641/data  [rwx------ (0700 title data dir)]
-DIR   | 0xc2   | 4099   | 12337  | -         | /title/00010002/48414341/data  [rwx------ (0700 title data dir)]
+DIR   | 0xc2   | rw-------   | 4096       | 1      | -          | /title/00000001/00000002/data
+FILE  | 0x55   | r--r--r--   | 4096       | 1      | 256        | /title/00000001/00000002/data/setting.txt
+DIR   | 0xc2   | rw-------   | 4101       | 23130  | -          | /title/00010002/48435641/data
+DIR   | 0xc2   | rw-------   | 4099       | 12337  | -          | /title/00010002/48414341/data
 ```
 
 ---
@@ -51,10 +51,9 @@ Performs a comprehensive integrity check against factory stock vWii specificatio
 2. **System Files**: Validates `/sys/cert.sys` (`0xf5`, `0/0`, 2560 B), `/sys/uid.sys` (`0xf1`, `0/0`), and `setting.txt` (`0x55`, `4096/1`, 256 B).
 3. **Dynamic UID Ordering Resolution**:
    * Reads the title-to-UID mapping from `/sys/uid.sys`.
-   * For every installed title, verifies that its `/title/<idHi>/<idLo>/data` directory exists with mode `0xc2` (`0700`), is owned by that title's **allocated UID from `uid.sys`** (handling any title installation sequence), and has the correct stock GID:
-     * `GID = 1` for System titles & IOSes (`00000001/*`)
-     * `GID = 23130` (`0x5a5a` / `'ZZ'`) for Return to Wii U (`00010002/48435641`)
-     * `GID = 12337` (`0x3031` / `'01'`) for Channels and Disc titles (`00010002/*`, `00010008/*`).
+    * For every installed title, verifies that its `/title/<idHi>/<idLo>/data` directory exists with mode `0xc2` (`rw-------`), is owned by that title's **allocated UID from `uid.sys`** (handling any title installation sequence), and has the correct GID:
+      * For System titles: Uses hardcoded stock GIDs (`GID = 1` for System titles & IOSes `00000001/*`, `GID = 23130` / `'ZZ'` for Return to Wii U `00010002/48435641`, `GID = 12337` / `'01'` for system channels & EULAs).
+      * For User installed titles: Checks the GID directly from the title's TMD (`tmd->groupId` at offset `0x198`), with fallback to `12337` (`0x3031`) if no TMD is present.
 4. **Title Content & Ticket Permissions**: Validates `title.tmd` (`0xf1`, `0/0`), `.app` files (`0xf1`, `0/0`), ticket subdirectories (`0x02`, `0/0`), and tickets (`0xf1`, `0/0`).
 5. **Order-Independent Shared Content Validation**: Validates `/shared1/content.map` and all `/shared1/*.app` files (`0xf1`, `0/0`), ensuring all shared content modules are present regardless of the numerical slot indexing determined by installer sequence.
 6. **Reference Image Parity (`--reference`)**: Compares installed private `.app` payloads and verifies order-independent shared content distribution against a known good reference image.

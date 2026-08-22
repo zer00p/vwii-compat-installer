@@ -50,25 +50,37 @@ if script_dir not in sys.path:
 
 from nand import NANDFormatSpare, NANDFormatBare, SFFS, SFFS_entry, read_superblock, TOTAL_CLUSTER, NUM_SUPER, CLUSTER_PER_SUPER
 
-# SFFS Mode to POSIX string mapping
-MODE_MAP = {
-    0xf1: "rw-rw---- (0660 system file)",
-    0xf2: "rwxrwx--- (0770 content/ticket/sys dir)",
-    0xf5: "rw-rw-r-- (0664 cert.sys)",
-    0xf6: "rwxrwxr-x (0775 system hierarchy dir)",
-    0xc2: "rwx------ (0700 title data dir)",
-    0x55: "r--r--r-- (0444 setting.txt)",
-    0xfe: "rwxrwxrwx (0777 shared2/tmp dir)",
-    0x02: "--------- (0000 ticket subdir)",
-}
+def decode_mode_perms(mode):
+    """
+    Decodes an SFFS/ISFS 8-bit mode byte into a 9-character Unix-like permission string.
+    ISFS permissions only have Read and Write bits (no execute bits):
+      Bits 7..6: Owner (3=rw, 2=w, 1=r, 0=none)
+      Bits 5..4: Group (3=rw, 2=w, 1=r, 0=none)
+      Bits 3..2: Other (3=rw, 2=w, 1=r, 0=none)
+    """
+    perm_map = {0: "---", 1: "r--", 2: "-w-", 3: "rw-"}
+    owner = perm_map[(mode >> 6) & 3]
+    group = perm_map[(mode >> 4) & 3]
+    other = perm_map[(mode >> 2) & 3]
+    return f"{owner}{group}{other}"
 
 def decode_mode(mode):
-    return MODE_MAP.get(mode, f"0x{mode:02x}")
+    """Convenience alias for decode_mode_perms."""
+    return decode_mode_perms(mode)
 
-def find_otp_key(custom_otp_path=None):
+def find_otp_key(custom_otp_path=None, target_path=None):
     candidates = []
     if custom_otp_path:
         candidates.append(custom_otp_path)
+
+    if target_path:
+        target_abs = os.path.abspath(target_path)
+        if os.path.isdir(target_abs):
+            candidates.append(os.path.join(target_abs, "otp.bin"))
+            candidates.append(os.path.join(os.path.dirname(target_abs), "otp.bin"))
+        else:
+            candidates.append(os.path.join(os.path.dirname(target_abs), "otp.bin"))
+
     candidates.extend([
         os.path.join(project_root, "testdata", "otp.bin"),
         os.path.join(project_root, "testdata", "betwiinu", "otp.bin"),
@@ -92,6 +104,26 @@ def find_otp_key(custom_otp_path=None):
             return key, hmac_key
     raise FileNotFoundError(f"Could not find valid otp.bin. Please specify with --otp.")
 
+def resolve_target(target_path):
+    if not os.path.exists(target_path):
+        raise FileNotFoundError(f"Target path not found: {target_path}")
+
+    if os.path.isfile(target_path):
+        return os.path.abspath(target_path), 'image'
+
+    if os.path.isdir(target_path):
+        # Check if the directory itself is directly an extracted vWii root directory
+        has_vwii_dirs = any(os.path.isdir(os.path.join(target_path, d)) for d in ["title", "sys", "shared1", "shared2", "ticket", "import"])
+        if has_vwii_dirs:
+            return os.path.abspath(target_path), 'extracted_dir'
+
+        raise ValueError(
+            f"Directory '{target_path}' is not an extracted vWii root (missing /title, /sys, /shared1). "
+            f"Please point directly to the SLCCMPT .raw image file or the extracted root folder."
+        )
+
+    raise ValueError(f"'{target_path}' is not a valid SLCCMPT image file or extracted vWii root directory.")
+
 def find_newest_sffs(nand):
     highest_version = 0
     highest_cluster = None
@@ -109,7 +141,7 @@ def find_newest_sffs(nand):
 def load_sffs(image_path, otp_path=None):
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"Image not found: {image_path}")
-    key, hmac_key = find_otp_key(otp_path)
+    key, hmac_key = find_otp_key(otp_path, image_path)
     size = os.path.getsize(image_path)
     nand = NANDFormatSpare(image_path) if size == 553648128 else NANDFormatBare(image_path)
     nand.set_keys(key, hmac_key)
@@ -120,6 +152,14 @@ def load_sffs(image_path, otp_path=None):
     root_entry = SFFS_entry(sb.fst, sb.fat, 0, "")
     return nand, sb, root_entry
 
+def load_target(target_path, otp_path=None):
+    resolved_path, target_type = resolve_target(target_path)
+    if target_type == 'image':
+        nand, sb, root_entry = load_sffs(resolved_path, otp_path)
+        return target_type, resolved_path, nand, sb, root_entry
+    else:
+        return target_type, resolved_path, None, None, None
+
 def read_entry_content(nand, entry):
     if not bool(entry.mode & 1):
         return None
@@ -128,6 +168,61 @@ def read_entry_content(nand, entry):
     for cl in chain:
         buf.extend(nand.decrypt_cluster(cl))
     return bytes(buf[:entry.size])
+
+def walk_extracted_tree(base_dir, entries_dict, read_content=False):
+    base_dir = os.path.abspath(base_dir)
+    for root, dirs, files in os.walk(base_dir):
+        rel_root = os.path.relpath(root, base_dir)
+        vpath_root = "/" if rel_root == "." else "/" + rel_root.replace("\\", "/")
+
+        if vpath_root != "/":
+            entries_dict[vpath_root] = {
+                "path": vpath_root,
+                "name": os.path.basename(vpath_root),
+                "is_file": False,
+                "mode": 0xfe,
+                "attr": 0,
+                "uid": 0,
+                "gid": 0,
+                "size": 0,
+                "content": None,
+                "sha1": None,
+                "from_extracted": True,
+                "has_stock_perms": False
+            }
+
+        for f in files:
+            fpath = os.path.join(root, f)
+            vpath_file = os.path.join(vpath_root, f).replace("\\", "/")
+            if not vpath_file.startswith("/"):
+                vpath_file = "/" + vpath_file
+
+            size = os.path.getsize(fpath)
+            content = None
+            sha1 = None
+            if read_content or size < 100 * 1024 * 1024:
+                try:
+                    with open(fpath, "rb") as fp:
+                        content = fp.read()
+                    sha1 = hashlib.sha1(content).hexdigest()
+                except Exception:
+                    pass
+
+            entries_dict[vpath_file] = {
+                "path": vpath_file,
+                "name": f,
+                "fpath": fpath,
+                "is_file": True,
+                "mode": 0xf1,
+                "attr": 0,
+                "uid": 0,
+                "gid": 0,
+                "size": size,
+                "content": content,
+                "sha1": sha1,
+                "from_extracted": True,
+                "has_stock_perms": False
+            }
 
 def walk_sffs_tree(nand, entry, entries_dict, read_content=False):
     full_path = (entry.path + entry.name)
@@ -154,7 +249,8 @@ def walk_sffs_tree(nand, entry, entries_dict, read_content=False):
         "gid": entry.gid,
         "size": entry.size,
         "content": content,
-        "sha1": sha1
+        "sha1": sha1,
+        "entry": entry
     }
 
     if not is_file:
@@ -172,13 +268,93 @@ def parse_uid_sys_table(content):
         entries.append((tid, uid))
     return entries
 
-def get_expected_gid(title_id):
+KNOWN_TITLE_NAMES = {
+    0x0000000100000002: "System Menu (vWii)",
+    0x0000000100000050: "IOS80",
+    0x0001000248435550: "Wii U Electronic Manual EUR (HCUP)",
+    0x0001000248435545: "Wii U Electronic Manual USA (HCUE)",
+    0x000100024843554a: "Wii U Electronic Manual JPN (HCUJ)",
+    0x0001000248414341: "Mii Channel (HACA)",
+    0x0001000848414c50: "EULA EUR (HALP)",
+    0x0001000848414c45: "EULA USA (HALE)",
+    0x0001000848414c4a: "EULA JPN (HALJ)",
+    0x0001000248435641: "Return to Wii U Menu (HCVA)",
+    0x0001000248414241: "Disc Channel (HABA)",
+    0x0000000100000200: "BC-NAND",
+    0x0000000100000201: "BC-WFS",
+    0x0000000100000009: "IOS9",
+    0x000000010000000c: "IOS12",
+    0x000000010000000d: "IOS13",
+    0x000000010000000e: "IOS14",
+    0x000000010000000f: "IOS15",
+    0x0000000100000011: "IOS17",
+    0x0000000100000015: "IOS21",
+    0x0000000100000016: "IOS22",
+    0x000000010000001c: "IOS28",
+    0x000000010000001f: "IOS31",
+    0x0000000100000021: "IOS33",
+    0x0000000100000022: "IOS34",
+    0x0000000100000023: "IOS35",
+    0x0000000100000024: "IOS36",
+    0x0000000100000025: "IOS37",
+    0x0000000100000026: "IOS38",
+    0x0000000100000029: "IOS41",
+    0x000000010000002b: "IOS43",
+    0x000000010000002d: "IOS45",
+    0x000000010000002e: "IOS46",
+    0x0000000100000030: "IOS48",
+    0x0000000100000035: "IOS53",
+    0x0000000100000037: "IOS55",
+    0x0000000100000038: "IOS56",
+    0x0000000100000039: "IOS57",
+    0x000000010000003a: "IOS58",
+    0x000000010000003b: "IOS59",
+    0x000000010000003e: "IOS62",
+    0x0001000848435a50: "Region Select EUR (HCZP)",
+    0x0001000848435a45: "Region Select USA (HCZE)",
+    0x0001000848435a4a: "Region Select JPN (HCZJ)",
+}
+
+def is_system_title(title_id):
+    idHi = (title_id >> 32) & 0xFFFFFFFF
+    if idHi == 0x00000001:
+        return True
+    return title_id in KNOWN_TITLE_NAMES
+
+def get_system_title_gid(title_id):
     if title_id == 0x0001000248435641: # HCVA (Return to Wii U)
         return 23130 # 0x5a5a ('ZZ')
     idHi = (title_id >> 32) & 0xFFFFFFFF
     if idHi == 0x00000001:
         return 1 # System titles & IOSes
-    return 12337 # 0x3031 ('01') Channels, Hidden Channels, Disc titles
+    if title_id in KNOWN_TITLE_NAMES:
+        return 12337 # 0x3031 ('01') Channels, Hidden Channels
+    return 12337
+
+def parse_tmd_group_id(tmd_data):
+    if not tmd_data or len(tmd_data) < 0x1E4:
+        return None
+    sig_type = struct.unpack(">I", tmd_data[:4])[0]
+    if sig_type == 0x00010000: # RSA4096
+        payload_offset = 0x240
+    elif sig_type == 0x00010001: # RSA2048
+        payload_offset = 0x140
+    elif sig_type == 0x00010002: # ECDSA
+        payload_offset = 0x80
+    else:
+        payload_offset = 0x140
+    if len(tmd_data) < payload_offset + 0x5A:
+        return None
+    return struct.unpack(">H", tmd_data[payload_offset + 0x58 : payload_offset + 0x5A])[0]
+
+def get_expected_gid(title_id, tmd_data=None):
+    if is_system_title(title_id):
+        return get_system_title_gid(title_id)
+    if tmd_data:
+        gid = parse_tmd_group_id(tmd_data)
+        if gid is not None:
+            return gid
+    return 12337
 
 def decrypt_setting_txt(raw):
     if not raw or len(raw) < 256:
