@@ -89,15 +89,15 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
 
-    FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/shared1", STOCK_MODE_CONTENT_DIR, 0, 0);
+    FSAMakeDir(fsaClient, "/vol/slccmpt01/shared1");
 
-    if (FSAOpenFileEx(fsaClient, path, "r+", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        if (FSAOpenFileEx(fsaClient, path, "w+", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+    if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+        if (FSAOpenFileEx(fsaClient, path, "w+", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
             WUPI_Log("Failed to open content.map\n");
             return -1;
         }
         FSError oRes = FSA_ChangeOwner(fsaClient, path, 0, 0);
-        FSError mRes = FSAChangeMode(fsaClient, path, STOCK_MODE_SYSTEM_FILE);
+        FSError mRes = FSAChangeMode(fsaClient, path, (FSMode)0660);
         if (oRes != FS_ERROR_OK || mRes != FS_ERROR_OK) {
             WUPI_Log("Warning: content.map owner/mode (o=%d, m=%d)\n", oRes, mRes);
         }
@@ -157,12 +157,9 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
  * dedicated scan-and-restore tool.
  *
  * Returns FS_ERROR_OK on success, or a negative FSError if creation failed. */
-static FSError EnsureTitleDataDir(FSAClientHandle fsa, const std::string& titlePath, uint64_t titleId) {
+static FSError EnsureTitleDataDir(FSAClientHandle fsa, const std::string& titlePath, uint16_t tmdGroupId) {
     std::string dataPath = titlePath + "/data";
-    uint16_t groupId = UID_GetTitleGid(titleId);
-    uint32_t titleUid = (titleId == VWII_TITLE_ID_SYSTEM_MENU) ? VWII_UID_SYSTEM_MENU : UID_GetOrCreate(fsa, titleId);
-
-    FSError ret = FSAMakeDirWithOwner(fsa, dataPath.c_str(), STOCK_MODE_DATA_DIR, titleUid, groupId);
+    FSError ret = FSAMakeDir(fsa, dataPath, tmdGroupId);
     if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
         WUPI_Log("Failed to create the data directory, ret = %d\n", ret);
         return ret;
@@ -191,14 +188,8 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
     WUPI_Log("Writing ticket...\n");
     {
-        EnsureFSADir(fsaClient, "/vol/slccmpt01/ticket");
-        ret = FSAMakeDirWithOwner(fsaClient, ticketFolder, STOCK_MODE_TICKET_SUBDIR, 0, 0);
-        if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
-            CINS_TRY(FSACreateFileWithOwner(fsaClient, ticketPath, ticket, ticket_size, STOCK_MODE_SYSTEM_FILE, 0, 0));
-            ret = FS_ERROR_OK;
-        }
-
-        CINS_TRY(ret == FS_ERROR_OK); // ret == 0
+        EnsureFSADir(fsaClient, ticketFolder);
+        CINS_TRY(FSACreateFile(fsaClient, ticketPath, ticket, ticket_size));
     }
 
     WUPI_Log("Creating title directory...\n");
@@ -206,32 +197,21 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         /* Create the title directory if it doesn't already exist. The first
          * word (type) should exist, but the second one (the unique title)
          * shouldn't unless there is save data. */
-        EnsureFSADir(fsaClient, "/vol/slccmpt01/title");
-        ret = FSAMakeDirWithOwner(fsaClient, path, STOCK_MODE_SYSTEM_DIR, 0, 0);
-        if (ret == FS_ERROR_OK || ret == FS_ERROR_ALREADY_EXISTS) {
-            ret = FSAMakeDirWithOwner(fsaClient, titlePath, STOCK_MODE_SYSTEM_DIR, 0, 0);
-            if (ret == FS_ERROR_ALREADY_EXISTS) {
-                /* The title is already installed, delete content but preserve
-                 * the data directory. */
-                WUPI_Log(
-                        "Title directory already exists, deleting content...\n");
-                snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content",
-                         idHi, idLo);
-                ret = FSARemove(fsaClient, path);
-                if (ret == FS_ERROR_OK || ret == FS_ERROR_NOT_FOUND)
-                    ret = FS_ERROR_OK;
-            }
+        EnsureFSADir(fsaClient, titlePath);
+        if (FSAGetStat(fsaClient, titlePath, nullptr) == FS_ERROR_OK) {
+            /* If the title content exists already, delete content but preserve data */
+            snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
+            FSARemove(fsaClient, path);
         }
 
-        CINS_TRY(ret == FS_ERROR_OK); // ret == 0
-
         /* Ensure the title's data directory exists with correct Title UID and TMD Group ID */
-        ret = EnsureTitleDataDir(fsaClient, titlePath, titleId);
+        uint16_t tmdGroupId = tmd ? FromBE16(tmd->groupId) : 0;
+        ret = EnsureTitleDataDir(fsaClient, titlePath, tmdGroupId);
         CINS_TRY(ret == FS_ERROR_OK);
 
         strncpy(pathd, titlePath, CINS_PATH_LEN);
         strncat(pathd, "/content", CINS_PATH_LEN - 1);
-        ret = FSAMakeDirWithOwner(fsaClient, pathd, STOCK_MODE_CONTENT_DIR, 0, 0);
+        ret = FSAMakeDir(fsaClient, pathd);
         if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
             WUPI_Log("Failed to create the content directory, ret = %d\n", ret);
             goto error;
@@ -244,7 +224,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         strncpy(path, pathd, CINS_PATH_LEN);
         strncat(path, "/title.tmd", CINS_PATH_LEN - 1);
 
-        CINS_TRY(FSACreateFileWithOwner(fsaClient, path, tmd, tmd_size, STOCK_MODE_SYSTEM_FILE, 0, 0));
+        CINS_TRY(FSACreateFile(fsaClient, path, tmd, tmd_size));
     }
 
     WUPI_Log("Writing contents...\n");
@@ -290,7 +270,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
             }
 
             EnsureFSAParentDir(fsaClient, path);
-            CINS_TRY(FSACreateFileWithOwner(fsaClient, path, contents[i].data, cSize, STOCK_MODE_SYSTEM_FILE, 0, 0));
+            CINS_TRY(FSACreateFile(fsaClient, path, contents[i].data, cSize));
         }
     }
     ret = IOS_SUCCESS;

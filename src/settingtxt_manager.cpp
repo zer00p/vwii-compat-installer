@@ -137,34 +137,9 @@ bool Setting_Write(const VwiiSettings& settings) {
     // Encrypt the 256-byte buffer (symmetrical XOR key 0x73B5DBFA)
     Setting_Cipher((uint8_t*)alignBuf, 256);
 
-    // Ensure parent directory hierarchy exists with correct stock ownership and modes:
-    // 1. /vol/slccmpt01/title/00000001
-    EnsureFSADir(fsaClient, "/vol/slccmpt01/title/00000001");
-
-    // 2. /vol/slccmpt01/title/00000001/00000002 (System Menu Title Dir - must be chowned while empty)
-    FSError dirRes = FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002", STOCK_MODE_SYSTEM_DIR, 0, 0);
-    if (dirRes != FS_ERROR_OK && dirRes != FS_ERROR_ALREADY_EXISTS) {
-        WUPI_Log("Failed to create System Menu title dir: %d\n", dirRes);
-        free(alignBuf);
-        return false;
-    }
-
-    // 3. /vol/slccmpt01/title/00000001/00000002/data (System Menu Data Dir - MUST be owned by UID 4096, GID 1 while empty)
-    dirRes = FSAMakeDirWithOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", STOCK_MODE_DATA_DIR, VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
-    if (dirRes == FS_ERROR_ALREADY_EXISTS) {
-        FSStat stat;
-        if (FSAGetStat(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", &stat) == FS_ERROR_OK) {
-            if (stat.owner != VWII_UID_SYSTEM_MENU || stat.group != VWII_GID_SYSTEM_MENU) {
-                FSError ownRes = FSA_ChangeOwner(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data", VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
-                if (ownRes != FS_ERROR_OK) {
-                    WUPI_Log("Setting_Write: Failed to set owner on data dir: %d\n", ownRes);
-                    free(alignBuf);
-                    return false;
-                }
-            }
-        }
-    } else if (dirRes != FS_ERROR_OK) {
-        WUPI_Log("Failed to create System Menu data dir: %d\n", dirRes);
+    // Ensure parent directory hierarchy exists with correct stock ownership and modes
+    if (!EnsureFSADir(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data")) {
+        WUPI_Log("Failed to create System Menu data dir hierarchy\n");
         free(alignBuf);
         return false;
     }
@@ -173,8 +148,7 @@ bool Setting_Write(const VwiiSettings& settings) {
     UID_GetOrCreate(fsaClient, VWII_TITLE_ID_SYSTEM_MENU);
 
     // Create file, set stock ownership (UID 4096, GID 1) while 0-byte empty, then write encrypted data
-    bool writeOk = FSACreateFileWithOwner(fsaClient, VWII_SETTING_TXT_PATH, alignBuf, 256,
-                                          STOCK_MODE_SETTING_TXT, VWII_UID_SYSTEM_MENU, VWII_GID_SYSTEM_MENU);
+    bool writeOk = FSACreateFile(fsaClient, VWII_SETTING_TXT_PATH, alignBuf, 256);
     free(alignBuf);
 
     if (!writeOk) {

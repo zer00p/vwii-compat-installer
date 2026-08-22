@@ -30,18 +30,18 @@ bool EnsureFSADir(FSAClientHandle fsaClient, const std::string& dirPath) {
         start = mountSlash + 1;
     }
 
-    // Create intermediate directories
+    // Create intermediate directories using path rules
     for (size_t pos = dirPath.find('/', start); pos != std::string::npos; pos = dirPath.find('/', pos + 1)) {
         std::string sub = dirPath.substr(0, pos);
-        FSError res = FSAMakeDirWithOwner(fsaClient, sub, STOCK_MODE_SYSTEM_DIR, 0, 0);
+        FSError res = FSAMakeDir(fsaClient, sub);
         if (res != FS_ERROR_OK && res != FS_ERROR_ALREADY_EXISTS) {
             WUPI_Log("EnsureFSADir: Failed to create intermediate %s (%d)\n", sub.c_str(), res);
             return false;
         }
     }
 
-    // Create final target directory
-    FSError res = FSAMakeDirWithOwner(fsaClient, dirPath, STOCK_MODE_SYSTEM_DIR, 0, 0);
+    // Create final target directory using path rules
+    FSError res = FSAMakeDir(fsaClient, dirPath);
     if (res == FS_ERROR_OK || res == FS_ERROR_ALREADY_EXISTS) {
         return true;
     }
@@ -181,6 +181,11 @@ FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint
     return (FSError)res;
 }
 
+FSError FSAMakeDir(FSAClientHandle fsaClient, const std::string& path, uint16_t tmdGroupId) {
+    ResolvedPathRule rule = PathRules_Resolve(fsaClient, path, tmdGroupId);
+    return FSAMakeDirWithOwner(fsaClient, path, rule.mode, rule.uid, rule.gid);
+}
+
 FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode, uint32_t uid, uint32_t gid) {
     FSError ret = FSAMakeDir(fsaClient, path.c_str(), mode);
     if (ret == FS_ERROR_OK) {
@@ -191,6 +196,11 @@ FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, 
         }
     }
     return ret;
+}
+
+bool FSACreateFile(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, uint16_t tmdGroupId) {
+    ResolvedPathRule rule = PathRules_Resolve(fsaClient, path, tmdGroupId);
+    return FSACreateFileWithOwner(fsaClient, path, buffer, size, rule.mode, rule.uid, rule.gid);
 }
 
 bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, FSMode mode, uint32_t uid, uint32_t gid) {
@@ -354,22 +364,23 @@ bool FSACheckFileSha1(FSAClientHandle fsa, const std::string& path, const uint8_
 
 bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
     bool allOk = true;
-    for (const auto& d : STOCK_ROOT_DIRS) {
-        std::string fullPath = VwiiFsaPath(d.path);
-        FSError res = FSAMakeDirWithOwner(fsa, fullPath, d.mode, 0, 0);
+    auto rootDirs = PathRules_GetStockRootDirs();
+    for (const auto& d : rootDirs) {
+        std::string fullPath = VwiiFsaPath(d.pattern);
+        FSError res = FSAMakeDirWithOwner(fsa, fullPath, d.mode, d.uid, d.gid);
         if (res == FS_ERROR_ALREADY_EXISTS) {
             FSStat stat;
             if (FSAGetStat(fsa, fullPath.c_str(), &stat) == FS_ERROR_OK) {
-                if (stat.owner != 0 || stat.group != 0) {
-                    FSError ownRes = FSA_ChangeOwner(fsa, fullPath, 0, 0);
+                if (stat.owner != d.uid || stat.group != d.gid) {
+                    FSError ownRes = FSA_ChangeOwner(fsa, fullPath, d.uid, d.gid);
                     if (ownRes != FS_ERROR_OK) {
-                        WUPI_Log("FSA_InitStockRootDirs: Owner err %d: %s\n", ownRes, d.path);
+                        WUPI_Log("FSA_InitStockRootDirs: Owner err %d: %s\n", ownRes, d.pattern.c_str());
                         allOk = false;
                     }
                 }
             }
         } else if (res != FS_ERROR_OK) {
-            WUPI_Log("FSA_InitStockRootDirs: Failed to create %s (%d)\n", d.path, res);
+            WUPI_Log("FSA_InitStockRootDirs: Failed to create %s (%d)\n", d.pattern.c_str(), res);
             allOk = false;
         }
     }

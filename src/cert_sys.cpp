@@ -85,7 +85,8 @@ bool CERT_VerifyIntegrity(FSAClientHandle fsaClient, std::vector<ParsedCert>& ou
         return false;
     }
 
-    if (!FSA_IsPermissionAcceptable(stat, STOCK_MODE_CERT_SYS, 0, 0)) {
+    ResolvedPathRule expRule;
+    if (!PathRules_CheckPermissions(fsaClient, VWII_CERT_SYS_PATH, stat, &expRule)) {
         outReasons.push_back(std::format("Perms {}/{}/{:x} incorrect on /sys/cert.sys",
                                          (uint32_t)stat.owner, (uint32_t)stat.group, (uint32_t)(stat.mode & 0x666)));
     }
@@ -181,8 +182,7 @@ bool CERT_WriteCertificates(FSAClientHandle fsaClient, const void* certData, siz
 
     EnsureFSADir(fsaClient, "/vol/slccmpt01/sys");
 
-    bool ok = FSACreateFileWithOwner(fsaClient, VWII_CERT_SYS_PATH, alignBuf, totalSize,
-                                     STOCK_MODE_CERT_SYS, 0, 0);
+    bool ok = FSACreateFile(fsaClient, VWII_CERT_SYS_PATH, alignBuf, totalSize);
     free(alignBuf);
 
     if (ok) {

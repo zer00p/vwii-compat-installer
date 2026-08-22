@@ -132,8 +132,7 @@ bool UID_Reconstruct(FSAClientHandle fsaClient, size_t* outRecoveredCount) {
     memset(writeBuf, 0, allocSize);
     memcpy(writeBuf, entries.data(), byteSize);
 
-    bool ok = FSACreateFileWithOwner(fsaClient, VWII_UID_SYS_PATH, writeBuf, byteSize,
-                                     STOCK_MODE_SYSTEM_FILE, 0, 0);
+    bool ok = FSACreateFile(fsaClient, VWII_UID_SYS_PATH, writeBuf, byteSize);
     free(writeBuf);
 
     if (ok) {
@@ -159,12 +158,12 @@ uint32_t UID_GetOrCreate(FSAClientHandle fsaClient, uint64_t titleId) {
     }
 
     FSAFileHandle fd = 0;
-    int openRes = FSAOpenFileEx(fsaClient, VWII_UID_SYS_PATH, "r+", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &fd);
+    int openRes = FSAOpenFileEx(fsaClient, VWII_UID_SYS_PATH, "r+", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd);
 
     // If uid.sys doesn't exist, reconstruct from SLCCMPT first
     if (openRes == FS_ERROR_NOT_FOUND) {
         UID_Reconstruct(fsaClient, nullptr);
-        openRes = FSAOpenFileEx(fsaClient, VWII_UID_SYS_PATH, "r+", STOCK_MODE_SYSTEM_FILE, FS_OPEN_FLAG_NONE, 0, &fd);
+        openRes = FSAOpenFileEx(fsaClient, VWII_UID_SYS_PATH, "r+", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd);
     }
 
     if (openRes != FS_ERROR_OK) {

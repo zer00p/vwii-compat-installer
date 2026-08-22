@@ -148,10 +148,11 @@ int32_t SCAN_DetermineTargetRegion(bool& outIsAmbiguous) {
     return settingRegion;
 }
 
-static std::string format_permission_error(FSStat stat, std::string_view path) {
-    return std::format("Perms {}/{}/{:x} incorrect on {}",
+static std::string format_permission_error(FSStat stat, std::string_view path, const ResolvedPathRule& rule) {
+    return std::format("Perms {}/{}/{:x} incorrect on {} (expected {}/{}/{:x})",
                        (uint32_t)stat.owner, (uint32_t)stat.group,
-                       (uint32_t)(stat.mode & 0x666), VwiiCleanPath(path));
+                       (uint32_t)(stat.mode & 0x666), VwiiCleanPath(path),
+                       rule.uid, rule.gid, (uint32_t)rule.mode);
 }
 
 SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<void(const std::string&)> progressCb) {
@@ -175,8 +176,9 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
             settingIssue.reasons.push_back("File missing");
             report.settingTxtDamaged = true;
         } else {
-            if (!FSA_IsPermissionAcceptable(stat, STOCK_MODE_SETTING_TXT, 4096, 1)) {
-                settingIssue.reasons.push_back(format_permission_error(stat, settingIssue.titleName));
+            ResolvedPathRule expRule;
+            if (!PathRules_CheckPermissions(fsaClient, VWII_SETTING_TXT_PATH, stat, &expRule)) {
+                settingIssue.reasons.push_back(format_permission_error(stat, settingIssue.titleName, expRule));
                 report.settingTxtDamaged = true;
             }
 
@@ -221,8 +223,9 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
             uidIssue.reasons.push_back("Missing or corrupted");
             report.uidSysDamaged = true;
         } else {
-            if (!FSA_IsPermissionAcceptable(stat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-                uidIssue.reasons.push_back(format_permission_error(stat, uidIssue.titleName));
+            ResolvedPathRule expRule;
+            if (!PathRules_CheckPermissions(fsaClient, VWII_UID_SYS_PATH, stat, &expRule)) {
+                uidIssue.reasons.push_back(format_permission_error(stat, uidIssue.titleName, expRule));
                 report.uidSysDamaged = true;
             } else {
                 // Check if entry 0 is System Menu (0000000100000002 -> 4096)
@@ -254,14 +257,15 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         dirIssue.titleName = "Root System Directories";
         dirIssue.isStockDirs = true;
 
-        for (const auto& d : STOCK_ROOT_DIRS) {
-            std::string fullPath = VwiiFsaPath(d.path);
+        auto rootDirs = PathRules_GetStockRootDirs();
+        for (const auto& d : rootDirs) {
+            std::string fullPath = VwiiFsaPath(d.pattern);
             FSStat stat;
             if (FSAGetStat(fsaClient, fullPath.c_str(), &stat) != FS_ERROR_OK) {
-                dirIssue.reasons.push_back(std::format("Missing: {}", d.path));
+                dirIssue.reasons.push_back(std::format("Missing: {}", d.pattern));
                 report.permissionErrorsCount++;
-            } else if (!FSA_IsPermissionAcceptable(stat, d.mode, 0, 0)) {
-                dirIssue.reasons.push_back(format_permission_error(stat, d.path));
+            } else if (!PathRules_CheckPermissions(fsaClient, fullPath, stat)) {
+                dirIssue.reasons.push_back(format_permission_error(stat, d.pattern, d));
                 report.permissionErrorsCount++;
             }
         }
@@ -309,24 +313,27 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         }
 
         // Check directory permissions
-        if (!FSA_IsPermissionAcceptable(titleStat, STOCK_MODE_SYSTEM_DIR, 0, 0)) {
-            issue.reasons.push_back(format_permission_error(titleStat, relTitleDir));
+        ResolvedPathRule expTitleDir;
+        if (!PathRules_CheckPermissions(fsaClient, titleDir, titleStat, &expTitleDir)) {
+            issue.reasons.push_back(format_permission_error(titleStat, relTitleDir, expTitleDir));
             report.permissionErrorsCount++;
         }
 
         FSStat contentStat;
+        ResolvedPathRule expContentDir;
         if (FSAGetStat(fsaClient, contentDir.c_str(), &contentStat) != FS_ERROR_OK ||
-            !FSA_IsPermissionAcceptable(contentStat, STOCK_MODE_CONTENT_DIR, 0, 0)) {
-            issue.reasons.push_back(format_permission_error(contentStat, relContentDir));
+            !PathRules_CheckPermissions(fsaClient, contentDir, contentStat, &expContentDir)) {
+            issue.reasons.push_back(format_permission_error(contentStat, relContentDir, expContentDir));
             report.permissionErrorsCount++;
         }
 
         FSStat tikStat;
+        ResolvedPathRule expTik;
         if (FSAGetStat(fsaClient, tikPath.c_str(), &tikStat) != FS_ERROR_OK) {
             issue.reasons.push_back("Missing ticket (.tik)");
             report.modifiedTitlesCount++;
-        } else if (!FSA_IsPermissionAcceptable(tikStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-            issue.reasons.push_back(format_permission_error(tikStat, relTikPath));
+        } else if (!PathRules_CheckPermissions(fsaClient, tikPath, tikStat, &expTik)) {
+            issue.reasons.push_back(format_permission_error(tikStat, relTikPath, expTik));
             report.permissionErrorsCount++;
         }
 
@@ -342,9 +349,10 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         }
 
         FSStat tmdStat;
+        ResolvedPathRule expTmd;
         if (FSAGetStat(fsaClient, tmdPath.c_str(), &tmdStat) == FS_ERROR_OK) {
-            if (!FSA_IsPermissionAcceptable(tmdStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-                issue.reasons.push_back(format_permission_error(tmdStat, relTmdPath));
+            if (!PathRules_CheckPermissions(fsaClient, tmdPath, tmdStat, &expTmd)) {
+                issue.reasons.push_back(format_permission_error(tmdStat, relTmdPath, expTmd));
                 report.permissionErrorsCount++;
             }
         }
@@ -360,7 +368,7 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         const auto* tmd = reinterpret_cast<const TitleTmd*>(tmdBuf);
         uint16_t numContents = FromBE16(tmd->numContents);
         uint16_t titleVersion = FromBE16(tmd->titleVersion);
-        uint16_t groupId = UID_GetTitleGid(titleId);
+        uint16_t groupId = FromBE16(tmd->groupId);
         issue.groupId = groupId;
 
         // Check region-specific System Menu version
@@ -376,10 +384,9 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
         // Check /data directory permissions
         FSStat dataStat;
         if (FSAGetStat(fsaClient, dataDir.c_str(), &dataStat) == FS_ERROR_OK) {
-            uint32_t expectedUid = (titleId == VWII_TITLE_ID_SYSTEM_MENU) ? VWII_UID_SYSTEM_MENU : UID_GetOrCreate(fsaClient, titleId);
-            uint16_t expectedGid = groupId;
-            if (!FSA_IsPermissionAcceptable(dataStat, STOCK_MODE_DATA_DIR, expectedUid, expectedGid)) {
-                issue.reasons.push_back(format_permission_error(dataStat, relDataDir));
+            ResolvedPathRule expData;
+            if (!PathRules_CheckPermissions(fsaClient, dataDir, dataStat, &expData, issue.groupId)) {
+                issue.reasons.push_back(format_permission_error(dataStat, relDataDir, expData));
                 report.permissionErrorsCount++;
             }
         }
@@ -416,8 +423,9 @@ SystemScanReport SCAN_RunFullSystemScan(int32_t targetRegionCode, std::function<
                 issue.reasons.push_back(std::format("Missing content: {:08x}.app", cid));
                 contentIssueFound = true;
             } else {
-                if (!FSA_IsPermissionAcceptable(cStat, STOCK_MODE_SYSTEM_FILE, 0, 0)) {
-                    issue.reasons.push_back(format_permission_error(cStat, relContentPath));
+                ResolvedPathRule expContent;
+                if (!PathRules_CheckPermissions(fsaClient, contentPath, cStat, &expContent)) {
+                    issue.reasons.push_back(format_permission_error(cStat, relContentPath, expContent));
                     report.permissionErrorsCount++;
                 }
 
@@ -472,13 +480,12 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
     std::string tmdPath = contentDir + "/title.tmd";
 
     // 1. Ensure title category and title directory exist
-    EnsureFSADir(fsa, "/vol/slccmpt01/title");
-    EnsureFSADir(fsa, std::format("/vol/slccmpt01/title/{:08x}", idHi));
     EnsureFSADir(fsa, titlePath);
     EnsureFSADir(fsa, contentDir);
 
     // 2. Fix TMD and content files permissions
-    FSAChangeMode(fsa, tmdPath.c_str(), STOCK_MODE_SYSTEM_FILE);
+    ResolvedPathRule tmdRule = PathRules_Resolve(tmdPath);
+    FSAChangeMode(fsa, tmdPath.c_str(), tmdRule.mode);
 
     FSADirectoryHandle cDir;
     if (FSAOpenDir(fsa, contentDir.c_str(), &cDir) == FS_ERROR_OK) {
@@ -487,7 +494,8 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
             while (FSAReadDir(fsa, cDir, entry) == FS_ERROR_OK) {
                 if (strcmp(entry->name, ".") == 0 || strcmp(entry->name, "..") == 0) continue;
                 std::string cFilePath = contentDir + "/" + entry->name;
-                FSAChangeMode(fsa, cFilePath.c_str(), STOCK_MODE_SYSTEM_FILE);
+                ResolvedPathRule cRule = PathRules_Resolve(cFilePath);
+                FSAChangeMode(fsa, cFilePath.c_str(), cRule.mode);
             }
             free(entry);
         }
@@ -495,19 +503,18 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
     }
 
     // 3. Fix /data directory ownership & permissions
-    uint32_t expectedUid = (issue.titleId == VWII_TITLE_ID_SYSTEM_MENU) ? VWII_UID_SYSTEM_MENU : UID_GetOrCreate(fsa, issue.titleId);
-    uint16_t expectedGid = UID_GetTitleGid(issue.titleId);
+    ResolvedPathRule dataRule = PathRules_Resolve(fsa, dataDir, issue.groupId);
 
     FSStat dstat;
     if (FSAGetStat(fsa, dataDir.c_str(), &dstat) != FS_ERROR_OK) {
         // Data directory doesn't exist, create it with correct ownership & mode
-        FSError res = FSAMakeDirWithOwner(fsa, dataDir, STOCK_MODE_DATA_DIR, expectedUid, expectedGid);
+        FSError res = FSAMakeDir(fsa, dataDir, issue.groupId);
         if (res != FS_ERROR_OK) {
             WUPI_Log("Failed to create data dir: %d\n", res);
             return false;
         }
     } else {
-        if (dstat.owner == expectedUid && dstat.group == expectedGid) {
+        if (dstat.owner == dataRule.uid && dstat.group == dataRule.gid) {
             // Ownership is already correct, nothing needed
         } else {
             // Ownership is wrong. Check if directory contains files
@@ -551,7 +558,7 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
 
             // Recreate data directory with correct ownership
             FSARemoveTree(fsa, dataDir);
-            FSError res = FSAMakeDirWithOwner(fsa, dataDir, STOCK_MODE_DATA_DIR, expectedUid, expectedGid);
+            FSError res = FSAMakeDir(fsa, dataDir, issue.groupId);
             if (res != FS_ERROR_OK) {
                 WUPI_Log("Failed to recreate data dir: %d\n", res);
                 return false;
@@ -563,7 +570,8 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
     if (issue.titleId == VWII_TITLE_ID_SYSTEM_MENU) {
         FSStat sstat;
         if (FSAGetStat(fsa, VWII_SETTING_TXT_PATH, &sstat) == FS_ERROR_OK) {
-            FSAChangeMode(fsa, VWII_SETTING_TXT_PATH, STOCK_MODE_SETTING_TXT);
+            ResolvedPathRule settingRule = PathRules_Resolve(VWII_SETTING_TXT_PATH);
+            FSAChangeMode(fsa, VWII_SETTING_TXT_PATH, settingRule.mode);
         } else {
             WUPI_Log("Regenerating missing setting.txt for System Menu...\n");
             VwiiSettings newSettings;
