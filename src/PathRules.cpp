@@ -12,51 +12,54 @@
 #include <cstdio>
 
 static const PathRuleDef GLOBAL_PATH_RULES[] = {
+    // Root filesystem
+    {"/",                                         0x664, RuleUid::ROOT,        RuleGid::ROOT,    "SLCCMPT filesystem root"},
+
     // Root and system directories
-    {"/sys",                                      0660, RuleUid::ROOT,        RuleGid::ROOT,    "System root directory"},
-    {"/title",                                    0664, RuleUid::ROOT,        RuleGid::ROOT,    "Title root directory"},
-    {"/ticket",                                   0660, RuleUid::ROOT,        RuleGid::ROOT,    "Ticket root directory"},
-    {"/shared1",                                  0660, RuleUid::ROOT,        RuleGid::ROOT,    "Shared1 content directory"},
-    {"/shared2",                                  0666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 directory"},
-    {"/tmp",                                      0666, RuleUid::ROOT,        RuleGid::ROOT,    "Temp directory"},
-    {"/import",                                   0660, RuleUid::ROOT,        RuleGid::ROOT,    "Import directory"},
-    {"/meta",                                     0660, RuleUid::ROOT,        RuleGid::ROOT,    "Meta directory"},
+    {"/sys",                                      0x660, RuleUid::ROOT,        RuleGid::ROOT,    "System root directory"},
+    {"/title",                                    0x664, RuleUid::ROOT,        RuleGid::ROOT,    "Title root directory"},
+    {"/ticket",                                   0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Ticket root directory"},
+    {"/shared1",                                  0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Shared1 content directory"},
+    {"/shared2",                                  0x666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 directory"},
+    {"/tmp",                                      0x666, RuleUid::ROOT,        RuleGid::ROOT,    "Temp directory"},
+    {"/import",                                   0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Import directory"},
+    {"/meta",                                     0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Meta directory"},
 
     // /sys files
-    {"/sys/cert.sys",                             0664, RuleUid::ROOT,        RuleGid::ROOT,    "Certificate trust store"},
-    {"/sys/uid.sys",                              0660, RuleUid::ROOT,        RuleGid::ROOT,    "Title UID table"},
-    {"/sys/space.sys",                            0660, RuleUid::ROOT,        RuleGid::ROOT,    "Space allocation table"},
-    {"/sys/*",                                    0660, RuleUid::ROOT,        RuleGid::ROOT,    "System configuration file"},
+    {"/sys/cert.sys",                             0x664, RuleUid::ROOT,        RuleGid::ROOT,    "Certificate trust store"},
+    {"/sys/uid.sys",                              0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Title UID table"},
+    {"/sys/space.sys",                            0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Space allocation table"},
+    {"/sys/*",                                    0x660, RuleUid::ROOT,        RuleGid::ROOT,    "System configuration file"},
 
     // /shared1 files
-    {"/shared1/content.map",                      0660, RuleUid::ROOT,        RuleGid::ROOT,    "Shared content hash map"},
-    {"/shared1/*",                                0660, RuleUid::ROOT,        RuleGid::ROOT,    "Shared content binary"},
+    {"/shared1/content.map",                      0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Shared content hash map"},
+    {"/shared1/*",                                0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Shared content binary"},
 
-    // /shared2 contents (all 0666)
-    {"/shared2/*",                                0666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 item"},
-    {"/shared2/*/*",                              0666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 nested item"},
-    {"/shared2/*/*/*",                            0666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 deep item"},
+    // /shared2 contents (all 0x666)
+    {"/shared2/*",                                0x666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 item"},
+    {"/shared2/*/*",                              0x666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 nested item"},
+    {"/shared2/*/*/*",                            0x666, RuleUid::ROOT,        RuleGid::ROOT,    "Shared2 deep item"},
 
     // /ticket contents
-    {"/ticket/*",                                 0000, RuleUid::ROOT,        RuleGid::ROOT,    "Ticket category directory"},
-    {"/ticket/*/*",                               0660, RuleUid::ROOT,        RuleGid::ROOT,    "Title ticket"},
+    {"/ticket/*",                                 0x000, RuleUid::ROOT,        RuleGid::ROOT,    "Ticket category directory"},
+    {"/ticket/*/*",                               0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Title ticket"},
 
     // /title category & title dirs
-    {"/title/*",                                  0664, RuleUid::ROOT,        RuleGid::ROOT,    "Title category directory"},
-    {"/title/*/*",                                0664, RuleUid::ROOT,        RuleGid::ROOT,    "Title directory"},
+    {"/title/*",                                  0x664, RuleUid::ROOT,        RuleGid::ROOT,    "Title category directory"},
+    {"/title/*/*",                                0x664, RuleUid::ROOT,        RuleGid::ROOT,    "Title directory"},
 
     // /title/<idHi>/<idLo>/content
-    {"/title/*/*/content",                        0660, RuleUid::ROOT,        RuleGid::ROOT,    "Title content directory"},
-    {"/title/*/*/content/*",                      0660, RuleUid::ROOT,        RuleGid::ROOT,    "Title content / TMD file"},
+    {"/title/*/*/content",                        0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Title content directory"},
+    {"/title/*/*/content/*",                      0x660, RuleUid::ROOT,        RuleGid::ROOT,    "Title content / TMD file"},
 
     // System Menu specific data
-    {"/title/00000001/00000002/data/setting.txt", 0444, RuleUid::SYSTEM_MENU, RuleGid::SYSTEM_MENU, "System Menu setting.txt"},
-    {"/title/00000001/00000002/data",             0600, RuleUid::SYSTEM_MENU, RuleGid::SYSTEM_MENU, "System Menu data directory"},
+    {"/title/00000001/00000002/data/setting.txt", 0x444, RuleUid::SYSTEM_MENU, RuleGid::SYSTEM_MENU, "System Menu setting.txt"},
+    {"/title/00000001/00000002/data",             0x600, RuleUid::SYSTEM_MENU, RuleGid::SYSTEM_MENU, "System Menu data directory"},
 
     // General title data & save directories (dynamic UID & GID)
-    {"/title/*/*/data",                           0600, RuleUid::DYNAMIC,     RuleGid::DYNAMIC, "Title save data directory"},
-    {"/title/*/*/data/*",                         0600, RuleUid::DYNAMIC,     RuleGid::DYNAMIC, "Title save data item"},
-    {"/title/*/*/data/*/*",                       0600, RuleUid::DYNAMIC,     RuleGid::DYNAMIC, "Title save data nested item"},
+    {"/title/*/*/data",                           0x600, RuleUid::DYNAMIC,     RuleGid::DYNAMIC, "Title save data directory"},
+    {"/title/*/*/data/*",                         0x600, RuleUid::DYNAMIC,     RuleGid::DYNAMIC, "Title save data item"},
+    {"/title/*/*/data/*/*",                       0x600, RuleUid::DYNAMIC,     RuleGid::DYNAMIC, "Title save data nested item"},
 };
 
 struct TrieNode {
@@ -70,9 +73,6 @@ static TrieNode g_rootNode;
 static bool g_initialized = false;
 
 static std::vector<std::string> SplitPathSegments(std::string_view path) {
-    if (path.starts_with(VWII_MOUNT_POINT)) {
-        path = path.substr(VWII_MOUNT_POINT.size());
-    }
     std::vector<std::string> segments;
     size_t start = 0;
     while (start < path.size()) {
@@ -86,6 +86,10 @@ static std::vector<std::string> SplitPathSegments(std::string_view path) {
         }
         segments.emplace_back(path.substr(start, end - start));
         start = end;
+    }
+    // Tolerate /vol/<mountpoint> prefix (e.g. /vol/slccmpt01 or /vol/storage_slccmpt01)
+    if (segments.size() >= 2 && segments[0] == "vol") {
+        segments.erase(segments.begin(), segments.begin() + 2);
     }
     return segments;
 }
@@ -165,7 +169,7 @@ static uint16_t ReadTmdGroupIdFromDisk(FSAClientHandle fsaClient, uint64_t title
     snprintf(path, sizeof(path), "/vol/slccmpt01/title/%08x/%08x/content/title.tmd", idHi, idLo);
 
     FSAFileHandle fd = 0;
-    if (FSAOpenFileEx(fsaClient, path, "rb", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+    if (FSAOpenFileEx(fsaClient, path, "rb", (FSMode)0x660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
         return 0;
     }
 
@@ -226,7 +230,7 @@ ResolvedPathRule PathRules_Resolve(FSAClientHandle fsaClient, std::string_view p
         resolved.matched = false;
         resolved.pattern = "";
         resolved.titleId = titleId;
-        resolved.mode = (FSMode)0660;
+        resolved.mode = (FSMode)0x660;
         resolved.uid = 0;
         resolved.gid = 0;
         resolved.description = "Default";

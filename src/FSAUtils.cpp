@@ -388,8 +388,8 @@ bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
 }
 
 bool FSA_IsPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t expectedUid, uint32_t expectedGid) {
-    // Permissive mode (e.g. from vWii NAND Restorer: 0666 rw-rw-rw-)
-    if ((stat.mode & 0666) == 0666) {
+    // Permissive mode (e.g. from vWii NAND Restorer: 0x666 rw-rw-rw- or 0x777 rwxrwxrwx)
+    if ((stat.mode & 0x666) == 0x666) {
         return true;
     }
 
@@ -408,9 +408,9 @@ bool FSA_IsPermissionAcceptable(const FSStat& stat, FSMode stockMode, uint32_t e
         return true;
     }
 
-    // If group mode bits and other mode bits are 0 (e.g. mode 0600 or 0700),
+    // If group mode bits and other mode bits are 0 (e.g. mode 0x600 rw-------),
     // group membership grants no permissions anyway, so ignore group mismatch.
-    if ((stat.mode & 077) == 0) {
+    if ((stat.mode & 0x0FF) == 0) {
         return true;
     }
 

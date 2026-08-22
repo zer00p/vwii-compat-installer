@@ -60,7 +60,7 @@ FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint
 FSError FSAMakeDir(FSAClientHandle fsaClient, const std::string& path, uint16_t tmdGroupId = 0);
 
 // Creates a directory, sets ownership (UID/GID) while empty, returning the FSAMakeDir result
-FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode = (FSMode)0664, uint32_t uid = 0, uint32_t gid = 0);
+FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode = (FSMode)0x664, uint32_t uid = 0, uint32_t gid = 0);
 
 // Creates a file using ownership and permissions resolved from PathRules
 bool FSACreateFile(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, uint16_t tmdGroupId = 0);
@@ -72,7 +72,7 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
 bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize);
 
 // Writes a buffer to a file on FSA setting proper ownership and permission mode
-bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = (FSMode)0660, uint32_t uid = 0, uint32_t gid = 0);
+bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = (FSMode)0x660, uint32_t uid = 0, uint32_t gid = 0);
 
 // Computes the SHA-1 hash of a file on FSA using 64KB aligned streaming buffers. Returns true if file matches expectedSize and was hashed successfully.
 bool FSAGetFileSha1(FSAClientHandle fsa, const std::string& path, uint8_t outHash[20], uint64_t expectedSize);

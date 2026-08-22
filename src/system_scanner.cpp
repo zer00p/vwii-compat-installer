@@ -149,9 +149,9 @@ int32_t SCAN_DetermineTargetRegion(bool& outIsAmbiguous) {
 }
 
 static std::string format_permission_error(FSStat stat, std::string_view path, const ResolvedPathRule& rule) {
-    return std::format("Perms {}/{}/{:x} incorrect on {} (expected {}/{}/{:x})",
+    return std::format("Perms {}/{}/{:03x} incorrect on {} (expected {}/{}/{:03x})",
                        (uint32_t)stat.owner, (uint32_t)stat.group,
-                       (uint32_t)(stat.mode & 0x666), VwiiCleanPath(path),
+                       (uint32_t)(stat.mode & 0x777), VwiiCleanPath(path),
                        rule.uid, rule.gid, (uint32_t)rule.mode);
 }
 

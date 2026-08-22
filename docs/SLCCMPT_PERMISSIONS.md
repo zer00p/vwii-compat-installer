@@ -14,7 +14,7 @@ The vWii SLCCMPT partition is formatted with **SFFS** (Secure Flash File System,
 ### SFFS Mode Byte Layout
 
 > [!NOTE]
-> **No Execute (`x`) Permissions**: SFFS does **not** support or store execute (`x`) permissions. The underlying on-disk permission byte only encodes 2 bits each for Owner, Group, and Other: read (`r`) and write (`w`). In POSIX / Cafe OS FSA mode translations, all modes are octal read/write values (`0660`, `0664`, `0666`, `0600`, `0444`, `0000`).
+> **No Execute (`x`) Permissions & Hexadecimal `FSMode` Bitmasks**: SFFS does **not** support or store execute (`x`) permissions. The underlying on-disk permission byte only encodes 2 bits each for Owner, Group, and Other: read (`r`) and write (`w`). In Cafe OS FSA (`coreinit/filesystem.h`), permissions are represented as **hexadecimal bitmasks** (`FS_MODE_READ_OWNER = 0x400`, `FS_MODE_WRITE_OWNER = 0x200`, `FS_MODE_READ_GROUP = 0x040`, `FS_MODE_WRITE_GROUP = 0x020`, `FS_MODE_READ_OTHER = 0x004`, `FS_MODE_WRITE_OTHER = 0x002`). Across the codebase, all modes are specified using **hexadecimal literals** (`0x660`, `0x664`, `0x666`, `0x600`, `0x444`, `0x000`).
 
 ```
 Bit:   7   6   5   4   3   2   1   0
@@ -38,22 +38,22 @@ Bit:   7   6   5   4   3   2   1   0
 
 | Path / Pattern | Type | Owner UID | Group GID | SFFS Mode | Cafe OS Mode (`FSMode`) | Permissions | Description / Notes |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| `/title/00000001/00000002/data/setting.txt` | File | **4096** | **1** | `0x55` | `(FSMode)0444` | `r--r--r--` | System Menu configuration. Read-only for all. |
-| `/ticket/00000001/*.tik`, `/ticket/*/*.tik` | File | **0** | **0** | `0xf1` | `(FSMode)0660` | `rw-rw----` | System tickets. |
-| `/title/*/*/content/title.tmd` | File | **0** | **0** | `0xf1` | `(FSMode)0660` | `rw-rw----` | Title metadata descriptors. |
-| `/title/*/*/content/*.app` | File | **0** | **0** | `0xf1` | `(FSMode)0660` | `rw-rw----` | System and title binaries / contents. |
-| `/shared1/*.app` | File | **0** | **0** | `0xf1` | `(FSMode)0660` | `rw-rw----` | Shared system content. |
-| `/shared1/content.map` | File | **0** | **0** | `0xf1` | `(FSMode)0660` | `rw-rw----` | Shared content SHA-1 mapping table. |
-| `/sys/uid.sys`, `/sys/space.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0660` | `rw-rw----` | System tables / metadata. |
-| `/sys/cert.sys` | File | **0** | **0** | `0xf5` | `(FSMode)0664` | `rw-rw-r--` | Central certificate trust store (`XS00000003`, `CA00000001`, `CP00000004`). Read-access for all UIDs. |
-| `/title` | Dir | **0** | **0** | `0xf6` | `(FSMode)0664` | `rw-rw-r--` | Title root directory. |
-| `/sys`, `/shared1`, `/ticket`, `/import` | Dir | **0** | **0** | `0xf2` | `(FSMode)0660` | `rw-rw----` | System root directories. |
-| `/shared2`, `/tmp` | Dir | **0** | **0** | `0xfe` | `(FSMode)0666` | `rw-rw-rw-` | Shared system & temp directories (writable by all UIDs). |
-| `/title/<idHi>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0664` | `rw-rw-r--` | Title category directory (e.g. `00000001`). |
-| `/title/<idHi>/<idLo>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0664` | `rw-rw-r--` | Specific title directory. |
-| `/title/<idHi>/<idLo>/content` | Dir | **0** | **0** | `0xf2` | `(FSMode)0660` | `rw-rw----` | Title content directory. |
-| `/ticket/<idHi>` | Dir | **0** | **0** | `0x02` | `(FSMode)0000` | `---------` | Ticket category subdirectory. |
-| `/title/<idHi>/<idLo>/data` | Dir | **`Title UID`** | **`TMD GID`** | `0xc2` | `(FSMode)0600` | `rw-------` | Title save data / configuration directory. |
+| `/title/00000001/00000002/data/setting.txt` | File | **4096** | **1** | `0x55` | `(FSMode)0x444` | `r--r--r--` | System Menu configuration. Read-only for all. |
+| `/ticket/00000001/*.tik`, `/ticket/*/*.tik` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | System tickets. |
+| `/title/*/*/content/title.tmd` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Title metadata descriptors. |
+| `/title/*/*/content/*.app` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | System and title binaries / contents. |
+| `/shared1/*.app` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Shared system content. |
+| `/shared1/content.map` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | Shared content SHA-1 mapping table. |
+| `/sys/uid.sys`, `/sys/space.sys` | File | **0** | **0** | `0xf1` | `(FSMode)0x660` | `rw-rw----` | System tables / metadata. |
+| `/sys/cert.sys` | File | **0** | **0** | `0xf5` | `(FSMode)0x664` | `rw-rw-r--` | Central certificate trust store (`XS00000003`, `CA00000001`, `CP00000004`). Read-access for all UIDs. |
+| `/title` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rw-rw-r--` | Title root directory. |
+| `/sys`, `/shared1`, `/ticket`, `/import` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x660` | `rw-rw----` | System root directories. |
+| `/shared2`, `/tmp` | Dir | **0** | **0** | `0xfe` | `(FSMode)0x666` | `rw-rw-rw-` | Shared system & temp directories (writable by all UIDs). |
+| `/title/<idHi>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rw-rw-r--` | Title category directory (e.g. `00000001`). |
+| `/title/<idHi>/<idLo>` | Dir | **0** | **0** | `0xf6` | `(FSMode)0x664` | `rw-rw-r--` | Specific title directory. |
+| `/title/<idHi>/<idLo>/content` | Dir | **0** | **0** | `0xf2` | `(FSMode)0x660` | `rw-rw----` | Title content directory. |
+| `/ticket/<idHi>` | Dir | **0** | **0** | `0x02` | `(FSMode)0x000` | `---------` | Ticket category subdirectory. |
+| `/title/<idHi>/<idLo>/data` | Dir | **`Title UID`** | **`TMD GID`** | `0xc2` | `(FSMode)0x600` | `rw-------` | Title save data / configuration directory. |
 
 ---
 

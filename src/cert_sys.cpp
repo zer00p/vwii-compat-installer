@@ -1,4 +1,5 @@
 #include "cert_sys.h"
+#include "PathRules.h"
 #include "EndianUtils.h"
 #include "downloader.h"
 #include "log.h"
@@ -87,8 +88,9 @@ bool CERT_VerifyIntegrity(FSAClientHandle fsaClient, std::vector<ParsedCert>& ou
 
     ResolvedPathRule expRule;
     if (!PathRules_CheckPermissions(fsaClient, VWII_CERT_SYS_PATH, stat, &expRule)) {
-        outReasons.push_back(std::format("Perms {}/{}/{:x} incorrect on /sys/cert.sys",
-                                         (uint32_t)stat.owner, (uint32_t)stat.group, (uint32_t)(stat.mode & 0x666)));
+        outReasons.push_back(std::format("Perms {}/{}/{:03x} incorrect on /sys/cert.sys (expected {}/{}/{:03x})",
+                                         (uint32_t)stat.owner, (uint32_t)stat.group, (uint32_t)(stat.mode & 0x777),
+                                         expRule.uid, expRule.gid, (uint32_t)expRule.mode));
     }
 
     constexpr size_t minCertSysSize = sizeof(CertRsa4096Rsa2048) + (2 * sizeof(CertRsa2048)); // 0x400 + 2 * 0x300 = 2560 bytes
