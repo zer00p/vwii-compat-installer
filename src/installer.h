@@ -1,5 +1,5 @@
 /* installer.h
- *   Copyright (C) 2021  TheLordScruffy
+ *   Copyright (C) 2021-2026  TheLordScruffy, DaThinkingChair, zer00p
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,7 +43,6 @@ typedef struct
 extern int32_t CINS_iosuhaxFd;
 extern int32_t CINS_fsaFd;
 extern int32_t CINS_logLine;
-int32_t FindSharedContentIndex(const uint8_t* expectedHash);
 
 int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticket_size, const TitleTmd *tmd,
                      uint32_t tmd_size, const CINS_Content *contents,
@@ -54,10 +53,9 @@ bool CINS_UninstallTitle(uint64_t titleId);
 
 #ifdef __cplusplus
 }
-#endif
 
-#ifdef __cplusplus
 #include "FSAUtils.h"
+
 UninstallResult CINS_UninstallTitleResult(uint64_t titleId);
 #endif
 

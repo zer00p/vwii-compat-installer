@@ -101,9 +101,9 @@ void md5(u8 *data, u32 len, u8 *hash)
 	mbedtls_md5_ret(data, len, hash);
 }
 
-void sha(u8 *data, u32 len, u8 *hash)
+void sha(const u8 *data, u32 len, u8 *hash)
 {
-	mbedtls_sha1_ret(data, len, hash);
+	mbedtls_sha1_ret((const unsigned char*)data, len, hash);
 }
 
 void get_key(const char *name, u8 *key, u32 len)
@@ -219,7 +219,7 @@ static u32 get_sub_len(u8 *sub)
 	return 0;
 }
 
-static int check_rsa(u8 *h, u8 *sig, u8 *key, u32 n)
+int check_rsa(u8 *h, u8 *sig, u8 *key, u32 n)
 {
 	u8 correct[0x200];
 	u8 x[0x200];

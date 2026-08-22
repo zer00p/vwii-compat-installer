@@ -4,33 +4,39 @@
 #include "InputUtils.h"
 #include <unistd.h>
 
-static void DrawMenu(const std::vector<std::string>& header, const std::vector<std::string>& options, int selected) {
+static void DrawMenu(const std::vector<std::string>& header, const std::vector<std::string>& options, int selected, bool allowCancel) {
     ScreenUtils_ClearBuffer(0);
-    int offset = 0;
-    for (size_t i = 0; i < header.size(); i++) {
-        ScreenUtils_PutFont(0, offset++, header[i].c_str());
+    int header_lines = std::min((int)header.size(), 14);
+    for (int i = 0; i < header_lines; i++) {
+        ScreenUtils_PutFont(0, i, header[i].c_str());
     }
 
+    bool has_gap = (header_lines + 2 < 17);
+    int opt_start = header_lines + (has_gap ? 1 : 0);
+    int max_display = std::max(1, 17 - opt_start);
     int count = (int)options.size();
-    int max_display = std::max(1, 17 - 1 - (int)header.size());
     int start_idx = std::max(0, std::min(selected - max_display / 2, count - max_display));
 
     for (int i = 0; i < max_display && start_idx + i < count; i++) {
         int idx = start_idx + i;
         std::string line = (idx == selected ? "-> " : "   ") + options[idx];
-        ScreenUtils_PutFont(0, offset + 1 + i, line.c_str());
+        ScreenUtils_PutFont(0, opt_start + i, line.c_str());
     }
 
-    ScreenUtils_PutFont(0, 17, "A: Select | B: Cancel | D-Pad: Move/Page");
+    if (allowCancel) {
+        ScreenUtils_PutFont(0, 17, "A: Select | B: Cancel | D-Pad: Move/Page");
+    } else {
+        ScreenUtils_PutFont(0, 17, "A: Select | D-Pad: Move/Page | HOME: Exit");
+    }
     ScreenUtils_FlipBuffers();
 }
 
-int ShowMenu(const std::vector<std::string>& header, const std::vector<std::string>& options) {
+int ShowMenu(const std::vector<std::string>& header, const std::vector<std::string>& options, int defaultSelected, bool allowCancel) {
     if (options.empty()) return -1;
     
-    int selected = 0;
+    int selected = std::max(0, std::min(defaultSelected, (int)options.size() - 1));
     auto Draw = [&]() {
-        DrawMenu(header, options, selected);
+        DrawMenu(header, options, selected, allowCancel);
     };
     
     Draw();
@@ -59,7 +65,7 @@ int ShowMenu(const std::vector<std::string>& header, const std::vector<std::stri
             selected = std::min((int)options.size() - 1, selected + 10);
             changed = true;
         }
-        else if (input.get(TRIGGER, PAD_BUTTON_B)) {
+        else if (allowCancel && input.get(TRIGGER, PAD_BUTTON_B)) {
             return -1;
         }
         else if (input.get(TRIGGER, PAD_BUTTON_A)) {
@@ -74,13 +80,15 @@ int ShowMenu(const std::vector<std::string>& header, const std::vector<std::stri
 
 static void DrawMultiSelectMenu(const std::vector<std::string>& header, const std::vector<std::string>& options, const std::vector<bool>& selectedOptions, int cursor) {
     ScreenUtils_ClearBuffer(0);
-    int offset = 0;
-    for (size_t i = 0; i < header.size(); i++) {
-        ScreenUtils_PutFont(0, offset++, header[i].c_str());
+    int header_lines = std::min((int)header.size(), 14);
+    for (int i = 0; i < header_lines; i++) {
+        ScreenUtils_PutFont(0, i, header[i].c_str());
     }
 
+    bool has_gap = (header_lines + 2 < 17);
+    int opt_start = header_lines + (has_gap ? 1 : 0);
+    int max_display = std::max(1, 17 - opt_start);
     int count = (int)options.size();
-    int max_display = std::max(1, 17 - 1 - (int)header.size());
     int start_idx = std::max(0, std::min(cursor - max_display / 2, count - max_display));
 
     for (int i = 0; i < max_display && start_idx + i < count; i++) {
@@ -88,7 +96,7 @@ static void DrawMultiSelectMenu(const std::vector<std::string>& header, const st
         std::string prefix = (idx == cursor ? "-> " : "   ");
         prefix += (selectedOptions[idx] ? "[x] " : "[ ] ");
         std::string line = prefix + options[idx];
-        ScreenUtils_PutFont(0, offset + 1 + i, line.c_str());
+        ScreenUtils_PutFont(0, opt_start + i, line.c_str());
     }
 
     ScreenUtils_PutFont(0, 17, "A: Toggle | X: All | +: Confirm | B: Cancel | D-Pad: Move/Page");

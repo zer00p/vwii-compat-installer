@@ -1,5 +1,7 @@
 #include "ios_common.h"
 #include "installer.h"
+#include "content_map.h"
+#include "FSAUtils.h"
 #include "log.h"
 #include "EndianUtils.h"
 #include <mbedtls/sha1.h>
@@ -62,43 +64,6 @@ void Write64BE(uint8_t* p, uint64_t v) {
     p[7] = v & 0xFF;
 }
 
-void SHA1(const uint8_t* data, size_t len, uint8_t hash[20]) {
-    mbedtls_sha1_context ctx;
-    mbedtls_sha1_init(&ctx);
-    mbedtls_sha1_starts_ret(&ctx);
-    mbedtls_sha1_update_ret(&ctx, data, len);
-    mbedtls_sha1_finish_ret(&ctx, hash);
-    mbedtls_sha1_free(&ctx);
-}
-
-bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize) {
-    FSAFileHandle fd;
-    if (FSAOpenFileEx(fsaClient, path.c_str(), "rb", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        return false;
-    }
-
-    FSStat stat;
-    FSAGetStatFile(fsaClient, fd, &stat);
-    uint32_t size = stat.size;
-
-    uint8_t* buf = (uint8_t*)memalign(0x40, (size + 0x3F) & ~0x3F);
-    if (!buf) {
-        FSACloseFile(fsaClient, fd);
-        return false;
-    }
-
-    if (FSAReadFile(fsaClient, buf, 1, size, fd, FSA_READ_FLAG_NONE) != (int32_t)size) {
-        free(buf);
-        FSACloseFile(fsaClient, fd);
-        return false;
-    }
-
-    FSACloseFile(fsaClient, fd);
-    *outBuf = buf;
-    *outSize = size;
-    return true;
-}
-
 int ReplacePattern(uint8_t *buf, uint32_t size, const uint8_t* search, const uint8_t* replace, uint32_t len, bool revert) {
     int count = 0;
     const uint8_t* p1 = revert ? replace : search;
@@ -124,18 +89,22 @@ bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size) {
     return zeroCount < (size / 2);
 }
 
+bool HasPristineBackup(uint32_t ios_ver) {
+    FSAFileHandle testFd = 0;
+    std::string tmdBackup = GetTmdBackupPath(ios_ver);
+    if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
+        FSACloseFile(fsaClient, testFd);
+        return true;
+    }
+    return false;
+}
+
 void BackupPristineTmdAndTicket(uint32_t ios_ver, MemIOS* ios) {
     if (!ios || !ios->tmd || !ios->ticket) return;
 
-    FSAFileHandle testFd;
-    std::string tmdBackup = GetTmdBackupPath(ios_ver);
-    std::string tikBackup = GetTikBackupPath(ios_ver);
-
-    if (FSAOpenFileEx(fsaClient, tmdBackup.c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK) {
-        FSACloseFile(fsaClient, testFd);
-    } else {
-        WriteBufferToFile(tmdBackup, (uint8_t*)ios->tmd, ios->tmdSize);
-        WriteBufferToFile(tikBackup, (uint8_t*)ios->ticket, ios->ticketSize);
+    if (!HasPristineBackup(ios_ver)) {
+        SlcWriteFile(GetTmdBackupPath(ios_ver), (uint8_t*)ios->tmd, ios->tmdSize);
+        SlcWriteFile(GetTikBackupPath(ios_ver), (uint8_t*)ios->ticket, ios->ticketSize);
     }
 }
 
@@ -147,27 +116,14 @@ bool RestoreIOSFromNUS(uint32_t ios_ver) {
         return false;
     }
 
-    WADContext* ctx = NUS_DownloadTitle(titleId, latestVersion);
-    if (!ctx) {
-        Patcher_Log("Error: Failed to download IOS" + std::to_string(ios_ver));
-        return false;
-    }
-
-    if (!WAD_IsSafeTitle(ctx)) {
-        Patcher_Log("Error: Downloaded title is unsafe. Aborting.");
-        WAD_Free(ctx);
-        return false;
-    }
-
-    bool ok = WAD_InstallToVWii(ctx, 0);
-    if (ok) {
+    if (NUS_DownloadAndInstall(titleId, latestVersion) == DownloadResult::SUCCESS) {
         Patcher_Log("Successfully restored original IOS" + std::to_string(ios_ver) + " from NUS!");
         RemoveBackupFiles(ios_ver);
+        return true;
     } else {
-        Patcher_Log("Error: Failed to write original IOS" + std::to_string(ios_ver));
+        Patcher_Log("Error: Failed to restore original IOS" + std::to_string(ios_ver));
+        return false;
     }
-    WAD_Free(ctx);
-    return ok;
 }
 
 bool LoadPristineSharedContents(MemIOS* ios, const TitleTmd* origTmd) {
@@ -184,7 +140,7 @@ bool LoadPristineSharedContents(MemIOS* ios, const TitleTmd* origTmd) {
                 if (FromBE16(origRecords[k].type) & 0x8000) {
                     isShared = true;
                 }
-                expectedHash = origRecords[k].hash;
+                expectedHash = origRecords[k].hash.data();
                 break;
             }
         }
@@ -216,14 +172,14 @@ bool VerifyAndInstallRestoredIOS(uint32_t ios_ver, MemIOS* ios, const uint8_t* o
     std::vector<std::string> mismatchErrors;
     for (uint16_t i = 0; i < origNumContents; i++) {
         uint32_t cid = FromBE32(origRecords[i].contentId);
-        const uint8_t* expectedHash = origRecords[i].hash;
+        const uint8_t* expectedHash = origRecords[i].hash.data();
 
         bool found = false;
         for (uint32_t j = 0; j < ios->numContents; j++) {
             if (ios->contents[j].cid == cid) {
                 found = true;
                 uint8_t actualHash[20];
-                SHA1(ios->contents[j].data, ios->contents[j].size, actualHash);
+                sha(ios->contents[j].data, ios->contents[j].size, actualHash);
                 if (memcmp(expectedHash, actualHash, 20) != 0) {
                     hashesMatch = false;
                     mismatchErrors.push_back("Hash mismatch: " + ToHexString(cid));
@@ -289,28 +245,14 @@ std::string GetTikBackupPath(uint32_t ios_ver) {
 void RemoveBackupFiles(uint32_t ios) {
     std::string tmdBackup = GetTmdBackupPath(ios);
     std::string tikBackup = GetTikBackupPath(ios);
-    FSARemove(fsaClient, tmdBackup.c_str());
-    FSARemove(fsaClient, tikBackup.c_str());
-}
-
-bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size) {
-    FSAFileHandle fd;
-    if (FSAOpenFileEx(fsaClient, path.c_str(), "wb", (FSMode)0666, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        return false;
+    FSError res = FSARemove(fsaClient, tmdBackup.c_str());
+    if (res != FS_ERROR_OK && res != FS_ERROR_NOT_FOUND) {
+        Patcher_Log("Warning: Failed to remove TMD backup " + tmdBackup + "\n");
     }
-
-    uint8_t* alignedBuf = (uint8_t*)memalign(0x40, (size + 0x3F) & ~0x3F);
-    if (!alignedBuf) {
-        FSACloseFile(fsaClient, fd);
-        return false;
+    res = FSARemove(fsaClient, tikBackup.c_str());
+    if (res != FS_ERROR_OK && res != FS_ERROR_NOT_FOUND) {
+        Patcher_Log("Warning: Failed to remove Ticket backup " + tikBackup + "\n");
     }
-    memcpy(alignedBuf, buf, size);
-
-    int writeRes = FSAWriteFile(fsaClient, alignedBuf, 1, size, fd, FSA_WRITE_FLAG_NONE);
-    free(alignedBuf);
-    FSACloseFile(fsaClient, fd);
-
-    return writeRes == (int)size;
 }
 
 std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
@@ -357,7 +299,7 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos) {
 
         uint16_t cType = FromBE16(outIos->tmd->contents[i].type);
         if ((cType & 0x8000) != 0) {
-            int32_t sharedIndex = FindSharedContentIndex(outIos->tmd->contents[i].hash);
+            int32_t sharedIndex = FindSharedContentIndex(outIos->tmd->contents[i].hash.data());
             if (sharedIndex < 0) {
                 Patcher_Log("Failed to find shared content for cid " + ToHexString(cid, 8) + "\n");
                 return nullptr;
@@ -380,7 +322,7 @@ static void BruteTmd(TitleTmd* tmd, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
         tmd->fakeBootIndex = fill;
-        SHA1((uint8_t*)tmd + offsetof(TitleTmd, issuer), size - offsetof(TitleTmd, issuer), hash);
+        sha((uint8_t*)tmd + offsetof(TitleTmd, issuer), size - offsetof(TitleTmd, issuer), hash);
         if (hash[0] == 0) return;
     }
 }
@@ -389,7 +331,7 @@ static void BruteTicket(TitleTicket* ticket, uint32_t size) {
     uint8_t hash[20];
     for (uint32_t fill = 0; fill < 65535; fill++) {
         ticket->padding2 = fill;
-        SHA1((uint8_t*)ticket + offsetof(TitleTicket, issuer), size - offsetof(TitleTicket, issuer), hash);
+        sha((uint8_t*)ticket + offsetof(TitleTicket, issuer), size - offsetof(TitleTicket, issuer), hash);
         if (hash[0] == 0) return;
     }
 }
@@ -435,9 +377,7 @@ bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios) {
         uint32_t cid = FromBE32(records[i].contentId);
         for (uint32_t j = 0; j < ios.numContents; j++) {
             if (ios.contents[j].cid == cid) {
-                uint8_t hash[20];
-                SHA1(ios.contents[j].data, ios.contents[j].size, hash);
-                memcpy(records[i].hash, hash, 20);
+                sha(ios.contents[j].data, ios.contents[j].size, records[i].hash.data());
                 break;
             }
         }

@@ -1,5 +1,5 @@
 /* Compat Title Installer main source file
- *   Copyright (C) 2021  TheLordScruffy
+ *   Copyright (C) 2021-2026  TheLordScruffy, DaThinkingChair, zer00p
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,10 @@
 #include "drive_inquiry_patcher.h"
 #include "MenuUtils.h"
 #include "downloader.h"
+#include "settingtxt_manager.h"
+#include "settingtxt_menu.h"
+#include "region_changer.h"
+#include "wipe_reinstall.h"
 
 #define FS_ALIGN(x) ((x + 0x3F) & ~(0x3F))
 
@@ -186,6 +190,7 @@ void WUPI_installWAD() {
     int failCount = 0;
 
     for (const auto& wadPath : selectedWads) {
+        if (!State::AppRunning()) break;
         WUPI_Log("Installing (%d/%d):", successCount + failCount + 1, (int)selectedWads.size());
 
         const char* filename = strrchr(wadPath.c_str(), '/');
@@ -196,24 +201,11 @@ void WUPI_installWAD() {
 
         bool failed = false;
         WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
-        if (!ctx) {
-            WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
-            failed = true;
-        } else if (!WAD_IsSafeTitle(ctx)) {
-            WUPI_putstr("Error: This is an original Wii System Title!");
-            WUPI_putstr("Installing this WILL BRICK your vWii.");
-            WUPI_putstr("Skipping this WAD for safety.");
-            failed = true;
+        if (WAD_InstallSafe(ctx)) {
+            successCount++;
+            sleep(1);
         } else {
-            WUPI_putstr("Writing to slccmpt...\n");
-            if (WAD_InstallToVWii(ctx, 0)) {
-                WUPI_putstr("WAD Installation complete!\n");
-                successCount++;
-                sleep(1);
-            } else {
-                WUPI_putstr("Error: WAD installation failed.\n");
-                failed = true;
-            }
+            failed = true;
         }
 
         if (ctx) {
@@ -227,6 +219,8 @@ void WUPI_installWAD() {
             }
         }
     }
+
+    if (!State::AppRunning()) return;
 
     WUPI_resetScreen();
     WUPI_Log("Batch Install Complete!");
@@ -281,20 +275,22 @@ void WUPI_openShopChannelMenu() {
     int failCount = 0;
 
     for (int idx : selected) {
+        if (!State::AppRunning()) break;
         WUPI_Log("Downloading (%d/%d):", successCount + failCount + 1, (int)selected.size());
         WUPI_Log("%s\n", options[idx].c_str());
 
-        if (DownloadAndExtractApp(appIds[idx])) {
+        DownloadResult res = DownloadAndExtractApp(appIds[idx]);
+        if (res == DownloadResult::SUCCESS) {
             successCount++;
+        } else if (res == DownloadResult::CANCELLED) {
+            failCount++;
+            break;
         } else {
             failCount++;
-
-            WUPI_putstr("Press A to continue with next app, B to abort.");
-            if (!WaitPrompt()) {
-                break;
-            }
         }
     }
+
+    if (!State::AppRunning()) return;
 
     WUPI_resetScreen();
     WUPI_Log("Batch Download Complete!\n");
@@ -339,7 +335,7 @@ void WUPI_cIOSMenu() {
         } else if (selected == 6) {
             WUPI_resetScreen();
             WUPI_Log("Downloading d2x-cios-installer...\n");
-            if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
+            if (DownloadAndExtractApp("d2x-cios-installer-vwii") == DownloadResult::SUCCESS) {
                 WUPI_Log("Download complete!\n");
             } else {
                 WUPI_Log("Download failed.\n");
@@ -373,30 +369,24 @@ void WUPI_usbLoaderGXMenu() {
     int failCount = 0;
 
     for (int idx : selected) {
+        if (!State::AppRunning()) break;
         WUPI_Log("Processing (%d/%d):", successCount + failCount + 1, (int)selected.size());
         WUPI_Log("%s\n", options[idx].c_str());
 
-        bool success = false;
+        DownloadResult res = DownloadResult::FAILED;
         if (idx == 0) {
-            success = DownloadAndExtractApp("usbloader_gx");
+            res = DownloadAndExtractApp("usbloader_gx");
         } else if (idx == 1) {
             std::string wadUrl = "https://github.com/wiidev/usbloadergx/raw/refs/heads/updates/USBLoaderGX_forwarder%5BUNEO%5D.wad";
             std::string wadPath = "/vol/external01/wad/USBLoaderGX_forwarder_UNEO.wad";
-            if (DownloadFile(wadUrl, wadPath)) {
+            res = DownloadFile(wadUrl, wadPath);
+            if (res == DownloadResult::SUCCESS) {
                 WUPI_putstr("Loading and decrypting WAD...\n");
                 WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
-                if (!ctx) {
-                    WUPI_putstr("Error: Failed to load or decrypt WAD.\n");
-                } else if (!WAD_IsSafeTitle(ctx)) {
-                    WUPI_putstr("Error: Unsafe WAD! Skipping for safety.\n");
+                if (WAD_InstallSafe(ctx)) {
+                    WUPI_putstr("WAD Installation complete!\n");
                 } else {
-                    WUPI_putstr("Writing to slccmpt...\n");
-                    if (WAD_InstallToVWii(ctx, 0)) {
-                        WUPI_putstr("WAD Installation complete!\n");
-                        success = true;
-                    } else {
-                        WUPI_putstr("Error: WAD installation failed.\n");
-                    }
+                    res = DownloadResult::FAILED;
                 }
                 if (ctx) {
                     WAD_Free(ctx);
@@ -405,12 +395,15 @@ void WUPI_usbLoaderGXMenu() {
         } else if (idx == 2) {
             std::string wuhbUrl = "https://github.com/WiiDatabase/Boot2vWii/releases/latest/download/USB-Loader-GX-UNEO.wuhb";
             std::string wuhbPath = "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb";
-            success = DownloadFile(wuhbUrl, wuhbPath);
+            res = DownloadFile(wuhbUrl, wuhbPath);
         }
 
-        if (success) {
+        if (res == DownloadResult::SUCCESS) {
             successCount++;
             sleep(1);
+        } else if (res == DownloadResult::CANCELLED) {
+            failCount++;
+            break;
         } else {
             failCount++;
 
@@ -429,102 +422,16 @@ void WUPI_usbLoaderGXMenu() {
     WUPI_waitButton();
 }
 
-// Decryption logic documented at: https://wiibrew.org/wiki//title/00000001/00000002/data/setting.txt
-void DecryptSettingTxt(char* buf, size_t len) {
-    uint32_t key = 0x73B5DBFA;
-    for (size_t i = 0; i < len; i++) {
-        buf[i] ^= key & 0xff;
-        key = (key << 1) | (key >> 31);
-    }
-}
-
 int32_t GetVWiiRegion() {
-    FSAFileHandle fd = 0;
-    int openRes = FSAOpenFileEx(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data/setting.txt", "r", (FSMode) 0x666, FS_OPEN_FLAG_NONE, 0, &fd);
-    if (openRes == FS_ERROR_OK) {
-        char* alignBuf = (char*)memalign(0x40, 2048);
-        if (alignBuf) {
-            memset(alignBuf, 0, 2048);
-            int res = FSAReadFile(fsaClient, alignBuf, 1, 1024, fd, 0);
-            FSACloseFile(fsaClient, fd);
-            if (res > 0) {
-                DecryptSettingTxt(alignBuf, res);
-                std::string settings(alignBuf, res);
-                free(alignBuf);
-                if (settings.find("AREA=EUR") != std::string::npos) return 2;
-                if (settings.find("AREA=USA") != std::string::npos) return 1;
-                if (settings.find("AREA=JPN") != std::string::npos) return 0;
-                // There is no Korean vWii System Menu, but keeping a fallback just in case
-                if (settings.find("AREA=KOR") != std::string::npos) return 3;
-                WUPI_Log("Setting.txt opened, but AREA= string not found!\n");
-            } else {
-                WUPI_Log("Failed to read setting.txt, res: %d\n", res);
-                free(alignBuf);
-            }
-        } else {
-            WUPI_Log("Failed to allocate memory for setting.txt\n");
-            FSACloseFile(fsaClient, fd);
-        }
-    } else {
-        WUPI_Log("Failed to open setting.txt, error: %d\n", openRes);
-    }
-    return -1;
+    return Setting_GetEffectiveRegionCode();
 }
-
-struct NusTitle {
-    uint64_t id;
-    const char* name;
-    bool regionSpecificId;
-    bool regionSpecificVersion;
-};
-
-static const NusTitle g_nusTitles[] = {
-    {0x0000000100000002ULL, "System Menu (vWii)", false, true},
-    {0x0000000100000009ULL, "IOS9", false, false},
-    {0x000000010000000cULL, "IOS12", false, false},
-    {0x000000010000000dULL, "IOS13", false, false},
-    {0x000000010000000eULL, "IOS14", false, false},
-    {0x000000010000000fULL, "IOS15", false, false},
-    {0x0000000100000011ULL, "IOS17", false, false},
-    {0x0000000100000015ULL, "IOS21", false, false},
-    {0x0000000100000016ULL, "IOS22", false, false},
-    {0x000000010000001cULL, "IOS28", false, false},
-    {0x000000010000001fULL, "IOS31", false, false},
-    {0x0000000100000021ULL, "IOS33", false, false},
-    {0x0000000100000022ULL, "IOS34", false, false},
-    {0x0000000100000023ULL, "IOS35", false, false},
-    {0x0000000100000024ULL, "IOS36", false, false},
-    {0x0000000100000025ULL, "IOS37", false, false},
-    {0x0000000100000026ULL, "IOS38", false, false},
-    {0x0000000100000029ULL, "IOS41", false, false},
-    {0x000000010000002bULL, "IOS43", false, false},
-    {0x000000010000002dULL, "IOS45", false, false},
-    {0x000000010000002eULL, "IOS46", false, false},
-    {0x0000000100000030ULL, "IOS48", false, false},
-    {0x0000000100000035ULL, "IOS53", false, false},
-    {0x0000000100000037ULL, "IOS55", false, false},
-    {0x0000000100000038ULL, "IOS56", false, false},
-    {0x0000000100000039ULL, "IOS57", false, false},
-    {0x000000010000003aULL, "IOS58", false, false},
-    {0x000000010000003bULL, "IOS59", false, false},
-    {0x000000010000003eULL, "IOS62", false, false},
-    {0x0000000100000050ULL, "IOS80", false, false},
-    {0x0000000100000200ULL, "BC-Wii", false, false},
-    {0x0000000100000201ULL, "MIOS", false, false},
-    {0x0001000248414241ULL, "Shopping Channel", false, false},
-    {0x0001000248414341ULL, "Mii Channel", false, false},
-    {0x0001000248435500ULL, "Wii Menu Electronic Manual", true, false},
-    {0x0001000248435641ULL, "Wii U Menu Channel", false, false},
-    {0x0001000848414c00ULL, "Region Select", true, false},
-    {0x0001000848435a00ULL, "Wii System Transfer", true, false},
-};
 
 void WUPI_NusMenu() {
     while (State::AppRunning()) {
         WUPI_resetScreen();
         std::vector<std::string> options;
-        for (const auto& t : g_nusTitles) {
-            options.push_back(t.name);
+        for (size_t i = 0; i < g_numNusTitles; i++) {
+            options.push_back(g_nusTitles[i].name);
         }
         std::vector<std::string> header = {
             "Install System Titles from NUS:"
@@ -543,70 +450,18 @@ void WUPI_NusMenu() {
             continue;
         }
 
-        int successCount = 0;
-        int failCount = 0;
-
+        std::vector<const NusTitle*> selectedTitles;
         for (int selected : selected_items) {
-            if (selected >= 0 && selected < (int)(sizeof(g_nusTitles) / sizeof(g_nusTitles[0]))) {
-                uint64_t titleId = g_nusTitles[selected].id;
-                WUPI_Log("--- Processing %s (%d/%d) ---", g_nusTitles[selected].name, successCount + failCount + 1, (int)selected_items.size());
-
-                if (g_nusTitles[selected].regionSpecificId) {
-                    uint8_t regionChar = 0;
-                    switch (regionCode) {
-                        case 0: regionChar = 'J'; break;
-                        case 1: regionChar = 'E'; break;
-                        case 2: regionChar = 'P'; break;
-                        case 3: regionChar = 'K'; break;
-                    }
-                    if (regionChar != 0) {
-                        titleId |= regionChar;
-                    }
-                }
-
-                int32_t latestVersion = NUS_GetLatestVersion(titleId);
-                if (latestVersion == -1) {
-                    WUPI_Log("Error: Failed to fetch latest version from NUS.\n");
-                    failCount++;
-                    WUPI_putstr("Press A to continue with next title, B to abort.");
-                    if (!WaitPrompt()) break;
-                    continue;
-                }
-
-                int32_t version = latestVersion;
-                if (g_nusTitles[selected].regionSpecificVersion) {
-                    version = (latestVersion & ~3) | regionCode;
-                }
-                WUPI_Log("Version: %d\n", version);
-
-                bool failed = false;
-                WADContext* ctx = NUS_DownloadTitle(titleId, version);
-                if (!ctx) {
-                    WUPI_Log("Error: Failed to download or prepare title.\n");
-                    failed = true;
-                } else if (!WAD_IsSafeTitle(ctx)) {
-                    WUPI_Log("Error: Title is unsafe. Aborting installation.\n");
-                    failed = true;
-                } else {
-                    WUPI_Log("Writing to slccmpt...\n");
-                    if (WAD_InstallToVWii(ctx, 0)) {
-                        WUPI_Log("Installation complete!\n");
-                        successCount++;
-                        sleep(1);
-                    } else {
-                        WUPI_Log("Error: Installation failed.\n");
-                        failed = true;
-                    }
-                }
-                if (ctx) WAD_Free(ctx);
-
-                if (failed) {
-                    failCount++;
-                    WUPI_putstr("Press A to continue with next title, B to abort.");
-                    if (!WaitPrompt()) break;
-                }
+            if (selected >= 0 && selected < (int)g_numNusTitles) {
+                selectedTitles.push_back(&g_nusTitles[selected]);
             }
         }
+
+        int successCount = 0;
+        int failCount = 0;
+        NUS_InstallTitlesBatch(selectedTitles, regionCode, successCount, failCount);
+
+        if (!State::AppRunning()) break;
 
         WUPI_resetScreen();
         WUPI_Log("Batch Complete!\n");
@@ -621,7 +476,7 @@ static std::string GetAutoD2XVersionPath() {
     FSADirectoryHandle dir;
     if (FSAOpenDir(fsaClient, baseDir.c_str(), &dir) != FS_ERROR_OK) {
         WUPI_Log("d2x installer not found on SD. Downloading from OSC...\n");
-        if (DownloadAndExtractApp("d2x-cios-installer-vwii")) {
+        if (DownloadAndExtractApp("d2x-cios-installer-vwii") == DownloadResult::SUCCESS) {
             if (FSAOpenDir(fsaClient, baseDir.c_str(), &dir) != FS_ERROR_OK) {
                 return "";
             }
@@ -726,17 +581,19 @@ void WUPI_expressSetupInstall() {
             ulgxDone = true;
             WUPI_Log("--- Installing USB Loader GX ---");
             WUPI_Log("Downloading USB Loader GX App...");
-            ulgxAppSuccess = DownloadAndExtractApp("usbloader_gx");
+            DownloadResult rApp = DownloadAndExtractApp("usbloader_gx");
+            if (rApp == DownloadResult::CANCELLED) break;
+            ulgxAppSuccess = (rApp == DownloadResult::SUCCESS);
 
             WUPI_Log("Downloading & Installing vWii Forwarder Channel...");
             std::string wadUrl = "https://github.com/wiidev/usbloadergx/raw/refs/heads/updates/USBLoaderGX_forwarder%5BUNEO%5D.wad";
             std::string wadPath = "/vol/external01/wad/USBLoaderGX_forwarder_UNEO.wad";
-            if (DownloadFile(wadUrl, wadPath)) {
+            DownloadResult rWad = DownloadFile(wadUrl, wadPath);
+            if (rWad == DownloadResult::CANCELLED) break;
+            if (rWad == DownloadResult::SUCCESS) {
                 WADContext* ctx = WAD_LoadAndDecrypt(wadPath.c_str());
-                if (ctx && WAD_IsSafeTitle(ctx)) {
-                    if (WAD_InstallToVWii(ctx, 0)) {
-                        ulgxWadSuccess = true;
-                    }
+                if (WAD_InstallSafe(ctx)) {
+                    ulgxWadSuccess = true;
                 }
                 if (ctx) WAD_Free(ctx);
             }
@@ -744,7 +601,9 @@ void WUPI_expressSetupInstall() {
             WUPI_Log("Downloading Aroma Forwarder (Boot2vWii)...");
             std::string wuhbUrl = "https://github.com/WiiDatabase/Boot2vWii/releases/latest/download/USB-Loader-GX-UNEO.wuhb";
             std::string wuhbPath = "/vol/external01/wiiu/apps/USB-Loader-GX-UNEO.wuhb";
-            ulgxWuhbSuccess = DownloadFile(wuhbUrl, wuhbPath);
+            DownloadResult rWuhb = DownloadFile(wuhbUrl, wuhbPath);
+            if (rWuhb == DownloadResult::CANCELLED) break;
+            ulgxWuhbSuccess = (rWuhb == DownloadResult::SUCCESS);
 
             if (!ulgxAppSuccess || !ulgxWadSuccess || !ulgxWuhbSuccess) {
                 stepFailed = true;
@@ -753,9 +612,14 @@ void WUPI_expressSetupInstall() {
             oscDone = true;
             WUPI_Log("--- Installing Open Shop Channel Apps ---");
             WUPI_Log("Downloading LibreShop...");
-            oscLibreshopSuccess = DownloadAndExtractApp("libreshop");
+            DownloadResult rLibre = DownloadAndExtractApp("libreshop");
+            if (rLibre == DownloadResult::CANCELLED) break;
+            oscLibreshopSuccess = (rLibre == DownloadResult::SUCCESS);
+
             WUPI_Log("Downloading Homebrew Browser...");
-            oscHbbSuccess = DownloadAndExtractApp("homebrew_browser");
+            DownloadResult rHbb = DownloadAndExtractApp("homebrew_browser");
+            if (rHbb == DownloadResult::CANCELLED) break;
+            oscHbbSuccess = (rHbb == DownloadResult::SUCCESS);
 
             if (!oscLibreshopSuccess || !oscHbbSuccess) {
                 stepFailed = true;
@@ -768,6 +632,8 @@ void WUPI_expressSetupInstall() {
             if (!WaitPrompt()) break;
         }
     }
+
+    if (!State::AppRunning()) return;
 
     WUPI_resetScreen();
     WUPI_Log("=========================================");
@@ -984,6 +850,8 @@ void WUPI_expressSetupUninstall() {
         }
     }
 
+    if (!State::AppRunning()) return;
+
     WUPI_resetScreen();
     WUPI_Log("=========================================");
     WUPI_Log("        EXPRESS UNINSTALL SUMMARY        ");
@@ -1037,10 +905,11 @@ void WUPI_showCredits() {
         "Team Twiizers / fail0verflow - Original HBC",
         "(dhewg, bushing, marcan, segher & others)",
         "",
-        "-- IOS Patchers --",
+        "-- IOS Patchers & Tools --",
         "Dr Clipper, ZRicky11, FIX94,",
         "damysteryman, GaryOderNichts",
         "& Patched IOS Installer contributors",
+        "GaryOderNichts - vWii-Decaffeinator (setting.txt generation)",
         "",
         "-- d2x cIOS --",
         "davebaol, xperia64, blackb0x / wiidev",
@@ -1112,18 +981,20 @@ int main() {
             "cIOS Menu",
             "Open Shop Channel",
             "USB Loader GX",
-            "Download System Titles (NUS)",
+            "Region Change Wizard",
+            "Manage setting.txt",
+            "Decaf Menu (Reinstall & Wipe)",
             "Express Uninstall",
             "Credits"
         };
         std::vector<std::string> header = {
-            "Compat Title Installer v2.0",
-            "COPYRIGHT (c) 2021-2023 TheLordScruffy, DaThinkingChair",
+            "Compat Title Installer v2.1",
+            "COPYRIGHT (c) 2021-2026 TheLordScruffy, DaThinkingChair, zer00p",
             "",
             "Main Menu:"
         };
         while (State::AppRunning()) {
-            int selected = ShowMenu(header, options);
+            int selected = ShowMenu(header, options, 0, false);
             if (selected == 0) {
                 WUPI_install();
             } else if (selected == 1) {
@@ -1137,13 +1008,15 @@ int main() {
             } else if (selected == 5) {
                 WUPI_usbLoaderGXMenu();
             } else if (selected == 6) {
-                WUPI_NusMenu();
+                RegionChange_RunWizard();
             } else if (selected == 7) {
-                WUPI_expressSetupUninstall();
+                WUPI_settingTxtMenu();
             } else if (selected == 8) {
+                WUPI_reinstallWipeMenu();
+            } else if (selected == 9) {
+                WUPI_expressSetupUninstall();
+            } else if (selected == 10) {
                 WUPI_showCredits();
-            } else if (selected == -1) {
-                break;
             }
         }
     }

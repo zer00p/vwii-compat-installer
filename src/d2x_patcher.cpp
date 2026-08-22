@@ -21,6 +21,9 @@
 #include "MenuUtils.h"
 #include "StateUtils.h"
 #include "EndianUtils.h"
+extern "C" {
+#include "wad_tools/tools.h"
+}
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,10 +122,7 @@ static bool AppendModule(MemIOS& ios, const std::string& versionFolder, const st
         records[idx].index = ToBE16(idx);
         records[idx].type = ToBE16(1);
         records[idx].size = ToBE64(moduleSize);
-
-        uint8_t hash[20];
-        SHA1(moduleData, moduleSize, hash);
-        memcpy(records[idx].hash, hash, 20);
+        sha(moduleData, moduleSize, records[idx].hash.data());
     } else {
         // Just append new content
         uint32_t idx = ios.numContents++;
@@ -135,10 +135,7 @@ static bool AppendModule(MemIOS& ios, const std::string& versionFolder, const st
         records[idx].index = ToBE16(idx);
         records[idx].type = ToBE16(1);
         records[idx].size = ToBE64(moduleSize);
-
-        uint8_t hash[20];
-        SHA1(moduleData, moduleSize, hash);
-        memcpy(records[idx].hash, hash, 20);
+        sha(moduleData, moduleSize, records[idx].hash.data());
     }
 
     // Update numContents in TMD header
@@ -266,9 +263,7 @@ void InstallD2X(const std::string& versionFolder) {
                             if (type & 0x8000) {
                                 records[k].type = ToBE16(type & ~0x8000);
                             }
-                            uint8_t hash[20];
-                            SHA1(content->data, content->size, hash);
-                            memcpy(records[k].hash, hash, 20);
+                            sha(content->data, content->size, records[k].hash.data());
                             break;
                         }
                     }
@@ -284,6 +279,8 @@ void InstallD2X(const std::string& versionFolder) {
         sleep(2);
     }
     
+    if (!State::AppRunning()) return;
+
     WUPI_resetScreen();
     Patcher_Log("Installation process finished.\n\n");
     bool anyFailures = false;
@@ -315,12 +312,7 @@ bool UninstallD2X() {
     };
     std::vector<std::string> options;
     for (const auto& config : configs) {
-        std::string slotHex = ToHexString(config.slot, 8);
-        std::string titlePath = "/vol/slccmpt01/title/00000001/" + slotHex;
-        std::string ticketPath = "/vol/slccmpt01/ticket/00000001/" + slotHex + ".tik";
-        FSStat stat;
-        bool isInstalled = (FSAGetStat(fsaClient, titlePath.c_str(), &stat) == FS_ERROR_OK) ||
-                           (FSAGetStat(fsaClient, ticketPath.c_str(), &stat) == FS_ERROR_OK);
+        bool isInstalled = CINS_TitleExists(0x0000000100000000ULL | config.slot);
 
         std::string opt = "Slot " + std::to_string(config.slot) + " (Base IOS " + std::to_string(config.base) + ")";
         if (isInstalled) {
@@ -355,6 +347,8 @@ bool UninstallD2X() {
         }
         sleep(1);
     }
+
+    if (!State::AppRunning()) return false;
 
     WUPI_resetScreen();
     Patcher_Log("Uninstallation process finished.\n\n");
@@ -484,9 +478,7 @@ void InstallD2XBatch(const std::string& versionFolder, std::vector<std::pair<int
                             if (type & 0x8000) {
                                 records[k].type = ToBE16(type & ~0x8000);
                             }
-                            uint8_t hash[20];
-                            SHA1(content->data, content->size, hash);
-                            memcpy(records[k].hash, hash, 20);
+                            sha(content->data, content->size, records[k].hash.data());
                             break;
                         }
                     }

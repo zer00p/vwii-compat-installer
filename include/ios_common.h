@@ -35,9 +35,6 @@ void Write16BE(uint8_t* p, uint16_t v);
 void Write32BE(uint8_t* p, uint32_t v);
 void Write64BE(uint8_t* p, uint64_t v);
 
-void SHA1(const uint8_t* data, size_t len, uint8_t hash[20]);
-bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize);
-bool WriteBufferToFile(const std::string& path, uint8_t* buf, uint32_t size);
 std::string GetTmdBackupPath(uint32_t ios_ver);
 std::string GetTikBackupPath(uint32_t ios_ver);
 void RemoveBackupFiles(uint32_t ios_ver);
@@ -45,6 +42,7 @@ std::unique_ptr<MemIOS> ReadBaseIOS(uint32_t baseIos);
 bool WritePatchedIOS(uint32_t titleIdLow, MemIOS& ios);
 
 bool IsOriginalNintendoSignature(const uint8_t* signature, size_t size);
+bool HasPristineBackup(uint32_t ios_ver);
 void BackupPristineTmdAndTicket(uint32_t ios_ver, MemIOS* ios);
 
 bool RestoreIOSFromNUS(uint32_t ios_ver);

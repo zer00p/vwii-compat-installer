@@ -22,11 +22,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <vector>
 #include "installer.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "downloader.h"
 
 // Represents a loaded WAD file and its parsed components
 typedef struct {
@@ -70,7 +68,7 @@ typedef struct {
 WADContext* WAD_LoadAndDecrypt(const char* filepath);
 
 // Download a title from NUS (handling vWii 00000007 logic and resigning).
-WADContext* NUS_DownloadTitle(uint64_t titleId, int32_t version);
+DownloadResult NUS_DownloadTitle(uint64_t titleId, int32_t version, WADContext** outCtx);
 
 // Get the latest version of a title from NUS. Returns -1 on failure.
 int32_t NUS_GetLatestVersion(uint64_t titleId);
@@ -82,15 +80,39 @@ void WAD_Free(WADContext* ctx);
 // Returns true on success, false on failure.
 bool WAD_InstallToVWii(WADContext* ctx, int fsaFd);
 
+// Validates safety and installs WADContext to vWii. Returns true on success, false on failure.
+bool WAD_InstallSafe(WADContext* ctx);
+
+// Downloads title from NUS, validates safety, installs to vWii, and frees context.
+DownloadResult NUS_DownloadAndInstall(uint64_t titleId, int32_t version);
+
 // Check if the given Title ID is a safe title type (blocks System Menu and critical IOS).
 bool WAD_IsSafeTitle(WADContext* ctx);
 
 // Reads the common key from OTP hardware
-bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]);
+extern "C" bool GetCommonKeyFromOTP(uint8_t index, uint8_t outKey[16]);
 
+typedef struct {
+    uint64_t id;
+    const char* name;
+    bool regionSpecificId;
+    bool regionSpecificVersion;
+} NusTitle;
 
-#ifdef __cplusplus
-}
-#endif
+extern const NusTitle g_nusTitles[38];
+extern const size_t g_numNusTitles;
+
+// Resolves region-specific Title ID (e.g. adding 'E', 'P', 'J' character)
+uint64_t NUS_ResolveTitleId(const NusTitle* title, int32_t regionCode);
+
+// Resolves title version from NUS and applies region-specific versioning if needed
+int32_t NUS_ResolveTitleVersion(const NusTitle* title, uint64_t resolvedTitleId, int32_t regionCode);
+
+// Resolves version and installs a system title from NUS
+DownloadResult NUS_InstallSystemTitle(const NusTitle* title, int32_t regionCode);
+
+// Installs a list of NUS system titles in a loop, displaying progress and handling abort prompts.
+// Returns true if all completed successfully, false if any failed or user aborted.
+bool NUS_InstallTitlesBatch(const std::vector<const NusTitle*>& titles, int32_t regionCode, int& outSuccess, int& outFailed);
 
 #endif // WAD_H

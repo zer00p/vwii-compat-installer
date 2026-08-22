@@ -1,0 +1,21 @@
+#pragma once
+
+// Displays the Decaf Menu (Reinstall & Wipe) submenu
+void WUPI_reinstallWipeMenu();
+
+// Scan and restore vWii system environment
+void WUPI_ScanAndRestoreMenu();
+
+// System Titles installer from NUS (multi-select / batch install)
+void WUPI_NusMenu();
+
+// Granular wipe wizards:
+// 1. Wipe system titles and tickets, preserving user titles, saves, user tickets, /sys/uid.sys, and shared contents
+void WUPI_wipeExcludeTitlesAndTickets();
+
+// 2. Wipe SLCCMPT partition preserving user tickets only
+void WUPI_wipeExcludeTickets();
+
+// 3. Full wipe and reinstall of SLCCMPT partition (complete erasure)
+void WUPI_fullWipeAndReinstall();
+

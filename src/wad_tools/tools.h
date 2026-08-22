@@ -43,13 +43,14 @@ void bn_exp(u8 *d, u8 *a, u8 *N, u32 n, u8 *e, u32 en);
 
 // crypto
 void md5(u8 *data, u32 len, u8 *hash);
-void sha(u8 *data, u32 len, u8 *hash);
+void sha(const u8 *data, u32 len, u8 *hash);
 void get_key(const char *name, u8 *key, u32 len);
 void aes_cbc_dec(u8 *key, u8 *iv, u8 *in, u32 len, u8 *out);
 void aes_cbc_enc(u8 *key, u8 *iv, u8 *in, u32 len, u8 *out);
 void load_common_key(const char* path);
 void set_common_key(const u8* key);
 void decrypt_title_key(u8 *tik, u8 *title_key);
+int check_rsa(u8 *h, u8 *sig, u8 *key, u32 n);
 int check_cert_chain(u8 *data, u32 data_len, u8 *cert, u32 cert_len);
 int check_cert_chain_trucha(u8* data, u32 data_len, u8* cert, u32 cert_len);
 int TMD_resign(u8 *tmd, u32 tmd_len);

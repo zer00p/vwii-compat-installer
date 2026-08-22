@@ -17,6 +17,7 @@
 #include "EndianUtils.h"
 #include "log.h"
 #include "wad.h"
+#include "StateUtils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -240,9 +241,7 @@ void UndoIOS80Patches() {
         return;
     }
 
-    FSAFileHandle testFd;
-    bool hasBackup = (FSAOpenFileEx(fsaClient, GetTmdBackupPath(80).c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
-    if (hasBackup) FSACloseFile(fsaClient, testFd);
+    bool hasBackup = HasPristineBackup(80);
 
     std::vector<std::string> header = {
         "Undo IOS80 Patches",
@@ -260,7 +259,8 @@ void UndoIOS80Patches() {
     WUPI_resetScreen();
 
     int choice = ShowMenu(header, options);
-    if (choice == (int)options.size() - 1) {
+    if (choice == -1 || choice == (int)options.size() - 1) {
+        if (!State::AppRunning()) return;
         WUPI_resetScreen();
         Patcher_Log("IOS80 unpatching cancelled.");
         Patcher_Log("");
@@ -294,10 +294,7 @@ bool UndoIOS80PatchesBatch() {
         return true;
     }
 
-    FSAFileHandle testFd;
-    bool hasBackup = (FSAOpenFileEx(fsaClient, GetTmdBackupPath(80).c_str(), "r", (FSMode)0, FS_OPEN_FLAG_NONE, 0, &testFd) == FS_ERROR_OK);
-    if (hasBackup) {
-        FSACloseFile(fsaClient, testFd);
+    if (HasPristineBackup(80)) {
         Patcher_Log("Restoring IOS80 from local backup...");
         if (RestoreIOS80FromBackup()) {
             return true;

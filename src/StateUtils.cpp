@@ -46,8 +46,8 @@ bool State::AppRunning() {
                         OSScreenSetBufferEx(SCREEN_TV, screen_buffer);
                         OSScreenSetBufferEx(SCREEN_DRC, screen_buffer + OSScreenGetBufferSizeEx(SCREEN_TV));
                         ScreenUtils_Enable();
-                        ScreenUtils_Redraw();
                         wasBackground = false;
+                        ScreenUtils_Redraw();
                     }
                     return true;
                 case PROCUI_STATUS_IN_BACKGROUND:
@@ -72,6 +72,14 @@ bool State::isExiting() {
     return exiting;
 }
 
+bool State::isInBackground() {
+    return wasBackground;
+}
+
+bool State::canDraw() {
+    return !exiting && !wasBackground;
+}
+
 void State::shutdown() {
     if (aroma) {
         // Do NOT call OSScreenShutdown() here. Under Aroma, the system has
@@ -80,9 +88,8 @@ void State::shutdown() {
         // in OSScreenEnableEx called internally by OSScreenShutdown).
         ProcUIShutdown();
     } else {
-        OSScreenShutdown();
         WHBProcShutdown();
         // Note: WHBProcIsRunning() already called ProcUIShutdown() when the
-        // main loop exited, so we must NOT call it again here.
+        // main loop exited, so we must NOT call OSScreenShutdown() or ProcUIShutdown() again here.
     }
 }

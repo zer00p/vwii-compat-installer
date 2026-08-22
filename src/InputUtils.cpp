@@ -128,11 +128,18 @@ bool Input::get(ButtonState state, Button button) const {
                 if (kpadProState & WPAD_PRO_BUTTON_MINUS) return true;
                 break;
             case PAD_BUTTON_ANY:
-                if (vpadState) return true;
-                if (kpadState) return true;
-                if (kpadClassicState) return true;
-                if (kpadProState) return true;
-                break;
+                return (get(state, PAD_BUTTON_A) ||
+                        get(state, PAD_BUTTON_B) ||
+                        get(state, PAD_BUTTON_X) ||
+                        get(state, PAD_BUTTON_Y) ||
+                        get(state, PAD_BUTTON_UP) ||
+                        get(state, PAD_BUTTON_DOWN) ||
+                        get(state, PAD_BUTTON_LEFT) ||
+                        get(state, PAD_BUTTON_RIGHT) ||
+                        get(state, PAD_BUTTON_L) ||
+                        get(state, PAD_BUTTON_R) ||
+                        get(state, PAD_BUTTON_PLUS) ||
+                        get(state, PAD_BUTTON_MINUS));
         }
     }
     return false;
