@@ -9,3 +9,7 @@ testdata
 testdata/
 *.py[cod]
 __pycache__/
+.cache/
+.clangd
+.zed/
+*.swp
