@@ -35,12 +35,6 @@ inline std::string_view VwiiCleanPath(std::string_view fullPath) {
 // Writes a buffer to an FSA file handle using a 0x40 aligned internal buffer
 bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, size_t size);
 
-// Recursively creates all parent directories for a file path using FSA. Returns true on success.
-bool EnsureFSAParentDir(FSAClientHandle fsaClient, const std::string& filePath);
-
-// Recursively creates a directory and all parent directories using FSA. Returns true on success.
-bool EnsureFSADir(FSAClientHandle fsaClient, const std::string& dirPath);
-
 // Recursively removes a directory tree or file using FSA. Set keepRoot=true to keep the root directory itself.
 bool FSARemoveTree(FSAClientHandle fsaClient, const std::string& path, bool keepRoot = false);
 
@@ -54,25 +48,55 @@ enum class UninstallResult {
 UninstallResult FSARemovePathResult(FSAClientHandle fsaClient, const std::string& path, bool isDirectory = true);
 
 // Changes ownership (UID and GID) of a file or directory via raw FSA IPC (ioctl 0x70)
+// SLC (SLCCMPT) only — FAT32 (SD card) does not support ownership.
 FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint32_t uid, uint32_t gid);
 
-// Creates a directory using ownership and permissions resolved from PathRules
-FSError FSAMakeDir(FSAClientHandle fsaClient, const std::string& path, uint16_t tmdGroupId = 0);
+// ---------------------------------------------------------------------------
+// SLC (SLCCMPT / vWii NAND) helpers
+// These wrappers resolve PathRules and apply correct ownership + permission
+// modes via FSA_ChangeOwner / FSAChangeMode. Never use on SD card paths.
+// ---------------------------------------------------------------------------
 
-// Creates a directory, sets ownership (UID/GID) while empty, returning the FSAMakeDir result
-FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode = (FSMode)0x664, uint32_t uid = 0, uint32_t gid = 0);
+// Creates a directory using ownership and permissions resolved from PathRules.
+FSError SlcMakeDir(FSAClientHandle fsaClient, const std::string& path, uint16_t tmdGroupId = 0);
 
-// Creates a file using ownership and permissions resolved from PathRules
-bool FSACreateFile(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, uint16_t tmdGroupId = 0);
+// Creates a directory with explicit ownership. Chowns while the directory is still empty.
+FSError SlcMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode = (FSMode)0x664, uint32_t uid = 0, uint32_t gid = 0);
 
-// Creates an empty file, sets ownership (UID/GID) while empty (size 0), then writes payload
-bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, FSMode mode, uint32_t uid, uint32_t gid);
+// Recursively creates a directory and all intermediate parent directories using PathRules.
+bool SlcEnsureDir(FSAClientHandle fsaClient, const std::string& dirPath);
+
+// Recursively creates all parent directories for a file path using PathRules.
+bool SlcEnsureParentDir(FSAClientHandle fsaClient, const std::string& filePath);
+
+// Creates a file using ownership and permissions resolved from PathRules.
+bool SlcCreateFile(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, uint16_t tmdGroupId = 0);
+
+// Creates an empty file, chowns while empty, then writes payload and applies mode.
+bool SlcCreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, FSMode mode, uint32_t uid, uint32_t gid);
+
+// Writes a buffer to an SLC file setting proper ownership and permission mode.
+bool SlcWriteFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = (FSMode)0x660, uint32_t uid = 0, uint32_t gid = 0);
+
+// ---------------------------------------------------------------------------
+// SD card (FAT32) helpers
+// FAT32 has no ownership or permission concepts — never call FSA_ChangeOwner
+// or FSAChangeMode on SD card paths. For a single mkdir on the SD card,
+// call wut FSAMakeDir() directly.
+// ---------------------------------------------------------------------------
+
+// Recursively creates a directory and all intermediate parents on the SD card.
+bool SdEnsureDir(FSAClientHandle fsa, const std::string& path);
+
+// Recursively creates all parent directories for an SD card file path.
+bool SdEnsureParentDir(FSAClientHandle fsa, const std::string& filePath);
+
+// ---------------------------------------------------------------------------
+// Common read / hash helpers
+// ---------------------------------------------------------------------------
 
 // Reads an entire file into a 0x40-aligned memory buffer using FSA. The caller is responsible for free()-ing outBuf.
 bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSize);
-
-// Writes a buffer to a file on FSA setting proper ownership and permission mode
-bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode = (FSMode)0x660, uint32_t uid = 0, uint32_t gid = 0);
 
 // Computes the SHA-1 hash of a file on FSA using 64KB aligned streaming buffers. Returns true if file matches expectedSize and was hashed successfully.
 bool FSAGetFileSha1(FSAClientHandle fsa, const std::string& path, uint8_t outHash[20], uint64_t expectedSize);

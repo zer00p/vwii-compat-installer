@@ -145,8 +145,9 @@ DownloadResult DownloadToMemory(const std::string& url, uint8_t** outData, size_
     return DownloadResult::CANCELLED;
 }
 
+
 DownloadResult DownloadAndExtractApp(const std::string& appId) {
-    std::string fetchMsg = "Fetching " + appId + ".zip...";
+    std::string fetchMsg = "Fetching " + appId + "...";
     ShowDownloadStatus(fetchMsg.c_str());
 
     std::string url = "https://hbb1.oscwii.org/api/contents/" + appId + "/" + appId + ".zip";
@@ -179,15 +180,15 @@ DownloadResult DownloadAndExtractApp(const std::string& appId) {
         std::string outPath = std::string("/vol/external01/") + file_stat.m_filename;
         
         if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
-            EnsureFSADir(fsaClient, outPath);
+            SdEnsureDir(fsaClient, outPath);
         } else {
-            EnsureFSAParentDir(fsaClient, outPath);
+            SdEnsureParentDir(fsaClient, outPath);
             
             size_t uncomp_size;
             void* p = mz_zip_reader_extract_file_to_heap(&zip_archive, file_stat.m_filename, &uncomp_size, 0);
             if (p) {
                 FSAFileHandle fd = 0;
-                if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {
+                if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)0x666, (FSOpenFileFlags)0, 0, &fd) == 0) {
                     if (!FSAWriteAligned(fsaClient, fd, p, uncomp_size)) {
                         WUPI_Log("Failed to write to file: %s\n", outPath.c_str());
                         success = false;
@@ -227,10 +228,10 @@ DownloadResult DownloadFile(const std::string& url, const std::string& outPath) 
 
     ShowDownloadStatus("Saving file...");
 
-    EnsureFSAParentDir(fsaClient, outPath);
+    SdEnsureParentDir(fsaClient, outPath);
     FSAFileHandle fd = 0;
     bool success = false;
-    if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)(FS_MODE_READ_OWNER | FS_MODE_WRITE_OWNER), (FSOpenFileFlags)0, 0, &fd) == 0) {
+    if (FSAOpenFileEx(fsaClient, outPath.c_str(), "w", (FSMode)0x666, (FSOpenFileFlags)0, 0, &fd) == 0) {
         if (FSAWriteAligned(fsaClient, fd, data, size)) {
             success = true;
         } else {

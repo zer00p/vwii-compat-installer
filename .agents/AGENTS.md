@@ -61,4 +61,8 @@ These rules dictate how agents should interact with the vWii Compat Installer pr
   - Titles run unprivileged in user mode and cannot create `/data` or chown directories themselves; installers MUST create the `/data` directory and register the title in `/sys/uid.sys` during title installation for save data persistence.
   - `UID_Reconstruct` recovers `/sys/uid.sys` by scanning all `/vol/slccmpt01/title/*/*/data` directories for existing valid UIDs, preserving save data permissions without clearing data.
 
+## SD Card & External Storage Filesystem Rules
+- **No Explicit chown / chmod on SD Card**: The SD card filesystem (`/vol/external01`) uses FAT/FAT32 and does not support SFFS/POSIX ownership changes (`FSA_ChangeOwner`) or mode changes (`FSAChangeMode`). Code that interfaces with the SD card calls FSA APIs directly (`FSAMakeDir`, `FSAOpenFileEx`) passing standard mode flags without any ownership or permission alteration steps.
+
+
 

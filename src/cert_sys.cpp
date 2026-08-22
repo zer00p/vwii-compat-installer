@@ -182,9 +182,9 @@ bool CERT_WriteCertificates(FSAClientHandle fsaClient, const void* certData, siz
     memcpy(alignBuf + outPos, cpCert->data.data(), cpCert->size);
     outPos += cpCert->size;
 
-    EnsureFSADir(fsaClient, "/vol/slccmpt01/sys");
+    SlcEnsureDir(fsaClient, "/vol/slccmpt01/sys");
 
-    bool ok = FSACreateFile(fsaClient, VWII_CERT_SYS_PATH, alignBuf, totalSize);
+    bool ok = SlcCreateFile(fsaClient, VWII_CERT_SYS_PATH, alignBuf, totalSize);
     free(alignBuf);
 
     if (ok) {

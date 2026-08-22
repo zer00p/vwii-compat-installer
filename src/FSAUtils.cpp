@@ -17,11 +17,11 @@ static std::string TruncatePathStart(const std::string& path, size_t maxLen = 28
     return "..." + path.substr(path.length() - (maxLen - 3));
 }
 
-bool EnsureFSADir(FSAClientHandle fsaClient, const std::string& dirPath) {
+bool SlcEnsureDir(FSAClientHandle fsaClient, const std::string& dirPath) {
     if (dirPath.empty()) return false;
 
     size_t start = 1;
-    // Skip virtual mount points like "/vol/slccmpt01" or "/vol/external01"
+    // Skip virtual mount points like "/vol/slccmpt01"
     if (dirPath.rfind("/vol/", 0) == 0) {
         size_t mountSlash = dirPath.find('/', 5);
         if (mountSlash == std::string::npos) {
@@ -33,29 +33,60 @@ bool EnsureFSADir(FSAClientHandle fsaClient, const std::string& dirPath) {
     // Create intermediate directories using path rules
     for (size_t pos = dirPath.find('/', start); pos != std::string::npos; pos = dirPath.find('/', pos + 1)) {
         std::string sub = dirPath.substr(0, pos);
-        FSError res = FSAMakeDir(fsaClient, sub);
+        FSError res = SlcMakeDir(fsaClient, sub);
         if (res != FS_ERROR_OK && res != FS_ERROR_ALREADY_EXISTS) {
-            WUPI_Log("EnsureFSADir: Failed to create intermediate %s (%d)\n", sub.c_str(), res);
+            WUPI_Log("SlcEnsureDir: Failed to create intermediate %s (%d)\n", sub.c_str(), res);
             return false;
         }
     }
 
     // Create final target directory using path rules
-    FSError res = FSAMakeDir(fsaClient, dirPath);
+    FSError res = SlcMakeDir(fsaClient, dirPath);
     if (res == FS_ERROR_OK || res == FS_ERROR_ALREADY_EXISTS) {
         return true;
     }
-    WUPI_Log("EnsureFSADir: Failed to create target %s (%d)\n", dirPath.c_str(), res);
+    WUPI_Log("SlcEnsureDir: Failed to create target %s (%d)\n", dirPath.c_str(), res);
     return false;
 }
 
-bool EnsureFSAParentDir(FSAClientHandle fsaClient, const std::string& filePath) {
+bool SlcEnsureParentDir(FSAClientHandle fsaClient, const std::string& filePath) {
     size_t lastSlash = filePath.find_last_of('/');
     if (lastSlash == std::string::npos || lastSlash == 0) {
         return true;
     }
 
-    return EnsureFSADir(fsaClient, filePath.substr(0, lastSlash));
+    return SlcEnsureDir(fsaClient, filePath.substr(0, lastSlash));
+}
+
+bool SdEnsureDir(FSAClientHandle fsa, const std::string& path) {
+    if (path.empty()) return false;
+
+    size_t start = 1;
+    // Skip virtual mount points like "/vol/external01"
+    if (path.rfind("/vol/", 0) == 0) {
+        size_t mountSlash = path.find('/', 5);
+        if (mountSlash == std::string::npos) {
+            return true; // The mount point itself already exists
+        }
+        start = mountSlash + 1;
+    }
+
+    for (size_t pos = path.find('/', start); pos != std::string::npos; pos = path.find('/', pos + 1)) {
+        std::string sub = path.substr(0, pos);
+        FSAMakeDir(fsa, sub.c_str(), (FSMode)0x666);
+    }
+
+    FSError res = FSAMakeDir(fsa, path.c_str(), (FSMode)0x666);
+    return res == FS_ERROR_OK || res == FS_ERROR_ALREADY_EXISTS;
+}
+
+bool SdEnsureParentDir(FSAClientHandle fsa, const std::string& filePath) {
+    size_t lastSlash = filePath.find_last_of('/');
+    if (lastSlash == std::string::npos || lastSlash == 0) {
+        return true;
+    }
+
+    return SdEnsureDir(fsa, filePath.substr(0, lastSlash));
 }
 
 bool FSAWriteAligned(FSAClientHandle fsa, FSAFileHandle fd, const void* buffer, size_t size) {
@@ -181,29 +212,29 @@ FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint
     return (FSError)res;
 }
 
-FSError FSAMakeDir(FSAClientHandle fsaClient, const std::string& path, uint16_t tmdGroupId) {
+FSError SlcMakeDir(FSAClientHandle fsaClient, const std::string& path, uint16_t tmdGroupId) {
     ResolvedPathRule rule = PathRules_Resolve(fsaClient, path, tmdGroupId);
-    return FSAMakeDirWithOwner(fsaClient, path, rule.mode, rule.uid, rule.gid);
+    return SlcMakeDirWithOwner(fsaClient, path, rule.mode, rule.uid, rule.gid);
 }
 
-FSError FSAMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode, uint32_t uid, uint32_t gid) {
+FSError SlcMakeDirWithOwner(FSAClientHandle fsaClient, const std::string& path, FSMode mode, uint32_t uid, uint32_t gid) {
     FSError ret = FSAMakeDir(fsaClient, path.c_str(), mode);
     if (ret == FS_ERROR_OK) {
         FSError ownRes = FSA_ChangeOwner(fsaClient, path, uid, gid);
         if (ownRes != FS_ERROR_OK) {
-            WUPI_Log("FSAMakeDir: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
+            WUPI_Log("SlcMakeDir: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
             return ownRes;
         }
     }
     return ret;
 }
 
-bool FSACreateFile(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, uint16_t tmdGroupId) {
+bool SlcCreateFile(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, uint16_t tmdGroupId) {
     ResolvedPathRule rule = PathRules_Resolve(fsaClient, path, tmdGroupId);
-    return FSACreateFileWithOwner(fsaClient, path, buffer, size, rule.mode, rule.uid, rule.gid);
+    return SlcCreateFileWithOwner(fsaClient, path, buffer, size, rule.mode, rule.uid, rule.gid);
 }
 
-bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, FSMode mode, uint32_t uid, uint32_t gid) {
+bool SlcCreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, const void* buffer, size_t size, FSMode mode, uint32_t uid, uint32_t gid) {
     // 1. Remove old file so a fresh inode is allocated
     FSARemove(fsaClient, path.c_str());
 
@@ -211,12 +242,12 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
     FSAFileHandle fd = 0;
     int res = FSAOpenFileEx(fsaClient, path.c_str(), "wb", mode, FS_OPEN_FLAG_NONE, 0, &fd);
     if (res != FS_ERROR_OK) {
-        WUPI_Log("FSACreateFile: Open err %d: %s\n", res, TruncatePathStart(path).c_str());
+        WUPI_Log("SlcCreateFile: Open err %d: %s\n", res, TruncatePathStart(path).c_str());
         return false;
     }
     FSError closeRes = FSACloseFile(fsaClient, fd);
     if (closeRes != FS_ERROR_OK) {
-        WUPI_Log("FSACreateFile: Close err %d: %s\n", closeRes, TruncatePathStart(path).c_str());
+        WUPI_Log("SlcCreateFile: Close err %d: %s\n", closeRes, TruncatePathStart(path).c_str());
         return false;
     }
     fd = 0;
@@ -224,31 +255,31 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
     // 3. Set ownership while the file is 0 bytes (empty)
     FSError ownRes = FSA_ChangeOwner(fsaClient, path, uid, gid);
     if (ownRes != FS_ERROR_OK) {
-        WUPI_Log("FSACreateFile: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
+        WUPI_Log("SlcCreateFile: Owner err %d: %s\n", ownRes, TruncatePathStart(path).c_str());
         return false;
     }
 
     // 4. Open in "r+b" mode to write payload
     if (size > 0) {
         if (!buffer) {
-            WUPI_Log("FSACreateFile: Null buffer with size %zu: %s\n", size, TruncatePathStart(path).c_str());
+            WUPI_Log("SlcCreateFile: Null buffer with size %zu: %s\n", size, TruncatePathStart(path).c_str());
             return false;
         }
 
         res = FSAOpenFileEx(fsaClient, path.c_str(), "r+b", mode, FS_OPEN_FLAG_NONE, 0, &fd);
         if (res != FS_ERROR_OK) {
-            WUPI_Log("FSACreateFile: WriteOpen err %d: %s\n", res, TruncatePathStart(path).c_str());
+            WUPI_Log("SlcCreateFile: WriteOpen err %d: %s\n", res, TruncatePathStart(path).c_str());
             return false;
         }
 
         bool writeOk = FSAWriteAligned(fsaClient, fd, buffer, size);
         closeRes = FSACloseFile(fsaClient, fd);
         if (!writeOk) {
-            WUPI_Log("FSACreateFile: Write payload failed: %s\n", TruncatePathStart(path).c_str());
+            WUPI_Log("SlcCreateFile: Write payload failed: %s\n", TruncatePathStart(path).c_str());
             return false;
         }
         if (closeRes != FS_ERROR_OK) {
-            WUPI_Log("FSACreateFile: WriteClose err %d: %s\n", closeRes, TruncatePathStart(path).c_str());
+            WUPI_Log("SlcCreateFile: WriteClose err %d: %s\n", closeRes, TruncatePathStart(path).c_str());
             return false;
         }
     }
@@ -256,7 +287,7 @@ bool FSACreateFileWithOwner(FSAClientHandle fsaClient, const std::string& path, 
     // 5. Apply requested permission mode on the file (e.g. 0444 for setting.txt, 0660 for system files)
     FSError modeRes = FSAChangeMode(fsaClient, path.c_str(), mode);
     if (modeRes != FS_ERROR_OK) {
-        WUPI_Log("FSACreateFile: Mode err %d: %s\n", modeRes, TruncatePathStart(path).c_str());
+        WUPI_Log("SlcCreateFile: Mode err %d: %s\n", modeRes, TruncatePathStart(path).c_str());
         return false;
     }
 
@@ -300,8 +331,8 @@ bool ReadFileToBuffer(const std::string& path, uint8_t** outBuf, uint32_t* outSi
     return true;
 }
 
-bool WriteBufferToFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode, uint32_t uid, uint32_t gid) {
-    return FSACreateFileWithOwner(fsaClient, path.c_str(), buf, size, mode, uid, gid);
+bool SlcWriteFile(const std::string& path, const uint8_t* buf, uint32_t size, FSMode mode, uint32_t uid, uint32_t gid) {
+    return SlcCreateFileWithOwner(fsaClient, path.c_str(), buf, size, mode, uid, gid);
 }
 
 bool FSAGetFileSha1(FSAClientHandle fsa, const std::string& path, uint8_t outHash[20], uint64_t expectedSize) {
@@ -367,7 +398,7 @@ bool FSA_InitStockRootDirs(FSAClientHandle fsa) {
     auto rootDirs = PathRules_GetStockRootDirs();
     for (const auto& d : rootDirs) {
         std::string fullPath = VwiiFsaPath(d.pattern);
-        FSError res = FSAMakeDirWithOwner(fsa, fullPath, d.mode, d.uid, d.gid);
+        FSError res = SlcMakeDirWithOwner(fsa, fullPath, d.mode, d.uid, d.gid);
         if (res == FS_ERROR_ALREADY_EXISTS) {
             FSStat stat;
             if (FSAGetStat(fsa, fullPath.c_str(), &stat) == FS_ERROR_OK) {

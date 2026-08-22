@@ -102,8 +102,8 @@ void BackupPristineTmdAndTicket(uint32_t ios_ver, MemIOS* ios) {
     if (!ios || !ios->tmd || !ios->ticket) return;
 
     if (!HasPristineBackup(ios_ver)) {
-        WriteBufferToFile(GetTmdBackupPath(ios_ver), (uint8_t*)ios->tmd, ios->tmdSize);
-        WriteBufferToFile(GetTikBackupPath(ios_ver), (uint8_t*)ios->ticket, ios->ticketSize);
+        SlcWriteFile(GetTmdBackupPath(ios_ver), (uint8_t*)ios->tmd, ios->tmdSize);
+        SlcWriteFile(GetTikBackupPath(ios_ver), (uint8_t*)ios->ticket, ios->ticketSize);
     }
 }
 

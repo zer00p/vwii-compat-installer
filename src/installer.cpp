@@ -89,17 +89,22 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
     FSAFileHandle fd = 0;
     char path[] = "/vol/slccmpt01/shared1/content.map";
 
-    FSAMakeDir(fsaClient, "/vol/slccmpt01/shared1");
+    SlcMakeDir(fsaClient, "/vol/slccmpt01/shared1");
 
-    if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-        if (FSAOpenFileEx(fsaClient, path, "w+", (FSMode)0660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
-            WUPI_Log("Failed to open content.map\n");
+    FSError openRes = FSAOpenFileEx(fsaClient, path, "r+", (FSMode)0x660, FS_OPEN_FLAG_NONE, 0, &fd);
+    if (openRes != FS_ERROR_OK) {
+        if (openRes != FS_ERROR_NOT_FOUND) {
+            WUPI_Log("Failed to open content.map: %d\n", openRes);
             return -1;
         }
-        FSError oRes = FSA_ChangeOwner(fsaClient, path, 0, 0);
-        FSError mRes = FSAChangeMode(fsaClient, path, (FSMode)0660);
-        if (oRes != FS_ERROR_OK || mRes != FS_ERROR_OK) {
-            WUPI_Log("Warning: content.map owner/mode (o=%d, m=%d)\n", oRes, mRes);
+        // File doesn't exist — create it empty with correct ownership via PathRules
+        if (!SlcCreateFile(fsaClient, path, nullptr, 0)) {
+            WUPI_Log("Failed to create content.map\n");
+            return -1;
+        }
+        if (FSAOpenFileEx(fsaClient, path, "r+", (FSMode)0x660, FS_OPEN_FLAG_NONE, 0, &fd) != FS_ERROR_OK) {
+            WUPI_Log("Failed to open new content.map\n");
+            return -1;
         }
     }
 
@@ -159,7 +164,7 @@ static int32_t GetSharedContentIndex(const uint8_t* expectedHash) {
  * Returns FS_ERROR_OK on success, or a negative FSError if creation failed. */
 static FSError EnsureTitleDataDir(FSAClientHandle fsa, const std::string& titlePath, uint16_t tmdGroupId) {
     std::string dataPath = titlePath + "/data";
-    FSError ret = FSAMakeDir(fsa, dataPath, tmdGroupId);
+    FSError ret = SlcMakeDir(fsa, dataPath, tmdGroupId);
     if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
         WUPI_Log("Failed to create the data directory, ret = %d\n", ret);
         return ret;
@@ -188,8 +193,8 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
     WUPI_Log("Writing ticket...\n");
     {
-        EnsureFSADir(fsaClient, ticketFolder);
-        CINS_TRY(FSACreateFile(fsaClient, ticketPath, ticket, ticket_size));
+        SlcEnsureDir(fsaClient, ticketFolder);
+        CINS_TRY(SlcCreateFile(fsaClient, ticketPath, ticket, ticket_size));
     }
 
     WUPI_Log("Creating title directory...\n");
@@ -197,7 +202,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         /* Create the title directory if it doesn't already exist. The first
          * word (type) should exist, but the second one (the unique title)
          * shouldn't unless there is save data. */
-        EnsureFSADir(fsaClient, titlePath);
+        SlcEnsureDir(fsaClient, titlePath);
         if (FSAGetStat(fsaClient, titlePath, nullptr) == FS_ERROR_OK) {
             /* If the title content exists already, delete content but preserve data */
             snprintf(path, CINS_PATH_LEN, "/vol/slccmpt01/title/%08x/%08x/content", idHi, idLo);
@@ -211,7 +216,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
 
         strncpy(pathd, titlePath, CINS_PATH_LEN);
         strncat(pathd, "/content", CINS_PATH_LEN - 1);
-        ret = FSAMakeDir(fsaClient, pathd);
+        ret = SlcMakeDir(fsaClient, pathd);
         if (ret != FS_ERROR_OK && ret != FS_ERROR_ALREADY_EXISTS) {
             WUPI_Log("Failed to create the content directory, ret = %d\n", ret);
             goto error;
@@ -224,7 +229,7 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
         strncpy(path, pathd, CINS_PATH_LEN);
         strncat(path, "/title.tmd", CINS_PATH_LEN - 1);
 
-        CINS_TRY(FSACreateFile(fsaClient, path, tmd, tmd_size));
+        CINS_TRY(SlcCreateFile(fsaClient, path, tmd, tmd_size));
     }
 
     WUPI_Log("Writing contents...\n");
@@ -269,8 +274,8 @@ int32_t CINS_Install(uint64_t titleId, const TitleTicket *ticket, uint32_t ticke
                          idLo, cId);
             }
 
-            EnsureFSAParentDir(fsaClient, path);
-            CINS_TRY(FSACreateFile(fsaClient, path, contents[i].data, cSize));
+            SlcEnsureParentDir(fsaClient, path);
+            CINS_TRY(SlcCreateFile(fsaClient, path, contents[i].data, cSize));
         }
     }
     ret = IOS_SUCCESS;

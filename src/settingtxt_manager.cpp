@@ -138,7 +138,7 @@ bool Setting_Write(const VwiiSettings& settings) {
     Setting_Cipher((uint8_t*)alignBuf, 256);
 
     // Ensure parent directory hierarchy exists with correct stock ownership and modes
-    if (!EnsureFSADir(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data")) {
+    if (!SlcEnsureDir(fsaClient, "/vol/slccmpt01/title/00000001/00000002/data")) {
         WUPI_Log("Failed to create System Menu data dir hierarchy\n");
         free(alignBuf);
         return false;
@@ -148,7 +148,7 @@ bool Setting_Write(const VwiiSettings& settings) {
     UID_GetOrCreate(fsaClient, VWII_TITLE_ID_SYSTEM_MENU);
 
     // Create file, set stock ownership (UID 4096, GID 1) while 0-byte empty, then write encrypted data
-    bool writeOk = FSACreateFile(fsaClient, VWII_SETTING_TXT_PATH, alignBuf, 256);
+    bool writeOk = SlcCreateFile(fsaClient, VWII_SETTING_TXT_PATH, alignBuf, 256);
     free(alignBuf);
 
     if (!writeOk) {
@@ -269,7 +269,11 @@ bool Setting_ApplyPreset(VwiiSettings& settings, const std::string& regionCode) 
 }
 
 bool Setting_ExportToSD(const std::string& path, bool decrypted) {
-    EnsureFSAParentDir(fsaClient, path);
+    size_t lastSlash = path.find_last_of('/');
+    if (lastSlash != std::string::npos && lastSlash > 0) {
+        std::string parent = path.substr(0, lastSlash);
+        SdEnsureDir(fsaClient, parent);
+    }
 
     VwiiSettings current;
     if (!Setting_ReadCurrent(current)) {

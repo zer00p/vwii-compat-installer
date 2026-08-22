@@ -79,7 +79,7 @@ FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint
 ```
 
 - **Directory Permissions**: Directory modes are set during directory creation via `FSAMakeDir(fsaClient, path, mode)`. SFFS does not support `ChangeMode` on directories (returns `FS_ERROR_INVALID_PARAM` `-196641`); never call `FSAChangeMode` on directories.
-- **File Permissions**: Files are created with `FSACreateFileWithOwner(...)` and explicitly have their final mode set via `FSAChangeMode(fsaClient, path, mode)` (e.g. `0444` for setting.txt, `0660` for system files).
+- **File Permissions**: Files are created with `FSACreateFileWithOwner(...)` and explicitly have their final mode set via `FSAChangeMode(fsaClient, path, mode)` (e.g. `0x444` for setting.txt, `0x660` for system files).
 
 ### Critical Rules for Ownership and Creation
 
@@ -101,4 +101,7 @@ FSError FSA_ChangeOwner(FSAClientHandle fsaClient, const std::string& path, uint
    2. `FSAOpenFileEx("wb", mode)` + `FSACloseFile()` (creates empty 0-byte file).
    3. `FSA_ChangeOwner(uid, gid)` (applied while 0 bytes).
    4. `FSAOpenFileEx("r+b", mode)` + `FSAWriteAligned()` + `FSACloseFile()` (writes payload).
-   5. `FSAChangeMode(mode)` (locks final permissions like `0444` for setting.txt or `0660` for system files).
+   5. `FSAChangeMode(mode)` (locks final permissions like `0x444` for setting.txt or `0x660` for system files).
+
+4. **SD Card / External Storage Bypasses Ownership & Mode Operations**:
+   The SD card (`/vol/external01`) uses FAT/FAT32 and does not support SFFS ownership (`FSA_ChangeOwner`) or permission modes (`FSAChangeMode`). Code interacting with SD calls FSA APIs directly (`FSAMakeDir`, `FSAOpenFileEx`) without invoking ownership or permission alteration routines.

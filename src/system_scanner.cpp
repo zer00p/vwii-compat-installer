@@ -480,8 +480,8 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
     std::string tmdPath = contentDir + "/title.tmd";
 
     // 1. Ensure title category and title directory exist
-    EnsureFSADir(fsa, titlePath);
-    EnsureFSADir(fsa, contentDir);
+    SlcEnsureDir(fsa, titlePath);
+    SlcEnsureDir(fsa, contentDir);
 
     // 2. Fix TMD and content files permissions
     ResolvedPathRule tmdRule = PathRules_Resolve(tmdPath);
@@ -508,7 +508,7 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
     FSStat dstat;
     if (FSAGetStat(fsa, dataDir.c_str(), &dstat) != FS_ERROR_OK) {
         // Data directory doesn't exist, create it with correct ownership & mode
-        FSError res = FSAMakeDir(fsa, dataDir, issue.groupId);
+        FSError res = SlcMakeDir(fsa, dataDir, issue.groupId);
         if (res != FS_ERROR_OK) {
             WUPI_Log("Failed to create data dir: %d\n", res);
             return false;
@@ -556,7 +556,7 @@ static bool RepairTitlePermissions(FSAClientHandle fsa, const SystemScanIssue& i
 
             // Recreate data directory with correct ownership
             FSARemoveTree(fsa, dataDir);
-            FSError res = FSAMakeDir(fsa, dataDir, issue.groupId);
+            FSError res = SlcMakeDir(fsa, dataDir, issue.groupId);
             if (res != FS_ERROR_OK) {
                 WUPI_Log("Failed to recreate data dir: %d\n", res);
                 return false;
@@ -629,7 +629,7 @@ bool SCAN_RestoreSelectedIssues(const std::vector<SystemScanIssue>& selectedIssu
             }
         } else if (issue.isUidSys) {
             WUPI_Log("Repairing /sys/uid.sys...\n");
-            EnsureFSADir(fsaClient, "/vol/slccmpt01/sys");
+            SlcEnsureDir(fsaClient, "/vol/slccmpt01/sys");
             size_t recovered = 0;
             itemOk = UID_Reconstruct(fsaClient, &recovered);
             if (itemOk) {
