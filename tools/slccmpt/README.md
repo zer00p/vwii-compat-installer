@@ -54,9 +54,15 @@ Performs a comprehensive integrity check against factory stock vWii specificatio
     * For every installed title, verifies that its `/title/<idHi>/<idLo>/data` directory exists with mode `0xc2` (`rw-------`), is owned by that title's **allocated UID from `uid.sys`** (handling any title installation sequence), and has the correct GID:
       * For System titles: Uses hardcoded stock GIDs (`GID = 1` for System titles & IOSes `00000001/*`, `GID = 23130` / `'ZZ'` for Return to Wii U `00010002/48435641`, `GID = 12337` / `'01'` for system channels & EULAs).
       * For User installed titles: Checks the GID directly from the title's TMD (`tmd->groupId` at offset `0x198`), with fallback to `12337` (`0x3031`) if no TMD is present.
-4. **Title Content & Ticket Permissions**: Validates `title.tmd` (`0xf1`, `0/0`), `.app` files (`0xf1`, `0/0`), ticket subdirectories (`0x02`, `0/0`), and tickets (`0xf1`, `0/0`).
-5. **Order-Independent Shared Content Validation**: Validates `/shared1/content.map` and all `/shared1/*.app` files (`0xf1`, `0/0`), ensuring all shared content modules are present regardless of the numerical slot indexing determined by installer sequence.
-6. **Reference Image Parity (`--reference`)**: Compares installed private `.app` payloads and verifies order-independent shared content distribution against a known good reference image.
+4. **Cryptographic TMD & Ticket Signature Verification**:
+   * Extracts retail certificates from `/sys/cert.sys` (`CA00000001`, `CP00000004`, `XS00000003`).
+   * Validates RSA PKCS#1 v1.5 signatures on all installed `title.tmd` and `.tik` files, catching patched IOSes (e.g. patched IOS80), forged TMDs, cIOSes, and fake-signed homebrew titles.
+   * Validates title permissions (`0xf1`, `0/0`), ticket category directories (`0x02`, `0/0`), and tickets (`0xf1`, `0/0`).
+5. **Content Payload SHA-1 Integrity Auditing**:
+   * Parses TMD content records and verifies that all declared `.app` files exist on disk with exact sizes and matching SHA-1 hashes.
+   * Detects orphaned or tampered `.app` payload files not listed in the title's TMD.
+6. **Order-Independent Shared Content Validation**: Validates `/shared1/content.map` and all `/shared1/*.app` files (`0xf1`, `0/0`), ensuring all shared content modules are present and valid regardless of the numerical slot indexing determined by installer sequence.
+7. **Reference Image Parity (`--reference`)**: Compares installed private `.app` payloads and verifies order-independent shared content distribution against a known good reference image.
 
 ### Usage
 ```bash
