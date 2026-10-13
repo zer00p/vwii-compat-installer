@@ -29,7 +29,6 @@
 #include <malloc.h>
 #include <mocha/mocha.h>
 #include <padscore/kpad.h>
-#include <sndcore2/core.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -946,8 +945,6 @@ int main() {
     int32_t tv_screen_size, drc_screen_size;
 
     State::init();
-    AXInit();
-    AXQuit();
 
     WPADInit();
     KPADInit();

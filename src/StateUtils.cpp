@@ -17,7 +17,6 @@ void State::init() {
     if (aroma) {
         OSDynLoad_Release(mod);
         ProcUIInit(&OSSavesDone_ReadyToRelease);
-        OSEnableHomeButtonMenu(true);
     } else
         WHBProcInit();
 }
